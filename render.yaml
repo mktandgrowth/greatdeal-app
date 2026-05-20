@@ -1,0 +1,20 @@
+# Render.com config — para deploy del backend Python+FFmpeg
+# Doc: https://render.com/docs/yaml-spec
+
+services:
+  - type: web
+    name: greatdeal-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free   # cambia a "starter" ($7/mes) cuando salgas a producción para que no se duerma
+    region: oregon
+    healthCheckPath: /api/voices
+    envVars:
+      - key: ELEVENLABS_API_KEY
+        sync: false   # configurar manualmente en Render dashboard (Secret)
+      - key: PYTHON_VERSION
+        value: "3.12"
+    # Render free duerme tras 15 min sin tráfico (cold start ~30 seg)
+    # autoDeploy: cualquier push a main hace redeploy automático
+    autoDeploy: true

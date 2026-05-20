@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GreatDeal · Editor</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .step-active { background: #0f172a; color: white; }
+  .step-done { background: #10b981; color: white; }
+  .step-pending { background: #e5e7eb; color: #6b7280; }
+  .fade-in { animation: fadeIn .3s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .dropzone { transition: all 0.2s; }
+  .dropzone.drag { background: #dbeafe; border-color: #3b82f6; }
+  .spinner { animation: spin 1s linear infinite; }
+  @keyframes spin { 100% { transform: rotate(360deg); } }
+</style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+
+<header class="bg-white border-b border-slate-200 sticky top-0 z-10">
+  <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-white font-bold">P</div>
+      <span class="font-bold text-slate-900 text-lg">GreatDeal · Editor</span>
+      <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full ml-2">v0.1 local</span>
+    </div>
+    <button onclick="resetAll()" class="text-xs text-slate-500 hover:text-slate-900">Reiniciar</button>
+  </div>
+</header>
+
+<main class="max-w-5xl mx-auto px-6 pb-24">
+  <div class="pt-8 mb-6">
+    <div class="flex items-center gap-2" id="stepper"></div>
+  </div>
+  <div id="step-content"></div>
+</main>
+
+<div class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-10">
+  <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+    <button id="btn-prev" onclick="goPrev()" class="px-5 py-2.5 text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-30">← Anterior</button>
+    <div class="text-sm text-slate-500" id="step-indicator"></div>
+    <button id="btn-next" onclick="goNext()" class="px-6 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-30">Continuar →</button>
+  </div>
+</div>
+
+<script>
+const STEPS = [
+  { id: 1, label: "Clips", icon: "🎬" },
+  { id: 2, label: "Propiedad", icon: "🏠" },
+  { id: 3, label: "Voz", icon: "🎙️" },
+  { id: 4, label: "Música", icon: "🎵" },
+  { id: 5, label: "Render", icon: "🚀" },
+];
+
+let state = {
+  step: 1,
+  clips: [],       // [{file, name, dataUrl, headline, subline, trim_duration}]
+  property: {
+    tipo: "Casa", comuna: "", m2: "", m2_terreno: "",
+    dorms: "", banos: "", precio_uf: "", diferenciador: ""
+  },
+  voice_key: "",
+  voice_audio_file: null,
+  use_ai_voice: false,
+  music_file: null,
+  use_synth_music: true,
+  available_voices: [],
+  job_id: null,
+  job_status: null,
+};
+
+// API base URL:
+//   - Local dev (HTML servido por el backend en :8000): mismo origen
+//   - Deploy producción (frontend en Vercel, backend en Render): usa URL absoluta del backend
+const API_BASE = (() => {
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1") return "";
+  // Producción: si está hosteado en Vercel, apuntá al backend de Render
+  // Cambia esta URL por la tuya cuando hagas el deploy del backend
+  return window.GREATDEAL_API_URL || "https://greatdeal-api.onrender.com";
+})();
+const API = (path) => `${API_BASE}/api${path}`;
+
+function save() { /* local-only state, no persistence */ }
+
+function resetAll() {
+  if (confirm("¿Empezar de cero?")) {
+    state = {
+      step: 1, clips: [],
+      property: { tipo: "Casa", comuna: "", m2: "", m2_terreno: "", dorms: "", banos: "", precio_uf: "", diferenciador: "" },
+      voice_key: "", voice_audio_file: null, use_ai_voice: false,
+      music_file: null, use_synth_music: true,
+      available_voices: state.available_voices, job_id: null, job_status: null,
+    };
+    render();
+  }
+}
+
+function renderStepper() {
+  document.getElementById("stepper").innerHTML = STEPS.map((s, i) => {
+    const status = s.id < state.step ? "step-done" : s.id === state.step ? "step-active" : "step-pending";
+    return `
+      <div class="flex items-center ${i < STEPS.length - 1 ? "flex-1" : ""}">
+        <div class="flex items-center gap-2 cursor-pointer" onclick="jumpTo(${s.id})">
+          <div class="w-10 h-10 rounded-full flex items-center justify-center font-semibold ${status}">
+            ${s.id < state.step ? "✓" : s.icon}
+          </div>
+          <div class="hidden md:block">
+            <div class="text-xs text-slate-500">Paso ${s.id}</div>
+            <div class="text-sm font-semibold text-slate-900">${s.label}</div>
+          </div>
+        </div>
+        ${i < STEPS.length - 1 ? `<div class="flex-1 h-0.5 mx-3 ${s.id < state.step ? "bg-emerald-500" : "bg-slate-200"}"></div>` : ""}
+      </div>
+    `;
+  }).join("");
+  document.getElementById("step-indicator").textContent = `Paso ${state.step} de ${STEPS.length}`;
+  document.getElementById("btn-prev").disabled = state.step === 1;
+  document.getElementById("btn-next").style.display = state.step === STEPS.length ? "none" : "block";
+}
+
+function jumpTo(n) { if (n <= state.step + 1) { state.step = n; render(); } }
+function goNext() { if (state.step < STEPS.length) { state.step++; render(); window.scrollTo(0, 0); } }
+function goPrev() { if (state.step > 1) { state.step--; render(); window.scrollTo(0, 0); } }
+
+// === STEP 1 · Clips ===
+function renderStep1() {
+  return `
+    <div class="fade-in">
+      <h1 class="text-3xl font-bold text-slate-900 mb-2">Sube tus clips</h1>
+      <p class="text-slate-600 mb-8">Lo ideal son 4-6 clips de 3-10 seg cada uno: entrada, living, cocina, dormitorio, vista. La IA los edita.</p>
+
+      <div id="dropzone" class="dropzone bg-white border-2 border-dashed border-slate-300 rounded-2xl p-12 text-center cursor-pointer hover:border-slate-500" onclick="document.getElementById('clip-input').click()">
+        <input id="clip-input" type="file" accept="video/*" multiple class="hidden" onchange="handleClips(event.target.files)">
+        <div class="text-5xl mb-3">🎬</div>
+        <div class="font-semibold text-slate-900 mb-1">Arrastra clips aquí o haz click</div>
+        <div class="text-sm text-slate-500">MP4, MOV · cualquier celular</div>
+      </div>
+
+      ${state.clips.length > 0 ? `
+        <div class="mt-8 space-y-3">
+          <h3 class="text-lg font-semibold text-slate-900">${state.clips.length} clip${state.clips.length>1?"s":""}</h3>
+          ${state.clips.map((c, i) => `
+            <div class="bg-white rounded-xl p-4 border border-slate-200 flex items-start gap-4">
+              <video src="${c.previewUrl}" class="w-32 h-44 object-cover rounded-lg bg-black" muted></video>
+              <div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">Headline en pantalla</label>
+                  <input value="${c.headline||''}" oninput="state.clips[${i}].headline = this.value" placeholder="Ej: PIRQUE" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">Subline</label>
+                  <input value="${c.subline||''}" oninput="state.clips[${i}].subline = this.value" placeholder="Ej: a 40 min de Santiago" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">Duración a usar (seg)</label>
+                  <input type="number" min="1" max="10" step="0.5" value="${c.trim_duration||3.5}" oninput="state.clips[${i}].trim_duration = parseFloat(this.value)" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                </div>
+                <div class="flex items-end gap-2">
+                  <button onclick="moveClip(${i}, -1)" class="px-3 py-2 text-sm bg-slate-100 rounded-lg hover:bg-slate-200" ${i===0?"disabled":""}>↑</button>
+                  <button onclick="moveClip(${i}, 1)" class="px-3 py-2 text-sm bg-slate-100 rounded-lg hover:bg-slate-200" ${i===state.clips.length-1?"disabled":""}>↓</button>
+                  <button onclick="removeClip(${i})" class="px-3 py-2 text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 ml-auto">Borrar</button>
+                </div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+function handleClips(files) {
+  Array.from(files).forEach(f => {
+    state.clips.push({
+      file: f, name: f.name, previewUrl: URL.createObjectURL(f),
+      headline: "", subline: "", trim_duration: 3.5,
+    });
+  });
+  render();
+}
+function removeClip(i) { state.clips.splice(i, 1); render(); }
+function moveClip(i, d) {
+  const j = i + d;
+  if (j < 0 || j >= state.clips.length) return;
+  [state.clips[i], state.clips[j]] = [state.clips[j], state.clips[i]];
+  render();
+}
+
+// === STEP 2 · Property data ===
+function renderStep2() {
+  return `
+    <div class="fade-in">
+      <h1 class="text-3xl font-bold text-slate-900 mb-2">Datos de la propiedad</h1>
+      <p class="text-slate-600 mb-8">Esto va al CTA card y al voiceover IA si lo activas.</p>
+      <div class="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div><label class="block text-sm font-medium text-slate-700 mb-2">Tipo</label>
+            <select onchange="state.property.tipo = this.value" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg">
+              ${["Casa", "Depto", "Parcela", "Sitio"].map(t => `<option ${state.property.tipo===t?"selected":""}>${t}</option>`).join("")}
+            </select>
+          </div>
+          <div><label class="block text-sm font-medium text-slate-700 mb-2">Comuna</label>
+            <input value="${state.property.comuna}" oninput="state.property.comuna = this.value" placeholder="Ej: Pirque" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg">
+          </div>
+          <div><label class="block text-sm font-medium text-slate-700 mb-2">m² construidos</label>
+            <input type="number" value="${state.property.m2}" oninput="state.property.m2 = this.value" placeholder="320" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg">
+          </div>
+          <div><label class="block text-sm font-medium text-slate-700 mb-2">m² terreno (opcional)</label>
+            <input type="number" value="${state.property.m2_terreno}" oninput="state.property.m2_terreno = this.value" placeholder="5000" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg">
+          </div>
+          <div><label class="block text-sm font-medium text-slate-700 mb-2">Dormitorios</label>
+            <input type="number" value="${state.property.dorms}" oninput="state.property.dorms = this.value" placeholder="4" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg">
+          </div>
+          <div><label class="block text-sm font-medium text-slate-700 mb-2">Baños</label>
+            <input type="number" value="${state.property.banos}" oninput="state.property.banos = this.value" placeholder="3" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg">
+          </div>
+          <div><label class="block text-sm font-medium text-slate-700 mb-2">Precio (UF)</label>
+            <input type="number" value="${state.property.precio_uf}" oninput="state.property.precio_uf = this.value" placeholder="14500" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg">
+          </div>
+          <div class="md:col-span-2"><label class="block text-sm font-medium text-slate-700 mb-2">Diferenciador (1 frase corta)</label>
+            <input value="${state.property.diferenciador}" oninput="state.property.diferenciador = this.value" placeholder="Ej: El refugio que estabas buscando" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg">
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// === STEP 3 · Voice ===
+async function loadVoices() {
+  if (state.available_voices.length) return;
+  try {
+    const r = await fetch(API("/voices"));
+    const j = await r.json();
+    state.available_voices = j.voices || [];
+  } catch (e) { console.warn(e); }
+}
+function renderStep3() {
+  loadVoices().then(() => render());
+  return `
+    <div class="fade-in">
+      <h1 class="text-3xl font-bold text-slate-900 mb-2">Voz de la propiedad</h1>
+      <p class="text-slate-600 mb-8">Elige cómo se narra el reel. Sin voz, solo quedan los text overlays + música.</p>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        ${[
+          ["none", "Sin voz", "Solo text overlays y música. El más rápido y barato."],
+          ["upload", "Subir mi voz", "Sube un MP3 ya grabado (tu propia voz o un locutor)."],
+          ["ai", "Generar con IA (ElevenLabs)", "El bot genera el voiceover desde tus datos. Necesita API key configurada en el server."],
+        ].map(([k, lbl, desc]) => `
+          <button onclick="selectVoiceMode('${k}')" class="text-left p-4 rounded-xl border-2 ${voiceMode()===k?"border-slate-900 bg-slate-50":"border-slate-200 hover:border-slate-400"}">
+            <div class="font-semibold text-slate-900 mb-1">${lbl}</div>
+            <div class="text-xs text-slate-600">${desc}</div>
+          </button>
+        `).join("")}
+      </div>
+
+      ${voiceMode() === "upload" ? `
+        <div class="bg-white rounded-xl p-6 border border-slate-200">
+          <label class="block text-sm font-medium text-slate-700 mb-2">Sube tu MP3 / WAV</label>
+          <input type="file" accept="audio/*" onchange="state.voice_audio_file = event.target.files[0]; render()" class="block">
+          ${state.voice_audio_file ? `<div class="mt-2 text-sm text-emerald-600">✓ ${state.voice_audio_file.name}</div>` : ""}
+        </div>
+      ` : ""}
+
+      ${voiceMode() === "ai" ? `
+        <div class="bg-white rounded-xl p-6 border border-slate-200">
+          <label class="block text-sm font-medium text-slate-700 mb-3">Elige la voz</label>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+            ${state.available_voices.map(v => `
+              <button onclick="state.voice_key='${v.id}'; render()" class="text-left p-3 rounded-lg border ${state.voice_key===v.id?"border-violet-500 bg-violet-50":"border-slate-200 hover:border-slate-400"}">
+                <div class="font-semibold text-sm text-slate-900">${v.name}</div>
+                <div class="text-xs text-slate-600 mt-1">${v.description}</div>
+              </button>
+            `).join("")}
+          </div>
+          <div class="text-xs text-slate-500">
+            Requiere ELEVENLABS_API_KEY configurada en el server (.env). Si no, el job va a fallar y el video saldrá sin voz.
+          </div>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+function voiceMode() {
+  if (state.voice_audio_file) return "upload";
+  if (state.voice_key) return "ai";
+  if (state._voice_mode === "upload") return "upload";
+  if (state._voice_mode === "ai") return "ai";
+  return "none";
+}
+function selectVoiceMode(m) {
+  state._voice_mode = m;
+  if (m === "none") { state.voice_audio_file = null; state.voice_key = ""; }
+  if (m === "upload") state.voice_key = "";
+  if (m === "ai") state.voice_audio_file = null;
+  render();
+}
+
+// === STEP 4 · Music ===
+function renderStep4() {
+  return `
+    <div class="fade-in">
+      <h1 class="text-3xl font-bold text-slate-900 mb-2">Música de fondo</h1>
+      <p class="text-slate-600 mb-8">Sube tu pista (libre de derechos) o usa el pad ambiente sintético.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <button onclick="state.use_synth_music=true; state.music_file=null; render()" class="text-left p-4 rounded-xl border-2 ${(state.use_synth_music && !state.music_file)?"border-slate-900 bg-slate-50":"border-slate-200 hover:border-slate-400"}">
+          <div class="font-semibold text-slate-900 mb-1">🎶 Pad ambiente (default)</div>
+          <div class="text-xs text-slate-600">Generado con FFmpeg. Suena calmo, sin claims de derechos. Bueno para tests.</div>
+        </button>
+        <button onclick="document.getElementById('music-input').click()" class="text-left p-4 rounded-xl border-2 ${state.music_file?"border-slate-900 bg-slate-50":"border-slate-200 hover:border-slate-400"}">
+          <div class="font-semibold text-slate-900 mb-1">📁 Subir mi música</div>
+          <div class="text-xs text-slate-600">MP3 / WAV libre de derechos. Lo recomendado para producción.</div>
+          <input id="music-input" type="file" accept="audio/*" class="hidden" onchange="state.music_file = event.target.files[0]; state.use_synth_music=false; render()">
+          ${state.music_file ? `<div class="mt-2 text-xs text-emerald-600">✓ ${state.music_file.name}</div>` : ""}
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+// === STEP 5 · Render ===
+async function startRender() {
+  const fd = new FormData();
+  const propertyDataPayload = {
+    ...state.property,
+    clips_meta: state.clips.map((c, i) => ({
+      headline: c.headline || "",
+      subline: c.subline || "",
+      trim_start: 0,
+      trim_duration: c.trim_duration || 3.5,
+    })),
+  };
+  fd.append("property_data", JSON.stringify(propertyDataPayload));
+  state.clips.forEach((c) => fd.append("clips", c.file));
+  if (state.music_file) fd.append("music", state.music_file);
+  if (state.voice_audio_file) fd.append("voice_audio", state.voice_audio_file);
+  if (state.voice_key) {
+    fd.append("voice_key", state.voice_key);
+    fd.append("generate_voice", "true");
+  }
+
+  state.job_id = null;
+  state.job_status = "uploading";
+  render();
+
+  try {
+    const r = await fetch(API("/jobs"), { method: "POST", body: fd });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    state.job_id = j.job_id;
+    state.job_status = j.status;
+    pollJob();
+  } catch (e) {
+    state.job_status = "error";
+    state.job_error = e.message;
+  }
+  render();
+}
+
+async function pollJob() {
+  if (!state.job_id) return;
+  while (true) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const r = await fetch(API(`/jobs/${state.job_id}`));
+      const j = await r.json();
+      state.job_status = j.status;
+      state.job_log = j.log || [];
+      state.job_error = j.error;
+      state.job_duration = j.duration;
+      state.job_download = j.download_url;
+      render();
+      if (j.status === "done" || j.status === "error") break;
+    } catch (e) { console.warn(e); break; }
+  }
+}
+
+function renderStep5() {
+  if (!state.job_id) {
+    const ready = state.clips.length >= 2 && state.property.comuna && state.property.m2;
+    return `
+      <div class="fade-in">
+        <h1 class="text-3xl font-bold text-slate-900 mb-2">Revisar y procesar</h1>
+        <p class="text-slate-600 mb-8">Esto puede tardar 30-90 segundos según los clips.</p>
+        <div class="bg-white rounded-2xl p-6 border border-slate-200 mb-6">
+          <h3 class="font-semibold mb-3">Resumen</h3>
+          <ul class="text-sm space-y-1 text-slate-700">
+            <li>📹 ${state.clips.length} clips · total ${state.clips.reduce((s,c)=>s+(c.trim_duration||3.5),0).toFixed(1)} seg + 5s CTA</li>
+            <li>🏠 ${state.property.tipo} en ${state.property.comuna || "?"} · ${state.property.m2 || "?"} m²</li>
+            <li>💰 ${state.property.precio_uf ? "Desde " + state.property.precio_uf + " UF" : "Sin precio"}</li>
+            <li>🎙️ Voz: ${voiceMode()==="none"?"ninguna":voiceMode()==="upload"?"archivo subido":"IA · "+(state.available_voices.find(v=>v.id===state.voice_key)?.name||"-")}</li>
+            <li>🎵 Música: ${state.music_file?state.music_file.name:"pad ambiente sintético"}</li>
+          </ul>
+        </div>
+        <button onclick="startRender()" ${!ready?"disabled":""} class="w-full px-6 py-4 bg-slate-900 text-white rounded-xl hover:bg-slate-800 font-medium disabled:opacity-30">
+          🚀 Procesar reel
+        </button>
+        ${!ready ? `<p class="text-sm text-red-600 mt-3">Falta: ${state.clips.length < 2 ? "subir al menos 2 clips" : !state.property.comuna ? "comuna" : !state.property.m2 ? "m² construidos" : ""}</p>` : ""}
+      </div>
+    `;
+  }
+
+  // Job running or done
+  return `
+    <div class="fade-in">
+      <h1 class="text-3xl font-bold text-slate-900 mb-2">${state.job_status === "done" ? "🎉 Tu reel está listo" : "Procesando..."}</h1>
+      ${state.job_status !== "done" && state.job_status !== "error" ? `
+        <div class="flex items-center gap-3 mb-6">
+          <div class="w-6 h-6 border-3 border-slate-300 border-t-slate-900 rounded-full spinner"></div>
+          <span class="text-slate-700">${state.job_status}</span>
+        </div>
+      ` : ""}
+      ${state.job_log && state.job_log.length ? `
+        <div class="bg-slate-900 text-slate-200 rounded-xl p-4 font-mono text-xs mb-6 max-h-64 overflow-y-auto">
+          ${state.job_log.map(l => `<div>✓ ${l}</div>`).join("")}
+        </div>
+      ` : ""}
+      ${state.job_status === "error" ? `
+        <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
+          <div class="font-semibold text-red-900 mb-1">Error</div>
+          <div class="text-sm text-red-700 font-mono">${state.job_error||"unknown"}</div>
+        </div>
+      ` : ""}
+      ${state.job_status === "done" ? `
+        <div class="bg-white rounded-2xl p-6 border border-slate-200 mb-6">
+          <video src="${state.job_download}" controls class="w-full rounded-lg bg-black" style="max-height: 600px;"></video>
+          <div class="mt-4 flex items-center justify-between">
+            <span class="text-sm text-slate-600">Duración: ${state.job_duration?.toFixed(1)||"?"} seg</span>
+            <a href="${state.job_download}" download class="px-5 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800">⬇ Descargar MP4</a>
+          </div>
+        </div>
+        <button onclick="resetAll()" class="text-slate-600 hover:text-slate-900">Crear otro reel →</button>
+      ` : ""}
+    </div>
+  `;
+}
+
+function render() {
+  renderStepper();
+  const c = document.getElementById("step-content");
+  if (state.step === 1) c.innerHTML = renderStep1();
+  if (state.step === 2) c.innerHTML = renderStep2();
+  if (state.step === 3) c.innerHTML = renderStep3();
+  if (state.step === 4) c.innerHTML = renderStep4();
