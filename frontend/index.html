@@ -239,7 +239,9 @@ async function loadVoices() {
   } catch (e) { console.warn(e); }
 }
 function renderStep3() {
-  loadVoices().then(() => render());
+  if (!state.available_voices.length) {
+    loadVoices().then(() => render());
+  }
   return `
     <div class="fade-in">
       <h1 class="text-3xl font-bold text-slate-900 mb-2">Voz de la propiedad</h1>
@@ -446,21 +448,6 @@ function render() {
   if (state.step === 3) c.innerHTML = renderStep3();
   if (state.step === 4) c.innerHTML = renderStep4();
   if (state.step === 5) c.innerHTML = renderStep5();
-}
-
-function resetAll() {
-  state.clips.forEach(c => { if (c.previewUrl) URL.revokeObjectURL(c.previewUrl); });
-  state.step = 1;
-  state.clips = [];
-  state.property = { headline: "", location: "", price_uf: "", surface_m2: "", bedrooms: "", bathrooms: "", contact: "", highlights: "" };
-  state.voice = { mode: "none", voice_id: "", script: "", audio_file: null };
-  state.music = { mode: "ambient", file: null };
-  state.job_id = null;
-  state.job_status = null;
-  state.job_progress = 0;
-  state.job_download = null;
-  state.job_duration = null;
-  render();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
