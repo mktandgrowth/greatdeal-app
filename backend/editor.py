@@ -17,13 +17,11 @@ if not Path(FONT_BOLD).exists():
 if not Path(FONT_REG).exists():
     FONT_REG = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
-W, H = 720, 1280
+W, H = 540, 960
 
 # IG/TikTok safe zone: top 15%, bottom 25% are UI overlay zones.
-# Bottom text y must be ABOVE h * 0.75 to be safe.
-# For 1280 height: safe bottom edge = 960. Place text around y=900-940 (a bit higher than before).
-TEXT_BASELINE_Y = 850   # Headline baseline
-SUBLINE_BASELINE_Y = 940
+TEXT_BASELINE_Y = 640   # Headline baseline (proportional to 540x960)
+SUBLINE_BASELINE_Y = 700
 
 
 def run(cmd: list, label: str = "") -> tuple[bool, str]:
@@ -49,15 +47,14 @@ def probe_duration(file: str) -> float:
 
 
 def normalize_clip(input_file: str, output_file: str) -> tuple[bool, str]:
-    """Scale to 720x1280, 30fps, with color correction (brightness +3%, saturation +18%, contrast +8%)."""
+    """Scale to 540x960, 30fps, with color correction. Reduced resolution for Render Free RAM."""
     cmd = [
         "ffmpeg", "-y", "-i", input_file,
-        "-vf", "scale=720:1280:flags=lanczos:force_original_aspect_ratio=decrease,"
-               "pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black,"
-               "eq=brightness=0.03:saturation=1.18:contrast=1.08:gamma=0.97,"
-               "unsharp=5:5:0.6:5:5:0.0",
+        "-vf", "scale=540:960:flags=bilinear:force_original_aspect_ratio=decrease,"
+               "pad=540:960:(ow-iw)/2:(oh-ih)/2:color=black,"
+               "eq=brightness=0.03:saturation=1.18:contrast=1.08:gamma=0.97",
         "-r", "30",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-pix_fmt", "yuv420p",
         "-an",
         output_file
@@ -66,11 +63,11 @@ def normalize_clip(input_file: str, output_file: str) -> tuple[bool, str]:
 
 
 def trim_clip(input_file: str, output_file: str, start: float, duration: float) -> tuple[bool, str]:
-    """Trim a clip to a specific time range."""
+    """Trim a clip to a specific time range. Uses ultrafast preset to save RAM."""
     cmd = [
         "ffmpeg", "-y", "-i", input_file,
         "-ss", str(start), "-t", str(duration),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-pix_fmt", "yuv420p", "-an",
         output_file
     ]
@@ -79,26 +76,26 @@ def trim_clip(input_file: str, output_file: str, start: float, duration: float) 
 
 def add_text_overlay(input_file: str, output_file: str,
                      headline: str, subline: str, duration: float) -> tuple[bool, str]:
-    """Add headline + subline overlay with bottom gradient. Respects IG safe zone."""
+    """Add headline + subline overlay with bottom gradient. Scaled for 540x960."""
     fade_out_start = max(0.1, duration - 0.3)
-    # Gradient overlay (4 stacked semi-transparent boxes) at the safe zone region
+    # Gradient overlay (scaled proportionally for 540x960)
     gradient = (
-        f"drawbox=x=0:y=h-460:w=iw:h=20:color=black@0.05:t=fill,"
-        f"drawbox=x=0:y=h-440:w=iw:h=40:color=black@0.12:t=fill,"
-        f"drawbox=x=0:y=h-400:w=iw:h=60:color=black@0.22:t=fill,"
-        f"drawbox=x=0:y=h-340:w=iw:h=200:color=black@0.40:t=fill"
+        f"drawbox=x=0:y=h-345:w=iw:h=15:color=black@0.05:t=fill,"
+        f"drawbox=x=0:y=h-330:w=iw:h=30:color=black@0.12:t=fill,"
+        f"drawbox=x=0:y=h-300:w=iw:h=45:color=black@0.22:t=fill,"
+        f"drawbox=x=0:y=h-255:w=iw:h=150:color=black@0.40:t=fill"
     )
     headline_filter = (
         f"drawtext=fontfile={FONT_BOLD}:text='{headline}':"
-        f"fontsize=62:fontcolor=white:"
-        f"x=(w-text_w)/2:y=h-420:"
-        f"shadowx=2:shadowy=3:shadowcolor=black@0.7"
+        f"fontsize=46:fontcolor=white:"
+        f"x=(w-text_w)/2:y=h-315:"
+        f"shadowx=2:shadowy=2:shadowcolor=black@0.7"
     )
     sub_filter = (
         f"drawtext=fontfile={FONT_REG}:text='{subline}':"
-        f"fontsize=36:fontcolor=white:"
-        f"x=(w-text_w)/2:y=h-340:"
-        f"shadowx=2:shadowy=2:shadowcolor=black@0.7"
+        f"fontsize=27:fontcolor=white:"
+        f"x=(w-text_w)/2:y=h-255:"
+        f"shadowx=1:shadowy=2:shadowcolor=black@0.7"
     )
     fade = f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_out_start}:d=0.3"
     filter_complex = f"{gradient},{headline_filter},{sub_filter},{fade}"
@@ -106,7 +103,7 @@ def add_text_overlay(input_file: str, output_file: str,
     cmd = [
         "ffmpeg", "-y", "-i", input_file,
         "-vf", filter_complex,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-pix_fmt", "yuv420p", "-an",
         output_file
     ]
@@ -115,23 +112,23 @@ def add_text_overlay(input_file: str, output_file: str,
 
 def build_cta(output_file: str, line1: str, line2: str, line3: str,
               line4: str, duration: float = 5.0) -> tuple[bool, str]:
-    """Generate closing CTA card with GreatDeal branding."""
+    """Generate closing CTA card with GreatDeal branding. Scaled for 540x960."""
     filter_complex = (
         f"vignette=PI/4,"
         f"drawtext=fontfile={FONT_BOLD}:text='GREATDEAL':"
-        f"fontsize=42:fontcolor=white:x=(w-text_w)/2:y=180,"
-        f"drawbox=x=(iw-80)/2:y=240:w=80:h=3:color=0xfbbf24:t=fill,"
+        f"fontsize=32:fontcolor=white:x=(w-text_w)/2:y=135,"
+        f"drawbox=x=(iw-60)/2:y=180:w=60:h=2:color=0xfbbf24:t=fill,"
         f"drawtext=fontfile={FONT_BOLD}:text='{line1}':"
-        f"fontsize=46:fontcolor=white:x=(w-text_w)/2:y=h/2-160,"
+        f"fontsize=34:fontcolor=white:x=(w-text_w)/2:y=h/2-120,"
         f"drawtext=fontfile={FONT_REG}:text='{line2}':"
-        f"fontsize=36:fontcolor=0xcbd5e1:x=(w-text_w)/2:y=h/2-100,"
-        f"drawbox=x=(iw-120)/2:y=h/2-30:w=120:h=2:color=0xfbbf24:t=fill,"
+        f"fontsize=27:fontcolor=0xcbd5e1:x=(w-text_w)/2:y=h/2-75,"
+        f"drawbox=x=(iw-90)/2:y=h/2-22:w=90:h=2:color=0xfbbf24:t=fill,"
         f"drawtext=fontfile={FONT_BOLD}:text='{line3}':"
-        f"fontsize=58:fontcolor=0xfbbf24:x=(w-text_w)/2:y=h/2+20,"
+        f"fontsize=44:fontcolor=0xfbbf24:x=(w-text_w)/2:y=h/2+15,"
         f"drawtext=fontfile={FONT_REG}:text='{line4}':"
-        f"fontsize=40:fontcolor=white:x=(w-text_w)/2:y=h/2+110,"
+        f"fontsize=30:fontcolor=white:x=(w-text_w)/2:y=h/2+82,"
         f"drawtext=fontfile={FONT_REG}:text='Vivir distinto':"
-        f"fontsize=28:fontcolor=0x94a3b8:x=(w-text_w)/2:y=h-180,"
+        f"fontsize=21:fontcolor=0x94a3b8:x=(w-text_w)/2:y=h-135,"
         f"fade=t=in:st=0:d=0.5,fade=t=out:st={duration-0.5}:d=0.5"
     )
     cmd = [
@@ -139,7 +136,7 @@ def build_cta(output_file: str, line1: str, line2: str, line3: str,
         "-f", "lavfi", "-i", f"color=c=0x0f172a:s={W}x{H}:r=30:d={duration},format=yuv420p",
         "-vf", filter_complex,
         "-r", "30",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-pix_fmt", "yuv420p", "-an",
         output_file
     ]
@@ -148,67 +145,51 @@ def build_cta(output_file: str, line1: str, line2: str, line3: str,
 
 def concat_with_xfade(clips: list[tuple[str, float]], output_file: str,
                        xfade_dur: float = 0.4) -> tuple[bool, str]:
-    """Concatenate clips with crossfades. Each entry: (file_path, duration)."""
+    """Memory-efficient concat using ffmpeg concat demuxer.
+    Note: drops crossfades to fit in 512MB RAM (Render Free tier).
+    Hard cuts only — works because all clips were normalized to same codec/res/fps.
+    """
     if not clips:
         return False, "No clips provided"
     if len(clips) == 1:
         shutil.copy(clips[0][0], output_file)
         return True, ""
 
-    inputs = []
-    for c, _ in clips:
-        inputs += ["-i", c]
+    # Write concat list file
+    work_dir = Path(clips[0][0]).parent
+    list_file = work_dir / "_concat_list.txt"
+    with open(list_file, "w") as f:
+        for c, _ in clips:
+            f.write(f"file '{Path(c).absolute()}'\n")
 
-    # Build progressive xfade
-    parts = []
-    last_stream = "[0:v]"
-    cumulative = clips[0][1]
-    for i, (clip, dur) in enumerate(clips):
-        if i == 0:
-            continue
-        next_stream = f"[v{i}]"
-        offset = cumulative - xfade_dur
-        parts.append(
-            f"{last_stream}[{i}:v]xfade=transition=fade:duration={xfade_dur}:offset={offset:.3f}{next_stream}"
-        )
-        last_stream = next_stream
-        cumulative += dur - xfade_dur
-
-    filter_complex = ";".join(parts)
     cmd = [
-        "ffmpeg", "-y", *inputs,
-        "-filter_complex", filter_complex,
-        "-map", last_stream,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-        "-pix_fmt", "yuv420p", "-an",
+        "ffmpeg", "-y",
+        "-f", "concat", "-safe", "0", "-i", str(list_file),
+        "-c", "copy",
         output_file
     ]
-    return run(cmd, "concat xfade")
+    return run(cmd, "concat (demuxer)")
 
 
 def synth_ambient_music(output_file: str, duration: float) -> tuple[bool, str]:
-    """Synthesize a warm ambient pad — used as fallback when no music uploaded."""
+    """Synthesize an ambient pad — simplified to 3 sines for Render Free RAM."""
     fade_out_start = max(2, duration - 2)
     filter_complex = (
         f"sine=f=110:duration={duration}[s1];"
         f"sine=f=165:duration={duration}[s2];"
         f"sine=f=220:duration={duration}[s3];"
-        f"sine=f=82.4:duration={duration}[s4];"
-        f"sine=f=329.6:duration={duration}[s5];"
         f"[s1]volume=0.6,afade=t=in:st=0:d=2,afade=t=out:st={fade_out_start}:d=2[a1];"
         f"[s2]volume=0.4,afade=t=in:st=0:d=2.5,afade=t=out:st={fade_out_start}:d=2[a2];"
         f"[s3]volume=0.3,afade=t=in:st=0:d=3,afade=t=out:st={fade_out_start}:d=2[a3];"
-        f"[s4]volume=0.5,afade=t=in:st=0:d=2,afade=t=out:st={fade_out_start}:d=2[a4];"
-        f"[s5]volume=0.15,afade=t=in:st=0:d=4,afade=t=out:st={fade_out_start}:d=2[a5];"
-        f"[a1][a2][a3][a4][a5]amix=inputs=5:duration=longest:normalize=0[mix];"
-        f"[mix]lowpass=f=2200,highpass=f=60,aecho=0.7:0.8:80:0.25,volume=1.5[out]"
+        f"[a1][a2][a3]amix=inputs=3:duration=longest:normalize=0[mix];"
+        f"[mix]lowpass=f=2200,volume=1.5[out]"
     )
     cmd = [
         "ffmpeg", "-y",
         "-filter_complex", filter_complex,
         "-map", "[out]",
         "-ac", "2", "-ar", "44100",
-        "-c:a", "aac", "-b:a", "192k",
+        "-c:a", "aac", "-b:a", "128k",
         "-t", str(duration),
         output_file
     ]
@@ -219,13 +200,11 @@ def mux_audio_with_ducking(video_file: str, music_file: str, voice_file: Optiona
                             output_file: str) -> tuple[bool, str]:
     """Mux video with music. If voice provided, apply sidechain ducking (music drops 60% when voice present)."""
     if voice_file and Path(voice_file).exists():
-        # Voice + music with ducking
+        # Voice + music with simple mix (no sidechain to save RAM)
         filter_complex = (
-            # Reduce music volume to 0.35 baseline (lower when voice)
-            f"[1:a]volume=0.45[music_raw];"
+            f"[1:a]volume=0.25[music_raw];"
             f"[2:a]volume=1.0[voice_raw];"
-            f"[music_raw][voice_raw]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400[ducked_music];"
-            f"[ducked_music][voice_raw]amix=inputs=2:duration=longest:normalize=0[mix];"
+            f"[music_raw][voice_raw]amix=inputs=2:duration=longest:normalize=0[mix];"
             f"[mix]volume=1.2[out]"
         )
         cmd = [
@@ -235,7 +214,7 @@ def mux_audio_with_ducking(video_file: str, music_file: str, voice_file: Optiona
             "-i", voice_file,
             "-filter_complex", filter_complex,
             "-map", "0:v", "-map", "[out]",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
             "-shortest", "-movflags", "+faststart",
             output_file
         ]
@@ -244,7 +223,7 @@ def mux_audio_with_ducking(video_file: str, music_file: str, voice_file: Optiona
         cmd = [
             "ffmpeg", "-y",
             "-i", video_file, "-i", music_file,
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
             "-shortest", "-movflags", "+faststart",
             output_file
         ]
