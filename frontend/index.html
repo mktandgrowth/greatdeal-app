@@ -141,6 +141,8 @@ let state = {
   step: 1,
   sections: emptySections(),
   music_file: null,
+  music_preset: "chill",
+  music_presets_catalog: [],
   voice_audio_file: null,
   logo_file: null,
   logo_dataUrl: null,
@@ -157,21 +159,34 @@ let state = {
   job_download: null,
   job_duration: null,
   is_reprocessing: false,
+  has_been_processed: false,  // true once initial render done — enables "Re-procesar" mode
 };
 
 function resetAll() {
   if (!confirm("¿Empezar de cero? Se pierden los clips cargados.")) return;
+  const catalog = state.music_presets_catalog;
   state = {
     step: 1,
     sections: emptySections(),
-    music_file: null, voice_audio_file: null,
+    music_file: null, music_preset: "chill", music_presets_catalog: catalog,
+    voice_audio_file: null,
     logo_file: null, logo_dataUrl: null,
     cta: { info: "180 m² · 3 dorm · 2 baños", precio: "Desde 1500 UF", tagline: "Vivir distinto" },
     job_id: null, job_status: null, job_progress: 0, job_log: [],
     job_error: null, job_download: null, job_duration: null,
-    is_reprocessing: false,
+    is_reprocessing: false, has_been_processed: false,
   };
   render();
+}
+
+async function loadMusicPresets() {
+  try {
+    const r = await fetch(API("/music-presets"));
+    const j = await r.json();
+    state.music_presets_catalog = j.presets || [];
+  } catch (e) {
+    console.warn("No se pudo cargar el catálogo de música:", e);
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -190,8 +205,18 @@ function renderStepper() {
   document.getElementById("btn-prev").disabled = (state.step === 1);
   const next = document.getElementById("btn-next");
   if (state.step === 5) {
-    next.textContent = state.job_id ? "Ya está procesando" : "Procesar reel →";
-    next.disabled = !!state.job_id && state.job_status !== "done" && state.job_status !== "error";
+    const isProcessing = state.job_status && state.job_status !== "done" && state.job_status !== "error";
+    if (isProcessing) {
+      next.textContent = "Procesando…";
+      next.disabled = true;
+    } else if (!state.has_been_processed) {
+      next.textContent = "Procesar reel →";
+      next.disabled = false;
+    } else {
+      // Already processed at least once — hide the footer button (use the inline reprocess button instead)
+      next.textContent = "Re-procesar arriba ↑";
+      next.disabled = true;
+    }
   } else {
     next.textContent = "Continuar →";
     next.disabled = false;
@@ -206,7 +231,7 @@ function goNext() {
       return;
     }
   }
-  if (state.step === 5 && !state.job_id) {
+  if (state.step === 5 && !state.has_been_processed) {
     processReel();
     return;
   }
@@ -272,12 +297,19 @@ function renderSectionCard(key) {
         `).join("")}
       </div>`;
 
-  const uploadBtn = slotsLeft > 0
-    ? `<label class="inline-block px-4 py-2 bg-slate-900 text-white text-sm rounded-lg cursor-pointer hover:bg-slate-800">
-        + Subir ${slotsLeft > 1 ? `hasta ${slotsLeft} clips` : "clip"}
-        <input type="file" accept="video/*" ${cfg.maxClips > 1 ? "multiple" : ""} class="hidden"
-               onchange="handleSectionUpload('${key}', event.target.files)">
-      </label>`
+  const actionButtons = slotsLeft > 0
+    ? `<div class="flex flex-wrap gap-2">
+        <label class="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm rounded-lg cursor-pointer hover:bg-slate-800">
+          <span>📤</span><span>Subir ${slotsLeft > 1 ? `hasta ${slotsLeft}` : ""}</span>
+          <input type="file" accept="video/*" multiple class="hidden"
+                 onchange="handleSectionUpload('${key}', event.target.files)">
+        </label>
+        <label class="inline-flex items-center gap-2 px-4 py-2 bg-white border-2 border-slate-900 text-slate-900 text-sm rounded-lg cursor-pointer hover:bg-slate-100">
+          <span>📷</span><span>Grabar</span>
+          <input type="file" accept="video/*" capture="environment" class="hidden"
+                 onchange="handleSectionUpload('${key}', event.target.files)">
+        </label>
+      </div>`
     : `<span class="text-sm text-emerald-700 font-medium">✓ Sección completa</span>`;
 
   const headlineInput = (cfg.defaultHeadline !== "" || sec.headline)
@@ -309,7 +341,7 @@ function renderSectionCard(key) {
       ${clipsHtml}
 
       <div class="flex items-center justify-between">
-        ${uploadBtn}
+        ${actionButtons}
       </div>
 
       ${headlineInput}
@@ -344,16 +376,33 @@ function removeClip(key, idx) {
 //  STEP 2 — AUDIO
 // ──────────────────────────────────────────────────────────────────────────
 function renderStep2() {
-  const musicHtml = state.music_file
-    ? `<div class="flex items-center gap-3 text-sm text-emerald-700">
-        <span>🎵 ${state.music_file.name}</span>
-        <button onclick="state.music_file=null; render()" class="text-red-500 hover:text-red-600">Quitar</button>
+  const usingUploaded = !!state.music_file;
+  const presets = state.music_presets_catalog;
+
+  const presetCards = presets.map(p => {
+    const selected = !usingUploaded && state.music_preset === p.key;
+    return `
+      <div onclick="selectMusicPreset('${p.key}')"
+           class="cursor-pointer border-2 ${selected ? 'border-slate-900 bg-slate-50' : 'border-slate-200 hover:border-slate-400'} rounded-xl p-4 transition-all">
+        <div class="flex items-center justify-between mb-1">
+          <div class="font-bold text-slate-900">${escapeHtml(p.label)}</div>
+          ${selected ? '<span class="text-xs bg-slate-900 text-white px-2 py-0.5 rounded-full">✓ Activa</span>' : ''}
+        </div>
+        <div class="text-xs text-slate-600">${escapeHtml(p.description)}</div>
+      </div>
+    `;
+  }).join("");
+
+  const uploadedBlock = usingUploaded
+    ? `<div class="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3">
+        <span class="text-sm text-emerald-700">🎵 ${escapeHtml(state.music_file.name)} (en uso)</span>
+        <button onclick="state.music_file=null; render()" class="text-sm text-red-500 hover:text-red-600">Usar preset en su lugar</button>
       </div>`
-    : `<div class="text-sm text-slate-400 italic">Sin música cargada — el sistema generará un fondo ambient suave</div>`;
+    : "";
 
   const voiceHtml = state.voice_audio_file
     ? `<div class="flex items-center gap-3 text-sm text-emerald-700">
-        <span>🎙️ ${state.voice_audio_file.name}</span>
+        <span>🎙️ ${escapeHtml(state.voice_audio_file.name)}</span>
         <button onclick="state.voice_audio_file=null; render()" class="text-red-500 hover:text-red-600">Quitar</button>
       </div>`
     : `<div class="text-sm text-slate-400 italic">Sin voz cargada</div>`;
@@ -361,18 +410,26 @@ function renderStep2() {
   return `
     <div class="fade-in max-w-3xl">
       <h1 class="text-3xl font-bold text-slate-900 mb-2">Audio del reel</h1>
-      <p class="text-slate-600 mb-6">Música de fondo y voz opcional. Si no subís nada, generamos un ambient suave automáticamente.</p>
+      <p class="text-slate-600 mb-6">Elegí un preset de música o subí tu MP3. Voz opcional.</p>
 
       <div class="bg-white border-2 border-slate-200 rounded-xl p-6 mb-4">
         <div class="flex items-center mb-3">
           <span class="text-2xl mr-3">🎵</span>
           <h3 class="font-bold text-slate-900 text-lg">Música de fondo</h3>
-          <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full ml-2">Opcional · MP3</span>
         </div>
-        <p class="text-sm text-slate-600 mb-4">Subí un MP3 sin derechos. Si no subís, generamos un pad ambient básico.</p>
-        ${musicHtml}
-        <label class="inline-block mt-3 px-4 py-2 bg-slate-900 text-white text-sm rounded-lg cursor-pointer hover:bg-slate-800">
-          ${state.music_file ? "Cambiar música" : "+ Subir música (MP3)"}
+
+        ${uploadedBlock}
+
+        ${presets.length
+          ? `<div class="text-xs text-slate-500 mb-3">${usingUploaded ? "Presets disponibles si quitás tu MP3:" : "Elegí un preset:"}</div>
+             <div class="grid gap-3 ${usingUploaded ? 'opacity-50 pointer-events-none' : ''}">${presetCards}</div>
+             <div class="my-4 flex items-center text-xs text-slate-400">
+               <div class="flex-1 h-px bg-slate-200"></div><span class="px-3">o</span><div class="flex-1 h-px bg-slate-200"></div>
+             </div>`
+          : `<div class="text-sm text-slate-500 mb-3">Cargando presets...</div>`}
+
+        <label class="inline-block px-4 py-2 bg-slate-900 text-white text-sm rounded-lg cursor-pointer hover:bg-slate-800">
+          ${state.music_file ? "Cambiar MP3 propio" : "+ Subir MP3 propio"}
           <input type="file" accept="audio/mp3,audio/mpeg,audio/wav" class="hidden"
                  onchange="state.music_file=event.target.files[0]; render()">
         </label>
@@ -384,7 +441,7 @@ function renderStep2() {
           <h3 class="font-bold text-slate-900 text-lg">Voz / Narración</h3>
           <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full ml-2">Opcional · MP3/WAV</span>
         </div>
-        <p class="text-sm text-slate-600 mb-4">Subí un audio con tu voz o narración. Se mezcla con la música (música baja al 25%).</p>
+        <p class="text-sm text-slate-600 mb-4">Subí un audio con tu voz. La música baja al 25% mientras se escucha la voz.</p>
         ${voiceHtml}
         <label class="inline-block mt-3 px-4 py-2 bg-slate-900 text-white text-sm rounded-lg cursor-pointer hover:bg-slate-800">
           ${state.voice_audio_file ? "Cambiar voz" : "+ Subir voz (MP3/WAV)"}
@@ -394,10 +451,16 @@ function renderStep2() {
       </div>
 
       <div class="mt-6 text-xs text-slate-500">
-        Próximamente: subtítulos automáticos sobre tu audio (transcripción + sincronizado).
+        Próximamente: grabar/subir voz post-render con cálculo de caracteres según duración + subtítulos automáticos.
       </div>
     </div>
   `;
+}
+
+function selectMusicPreset(key) {
+  state.music_preset = key;
+  state.music_file = null;  // selecting a preset clears uploaded music
+  render();
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -523,9 +586,16 @@ function escapeHtml(s) {
 //  STEP 5 — RENDER
 // ──────────────────────────────────────────────────────────────────────────
 function renderStep5() {
-  // No job yet
-  if (!state.job_id) {
+  const isDone = state.job_status === "done";
+  const isError = state.job_status === "error";
+  const isProcessing = state.job_status && !isDone && !isError;
+
+  // ── Case A: never processed yet → show summary + "Procesar reel" via Next button
+  if (!state.job_id && !state.has_been_processed) {
     const total = SECTION_ORDER.reduce((acc, k) => acc + state.sections[k].clips.length, 0);
+    const musicLabel = state.music_file
+      ? state.music_file.name
+      : (state.music_presets_catalog.find(p => p.key === state.music_preset)?.label || state.music_preset);
     return `
       <div class="fade-in max-w-2xl">
         <h1 class="text-3xl font-bold text-slate-900 mb-2">Resumen y procesar</h1>
@@ -544,9 +614,9 @@ function renderStep5() {
         </div>
 
         <div class="bg-white border border-slate-200 rounded-xl p-6 mb-4 text-sm">
-          <div class="flex justify-between mb-2"><span class="text-slate-600">Música:</span><span>${state.music_file ? state.music_file.name : "ambient sintético"}</span></div>
-          <div class="flex justify-between mb-2"><span class="text-slate-600">Voz:</span><span>${state.voice_audio_file ? state.voice_audio_file.name : "(sin voz)"}</span></div>
-          <div class="flex justify-between"><span class="text-slate-600">Logo:</span><span>${state.logo_file ? state.logo_file.name : "(sin logo)"}</span></div>
+          <div class="flex justify-between mb-2"><span class="text-slate-600">Música:</span><span>${escapeHtml(musicLabel)}</span></div>
+          <div class="flex justify-between mb-2"><span class="text-slate-600">Voz:</span><span>${state.voice_audio_file ? escapeHtml(state.voice_audio_file.name) : "(sin voz)"}</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">Logo:</span><span>${state.logo_file ? escapeHtml(state.logo_file.name) : "(sin logo)"}</span></div>
         </div>
 
         <div class="bg-white border border-slate-200 rounded-xl p-6 mb-4 text-sm">
@@ -561,9 +631,7 @@ function renderStep5() {
     `;
   }
 
-  // Processing / done
-  const isDone = state.job_status === "done";
-  const isError = state.job_status === "error";
+  // ── Case B: been processed → show edit-aware UI
 
   const statusBlock = isDone
     ? `<div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-4">
@@ -574,9 +642,14 @@ function renderStep5() {
         <div class="text-red-700 font-medium">✗ Error</div>
         <div class="text-sm text-red-600 mt-1">${escapeHtml(state.job_error || "")}</div>
       </div>`
-    : `<div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 flex items-center">
+    : isProcessing
+    ? `<div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 flex items-center">
         <div class="spinner w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full mr-3"></div>
         <div class="text-blue-700">${state.is_reprocessing ? "Re-procesando" : "Procesando"} · ${state.job_status || "iniciando"}…</div>
+      </div>`
+    : `<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+        <div class="text-amber-700 font-medium">Cambios pendientes de procesar</div>
+        <div class="text-sm text-amber-700 mt-1">Editaste algo después del último render. Cuando estés lista, dale a <strong>Re-procesar reel</strong>.</div>
       </div>`;
 
   const logBlock = state.job_log.length
@@ -596,17 +669,30 @@ function renderStep5() {
           <a href="${state.job_download}" download class="px-5 py-2.5 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-800">⬇ Descargar MP4</a>
         </div>
       </div>
-      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
-        <div class="font-medium text-amber-900 mb-1">¿Querés ajustar algo?</div>
-        <p class="text-sm text-amber-800 mb-3">Podés volver atrás, cambiar duraciones, textos del CTA o el logo, y re-procesar sin volver a subir los videos.</p>
-        <button onclick="reprocessReel()" class="px-4 py-2 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700">↻ Editar y re-procesar</button>
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
+        <div class="font-medium text-slate-900 mb-2">¿Querés ajustar algo?</div>
+        <p class="text-sm text-slate-600 mb-3">Volvé a cualquier paso, hacé los cambios que quieras, y cuando regreses acá vas a poder re-procesar manualmente. <strong>Nada se procesa automáticamente.</strong></p>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="state.step=1; render()" class="px-4 py-2 bg-white border border-slate-300 text-slate-900 text-sm rounded-lg hover:bg-slate-100">Editar recorrido</button>
+          <button onclick="state.step=2; render()" class="px-4 py-2 bg-white border border-slate-300 text-slate-900 text-sm rounded-lg hover:bg-slate-100">Editar audio</button>
+          <button onclick="state.step=3; render()" class="px-4 py-2 bg-white border border-slate-300 text-slate-900 text-sm rounded-lg hover:bg-slate-100">Editar logo</button>
+          <button onclick="state.step=4; render()" class="px-4 py-2 bg-white border border-slate-300 text-slate-900 text-sm rounded-lg hover:bg-slate-100">Editar CTA</button>
+        </div>
       </div>`
+    : "";
+
+  // Re-process button (only show if we're already past first render, not currently processing)
+  const reprocessBlock = (state.has_been_processed && !isProcessing && !isDone)
+    ? `<button onclick="reprocessReel()" class="w-full px-5 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-medium mb-4">
+        ↻ Re-procesar reel con los cambios
+      </button>`
     : "";
 
   return `
     <div class="fade-in max-w-3xl">
       <h1 class="text-3xl font-bold text-slate-900 mb-4">Tu reel</h1>
       ${statusBlock}
+      ${reprocessBlock}
       ${videoBlock}
       ${logBlock}
     </div>
@@ -649,6 +735,7 @@ async function processReel() {
   const fd = new FormData();
   fd.append("sections", JSON.stringify(sections));
   fd.append("cta_data", JSON.stringify(state.cta));
+  fd.append("music_preset", state.music_preset || "chill");
   files.forEach(f => fd.append("clips", f));
   if (state.music_file)       fd.append("music",       state.music_file);
   if (state.voice_audio_file) fd.append("voice_audio", state.voice_audio_file);
@@ -656,6 +743,7 @@ async function processReel() {
 
   state.job_status = "uploading";
   state.is_reprocessing = false;
+  state.has_been_processed = true;
   render();
 
   try {
@@ -674,7 +762,13 @@ async function processReel() {
 }
 
 async function reprocessReel() {
-  if (!state.job_id) return;
+  if (!state.job_id) {
+    // No initial job yet — fall back to fresh processing
+    processReel();
+    return;
+  }
+  if (!confirm("¿Re-procesar el reel con los cambios actuales? Toma 1-2 minutos.")) return;
+
   // Reuse the same files (server already has them) — only send sections + cta_data
   const sections = [];
   let fileIdx = 0;
@@ -682,23 +776,21 @@ async function reprocessReel() {
     const cfg = SECTION_CONFIG[key];
     const sec = state.sections[key];
     if (sec.clips.length === 0) continue;
-    const sectionClips = sec.clips.map((c, i) => {
-      const obj = {
-        file_index: fileIdx++,
-        trim_start: 0,
-        trim_duration: cfg.defaultDuration,
-        speed: cfg.speed,
-        headline: i === 0 ? (sec.headline || "") : "",
-        subline: "",
-      };
-      return obj;
-    });
+    const sectionClips = sec.clips.map((c, i) => ({
+      file_index: fileIdx++,
+      trim_start: 0,
+      trim_duration: cfg.defaultDuration,
+      speed: cfg.speed,
+      headline: i === 0 ? (sec.headline || "") : "",
+      subline: "",
+    }));
     sections.push({ name: key, clips: sectionClips });
   }
 
   const fd = new FormData();
   fd.append("sections", JSON.stringify(sections));
   fd.append("cta_data", JSON.stringify(state.cta));
+  fd.append("music_preset", state.music_preset || "chill");
 
   state.job_status = "reprocessing";
   state.is_reprocessing = true;
@@ -748,7 +840,9 @@ function render() {
   if (state.step === 5) c.innerHTML = renderStep5();
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  render();
+  await loadMusicPresets();
   render();
 });
 </script>

@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from editor import build_reel
+from editor import build_reel, MUSIC_PRESETS
 from voice import list_voices, generate_voiceover, build_voiceover_script
 
 # Paths
@@ -63,6 +63,17 @@ async def voices():
     return {"voices": list_voices()}
 
 
+@app.get("/api/music-presets")
+async def music_presets():
+    """Lista de presets de música sintetizada disponibles."""
+    return {
+        "presets": [
+            {"key": k, "label": v["label"], "description": v["description"]}
+            for k, v in MUSIC_PRESETS.items()
+        ]
+    }
+
+
 @app.post("/api/jobs")
 async def create_job(
     sections: str = Form(...),
@@ -70,6 +81,7 @@ async def create_job(
     clips: list[UploadFile] = File(...),
     logo: Optional[UploadFile] = File(None),
     music: Optional[UploadFile] = File(None),
+    music_preset: str = Form("chill"),
     voice_audio: Optional[UploadFile] = File(None),
     voice_key: Optional[str] = Form(None),
     generate_voice: bool = Form(False),
@@ -156,6 +168,7 @@ async def create_job(
         "voice_key": voice_key,
         "voice_audio_path": voice_audio_path,
         "music_path": music_path,
+        "music_preset": music_preset,
         "output_path": str(output_path),
         "work_dir": str(work_dir),
         "log": [],
@@ -167,8 +180,8 @@ async def create_job(
     threading.Thread(
         target=process_job,
         args=(job_id, resolved_sections, cta, str(work_dir),
-              voice_audio_path, music_path, logo_path, str(output_path),
-              voice_key, generate_voice),
+              voice_audio_path, music_path, music_preset, logo_path,
+              str(output_path), voice_key, generate_voice),
         daemon=True,
     ).start()
 
@@ -197,8 +210,8 @@ def _resolve_sections(sections_data, clip_paths):
 
 
 def process_job(job_id, sections, cta_data, work_dir,
-                voice_audio_path, music_path, logo_path, output_path,
-                voice_key, generate_voice):
+                voice_audio_path, music_path, music_preset, logo_path,
+                output_path, voice_key, generate_voice):
     set_job(job_id, status="processing")
 
     # If user wants ElevenLabs voice generation
@@ -225,6 +238,7 @@ def process_job(job_id, sections, cta_data, work_dir,
         work_dir=work_dir,
         voice_audio_path=voice_audio_path,
         music_path=music_path,
+        music_preset=music_preset,
         logo_path=logo_path,
         output_path=output_path,
     )
@@ -242,9 +256,11 @@ async def reprocess_job(
     job_id: str,
     sections: str = Form(...),
     cta_data: str = Form(...),
+    music_preset: Optional[str] = Form(None),
 ):
     """Re-process an existing job with new sections/cta_data (re-edit feature).
-    Reuses the original clips, logo, music, voice. Only re-applies trim/text/CTA."""
+    Reuses the original clips, logo, music, voice. Only re-applies trim/text/CTA.
+    Optionally change music_preset."""
     with JOBS_LOCK:
         job = JOBS.get(job_id)
     if not job:
@@ -264,15 +280,18 @@ async def reprocess_job(
     new_work = WORK_DIR / f"{job_id}_v{uuid.uuid4().hex[:4]}"
     new_output = OUTPUT_DIR / f"reel_{job_id}_{new_work.name.split('_v')[-1]}.mp4"
 
+    effective_preset = music_preset or job.get("music_preset", "chill")
+
     set_job(job_id, status="processing", sections=resolved, cta_data=cta,
-            output_path=str(new_output), work_dir=str(new_work), log=[], error=None)
+            output_path=str(new_output), work_dir=str(new_work),
+            music_preset=effective_preset, log=[], error=None)
 
     threading.Thread(
         target=process_job,
         args=(job_id, resolved, cta, str(new_work),
               job.get("voice_audio_path"), job.get("music_path"),
-              job.get("logo_path"), str(new_output),
-              None, False),
+              effective_preset, job.get("logo_path"),
+              str(new_output), None, False),
         daemon=True,
     ).start()
 

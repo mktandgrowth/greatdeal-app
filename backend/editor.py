@@ -97,34 +97,40 @@ def speedup_clip(input_file: str, output_file: str,
 def add_text_overlay(input_file: str, output_file: str,
                      headline: str, subline: str,
                      duration: float) -> tuple[bool, str]:
-    """Add headline + subline overlay with bottom gradient.
-    If both empty, just copies the file."""
+    """Add headline + subline overlay centered in the lower-third (IG/TikTok safe zone).
+    - Headline: 32px bold, baseline ~y=760 (W=540, H=960)
+    - Subline: 20px regular, baseline ~y=800
+    - Both horizontally centered
+    - Soft black gradient behind for legibility
+    If both empty, just copies the file (no re-encode = faster)."""
     if not headline and not subline:
         shutil.copy(input_file, output_file)
         return True, ""
 
     fade_out_start = max(0.1, duration - 0.3)
     filters = []
-    # Gradient overlay (bottom, for legibility)
+    # Gradient: subtle, behind the lower-third text block (~y 700-855)
     filters.append(
-        "drawbox=x=0:y=h-345:w=iw:h=15:color=black@0.05:t=fill,"
-        "drawbox=x=0:y=h-330:w=iw:h=30:color=black@0.12:t=fill,"
-        "drawbox=x=0:y=h-300:w=iw:h=45:color=black@0.22:t=fill,"
-        "drawbox=x=0:y=h-255:w=iw:h=150:color=black@0.40:t=fill"
+        "drawbox=x=0:y=h-260:w=iw:h=20:color=black@0.05:t=fill,"
+        "drawbox=x=0:y=h-240:w=iw:h=30:color=black@0.15:t=fill,"
+        "drawbox=x=0:y=h-210:w=iw:h=50:color=black@0.28:t=fill,"
+        "drawbox=x=0:y=h-160:w=iw:h=130:color=black@0.42:t=fill"
     )
     if headline:
+        # Headline: smaller (32px), centered horizontally, lower-third
         filters.append(
             f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
-            f"fontsize=46:fontcolor=white:"
-            f"x=(w-text_w)/2:y=h-315:"
+            f"fontsize=32:fontcolor=white:"
+            f"x=(w-text_w)/2:y=h-200:"
             f"shadowx=2:shadowy=2:shadowcolor=black@0.7"
         )
     if subline:
+        # Subline: smaller (20px), centered, JUST below the headline (same vertical axis)
         filters.append(
             f"drawtext=fontfile={FONT_REG}:text='{_esc(subline)}':"
-            f"fontsize=27:fontcolor=white:"
-            f"x=(w-text_w)/2:y=h-255:"
-            f"shadowx=1:shadowy=2:shadowcolor=black@0.7"
+            f"fontsize=20:fontcolor=0xe5e5e5:"
+            f"x=(w-text_w)/2:y=h-160:"
+            f"shadowx=1:shadowy=1:shadowcolor=black@0.6"
         )
     filters.append(f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_out_start}:d=0.3")
     filter_complex = ",".join(filters)
@@ -245,19 +251,93 @@ def concat_clips(clips: list[tuple[str, float]], output_file: str) -> tuple[bool
     return run(cmd, "concat (demuxer)")
 
 
-def synth_ambient_music(output_file: str, duration: float) -> tuple[bool, str]:
-    """Simple ambient pad."""
+# ─────────────────────────────────────────────────────────────────────
+#  MUSIC PRESETS — synthesized vibes
+# ─────────────────────────────────────────────────────────────────────
+MUSIC_PRESETS = {
+    "chill": {
+        "label": "Chill ambient",
+        "description": "Pad suave y atmosférico — relajado, residencial",
+        "freqs": [110, 165, 220],
+        "volumes": [0.6, 0.4, 0.3],
+        "lowpass": 2200,
+        "post_volume": 1.5,
+        "echo": False,
+    },
+    "cinematic": {
+        "label": "Cinematográfico",
+        "description": "Graves profundos con eco — lujo, dramático",
+        "freqs": [55, 82.5, 110, 165],
+        "volumes": [0.7, 0.5, 0.4, 0.3],
+        "lowpass": 1800,
+        "post_volume": 1.6,
+        "echo": True,
+    },
+    "uplifting": {
+        "label": "Uplifting / luminoso",
+        "description": "Notas altas y abiertas — venta cálida, ligero",
+        "freqs": [220, 330, 440],
+        "volumes": [0.5, 0.4, 0.3],
+        "lowpass": 4000,
+        "post_volume": 1.4,
+        "echo": False,
+    },
+    "melancholic": {
+        "label": "Melancólico",
+        "description": "Acordes menores — emocional, evocativo",
+        "freqs": [110, 130.81, 196],  # A2, C3, G3 (Am-ish)
+        "volumes": [0.6, 0.45, 0.35],
+        "lowpass": 2000,
+        "post_volume": 1.5,
+        "echo": True,
+    },
+    "corporate": {
+        "label": "Corporate clean",
+        "description": "Estable y neutro — propiedades de inversión",
+        "freqs": [110, 165],
+        "volumes": [0.55, 0.4],
+        "lowpass": 2500,
+        "post_volume": 1.4,
+        "echo": False,
+    },
+}
+
+
+def synth_music_preset(preset_key: str, output_file: str,
+                        duration: float) -> tuple[bool, str]:
+    """Synthesize background music from a preset. Falls back to 'chill' if unknown."""
+    preset = MUSIC_PRESETS.get(preset_key, MUSIC_PRESETS["chill"])
+    freqs = preset["freqs"]
+    vols = preset["volumes"]
+    lowpass = preset["lowpass"]
+    post_vol = preset["post_volume"]
+    echo = preset["echo"]
+
     fade_out_start = max(2, duration - 2)
-    filter_complex = (
-        f"sine=f=110:duration={duration}[s1];"
-        f"sine=f=165:duration={duration}[s2];"
-        f"sine=f=220:duration={duration}[s3];"
-        f"[s1]volume=0.6,afade=t=in:st=0:d=2,afade=t=out:st={fade_out_start}:d=2[a1];"
-        f"[s2]volume=0.4,afade=t=in:st=0:d=2.5,afade=t=out:st={fade_out_start}:d=2[a2];"
-        f"[s3]volume=0.3,afade=t=in:st=0:d=3,afade=t=out:st={fade_out_start}:d=2[a3];"
-        f"[a1][a2][a3]amix=inputs=3:duration=longest:normalize=0[mix];"
-        f"[mix]lowpass=f=2200,volume=1.5[out]"
+
+    # Build sine generators
+    sines = ";".join(
+        f"sine=f={f}:duration={duration}[s{i}]" for i, f in enumerate(freqs)
     )
+    # Apply per-sine volume + fades
+    voiced = ";".join(
+        f"[s{i}]volume={vols[i]},"
+        f"afade=t=in:st=0:d={2 + i * 0.3},"
+        f"afade=t=out:st={fade_out_start}:d=2[a{i}]"
+        for i in range(len(freqs))
+    )
+    # Mix
+    inputs = "".join(f"[a{i}]" for i in range(len(freqs)))
+    mix = f"{inputs}amix=inputs={len(freqs)}:duration=longest:normalize=0[mix]"
+
+    # Post-processing
+    post_chain = f"[mix]lowpass=f={lowpass}"
+    if echo:
+        post_chain += ",aecho=0.6:0.3:600:0.3"
+    post_chain += f",volume={post_vol}[out]"
+
+    filter_complex = f"{sines};{voiced};{mix};{post_chain}"
+
     cmd = [
         "ffmpeg", "-y",
         "-filter_complex", filter_complex,
@@ -267,7 +347,12 @@ def synth_ambient_music(output_file: str, duration: float) -> tuple[bool, str]:
         "-t", str(duration),
         output_file
     ]
-    return run(cmd, "synth ambient")
+    return run(cmd, f"synth {preset_key}")
+
+
+# Backward-compatible alias
+def synth_ambient_music(output_file: str, duration: float) -> tuple[bool, str]:
+    return synth_music_preset("chill", output_file, duration)
 
 
 def mux_audio(video_file: str, music_file: str,
@@ -305,6 +390,7 @@ def mux_audio(video_file: str, music_file: str,
 def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
                voice_audio_path: Optional[str] = None,
                music_path: Optional[str] = None,
+               music_preset: str = "chill",
                logo_path: Optional[str] = None,
                output_path: str = "reel.mp4") -> dict:
     """
@@ -412,11 +498,11 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
         music_file = music_path
         log.append("using uploaded music")
     else:
-        music_file = str(work / "ambient.aac")
-        ok, err = synth_ambient_music(music_file, final_duration + 1)
+        music_file = str(work / "music.aac")
+        ok, err = synth_music_preset(music_preset, music_file, final_duration + 1)
         if not ok:
             return {"success": False, "error": f"music: {err}", "log": log}
-        log.append("synthesized ambient music")
+        log.append(f"synthesized music ({music_preset})")
 
     # Mux
     ok, err = mux_audio(concat_file, music_file, voice_audio_path, output_path)
