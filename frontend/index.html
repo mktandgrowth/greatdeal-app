@@ -15,11 +15,10 @@
   .spinner { animation: spin 1s linear infinite; }
   @keyframes spin { 100% { transform: rotate(360deg); } }
   .step-dot { transition: all 0.2s; }
-  .clip-tile { transition: all 0.15s; }
+  .section-card { transition: all 0.2s; }
+  .section-card.complete { border-color: #10b981; background: #f0fdf4; }
   .clip-tile.sortable-ghost { opacity: 0.3; }
-  .clip-tile.sortable-chosen { transform: scale(1.05); box-shadow: 0 8px 24px rgba(0,0,0,0.2); z-index: 10; }
-  .grab-tile { cursor: grab; touch-action: none; }
-  .grab-tile:active { cursor: grabbing; }
+  .clip-tile.sortable-chosen { transform: scale(1.05); z-index: 10; }
   /* Manual editor */
   .editor-modal { position: fixed; inset: 0; background: rgba(15,23,42,0.97); z-index: 100; overflow-y: auto; }
   .editor-clip.sortable-ghost { opacity: 0.4; background: #1e40af; }
@@ -33,6 +32,8 @@
   details > summary::-webkit-details-marker { display: none; }
   details[open] .chev { transform: rotate(180deg); }
   .chev { transition: transform 0.2s; }
+  .mode-pill { transition: all 0.2s; }
+  .mode-pill.active { background: #0f172a; color: white; }
 </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
@@ -71,6 +72,59 @@ const STEPS = [
   { id: 3, label: "Tu reel" },
 ];
 
+const SECTION_ORDER = ["exterior", "entrada", "dormitorios", "banos", "areas", "vista"];
+
+const SECTION_CONFIG = {
+  exterior: {
+    label: "Exterior",
+    icon: "🏡",
+    description: "Una toma del lugar desde afuera. Mostrá la fachada completa con luz natural.",
+    tip: "Celular vertical, distancia que se vea el lugar entero. 3-4 segundos.",
+    minClips: 0, maxClips: 1, defaultDuration: 3.5, speed: 1.0,
+    defaultHeadline: ""
+  },
+  entrada: {
+    label: "Entrada",
+    icon: "🚪",
+    description: "Grabá ~15 segundos caminando hacia y entrando al lugar. Lo aceleramos 3x.",
+    tip: "Caminá firme y lento, celular vertical. Desde afuera hasta el living.",
+    minClips: 0, maxClips: 1, defaultDuration: 15, speed: 3.0,
+    defaultHeadline: ""
+  },
+  dormitorios: {
+    label: "Dormitorios",
+    icon: "🛏️",
+    description: "1 a 5 panorámicas de cada dormitorio. 2.5 segundos cada toma.",
+    tip: "Parate en un extremo y barré con el celular hacia el otro lado, fluído. Camas hechas.",
+    minClips: 0, maxClips: 5, defaultDuration: 2.5, speed: 1.0,
+    defaultHeadline: "Dormitorios"
+  },
+  banos: {
+    label: "Baños",
+    icon: "🚿",
+    description: "1 a 5 tomas cortas de baños. 2.5 seg cada una.",
+    tip: "Panorámica o detalle de la grifería. Sin objetos personales (toallas, productos).",
+    minClips: 0, maxClips: 5, defaultDuration: 2.5, speed: 1.0,
+    defaultHeadline: "Baños"
+  },
+  areas: {
+    label: "Áreas comunes",
+    icon: "🛋️",
+    description: "1 a 5 tomas de living, cocina, terraza, comedor. 2.5 seg cada una.",
+    tip: "Ángulos amplios. Encendé luces y abrí cortinas para más luminosidad.",
+    minClips: 0, maxClips: 5, defaultDuration: 2.5, speed: 1.0,
+    defaultHeadline: "Áreas comunes"
+  },
+  vista: {
+    label: "Vista",
+    icon: "🌅",
+    description: "Cierre con la vista del lugar. 3 segundos.",
+    tip: "Vista exterior (mar, cordillera, ciudad) desde la mejor ventana o terraza.",
+    minClips: 0, maxClips: 1, defaultDuration: 3, speed: 1.0,
+    defaultHeadline: ""
+  },
+};
+
 const API_BASE = (() => {
   const host = window.location.hostname;
   if (host === "localhost" || host === "127.0.0.1") return "";
@@ -78,7 +132,6 @@ const API_BASE = (() => {
 })();
 const API = (path) => `${API_BASE}/api${path}`;
 
-// Smart duration calculator: target ~26s total reel video duration
 function calcAutoDuration(numClips) {
   if (numClips === 0) return 3;
   return Math.max(1.8, Math.min(5, 26 / numClips));
@@ -87,14 +140,23 @@ function calcAutoDuration(numClips) {
 // ──────────────────────────────────────────────────────────────────────────
 //  STATE
 // ──────────────────────────────────────────────────────────────────────────
+function emptySections() {
+  const s = {};
+  for (const k of SECTION_ORDER) {
+    s[k] = { clips: [], headline: SECTION_CONFIG[k].defaultHeadline };
+  }
+  return s;
+}
+
 let state = {
   step: 1,
-  clips: [],   // [{id, file, dataUrl, name}]
+  upload_mode: "guided",       // "guided" | "simple"
+  sections: emptySections(),   // for guided mode
+  simple_clips: [],            // for simple mode (flat list)
   property: {
     tipo: "Casa", comuna: "",
     m2: "", dorms: "", banos: "", precio_uf: "",
   },
-  // Advanced options (collapsed by default)
   advanced_open: false,
   music_preset: "chill",
   music_file: null,
@@ -103,9 +165,8 @@ let state = {
   logo_file: null,
   logo_dataUrl: null,
   custom_tagline: "Vivir distinto",
-  custom_cta_info: "",        // empty = auto-generate from property
-  custom_cta_precio: "",      // empty = auto-generate
-  // Job state
+  custom_cta_info: "",
+  custom_cta_precio: "",
   job_id: null,
   job_status: null,
   job_log: [],
@@ -114,28 +175,26 @@ let state = {
   job_duration: null,
   is_reprocessing: false,
   has_been_processed: false,
-  // Manual editor
   editor_open: false,
   editor_clips: [],
   editor_sortable: null,
-  clips_sortable: null,
+  simple_sortable: null,
 };
 
 function resetAll() {
   if (!confirm("¿Empezar de cero? Se pierden los videos cargados.")) return;
   const catalog = state.music_presets_catalog;
   state = {
-    step: 1, clips: [],
+    step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [],
     property: { tipo: "Casa", comuna: "", m2: "", dorms: "", banos: "", precio_uf: "" },
     advanced_open: false,
     music_preset: "chill", music_file: null, music_presets_catalog: catalog,
-    voice_audio_file: null,
-    logo_file: null, logo_dataUrl: null,
+    voice_audio_file: null, logo_file: null, logo_dataUrl: null,
     custom_tagline: "Vivir distinto", custom_cta_info: "", custom_cta_precio: "",
     job_id: null, job_status: null, job_log: [], job_error: null,
     job_download: null, job_duration: null,
     is_reprocessing: false, has_been_processed: false,
-    editor_open: false, editor_clips: [], editor_sortable: null, clips_sortable: null,
+    editor_open: false, editor_clips: [], editor_sortable: null, simple_sortable: null,
   };
   render();
 }
@@ -146,6 +205,33 @@ async function loadMusicPresets() {
     const j = await r.json();
     state.music_presets_catalog = j.presets || [];
   } catch (e) { console.warn("Music presets:", e); }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  HELPERS
+// ──────────────────────────────────────────────────────────────────────────
+function escapeHtml(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function escapeAttr(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function totalClipsCount() {
+  if (state.upload_mode === "simple") return state.simple_clips.length;
+  return SECTION_ORDER.reduce((acc, k) => acc + state.sections[k].clips.length, 0);
+}
+
+function switchUploadMode(mode) {
+  if (mode === state.upload_mode) return;
+  const hasAny = totalClipsCount() > 0;
+  if (hasAny) {
+    if (!confirm("Si cambiás de modo se pierden los videos cargados. ¿Seguir?")) return;
+    state.sections = emptySections();
+    state.simple_clips = [];
+  }
+  state.upload_mode = mode;
+  render();
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -180,16 +266,15 @@ function renderStepper() {
     next.disabled = false;
   } else {
     next.textContent = "Continuar →";
-    next.disabled = state.clips.length === 0;
+    next.disabled = totalClipsCount() === 0;
   }
 }
 
 function goNext() {
   if (state.step === 1) {
-    if (state.clips.length === 0) { alert("Subí al menos un video"); return; }
+    if (totalClipsCount() === 0) { alert("Subí al menos un video"); return; }
   }
   if (state.step === 2) {
-    // Trigger render and submit
     state.step = 3;
     render();
     processReel();
@@ -207,34 +292,68 @@ function goPrev() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-//  STEP 1 — VIDEOS
+//  STEP 1 — VIDEOS (guided OR simple)
 // ──────────────────────────────────────────────────────────────────────────
 function renderStep1() {
-  const hasClips = state.clips.length > 0;
-  const totalDur = calcAutoDuration(state.clips.length) * state.clips.length;
+  const total = totalClipsCount();
+  const totalDur = calcAutoDuration(total) * total;
+
+  const modeToggle = `
+    <div class="bg-white border border-slate-200 rounded-xl p-1.5 flex gap-1 mb-5 max-w-md mx-auto">
+      <button onclick="switchUploadMode('guided')"
+              class="mode-pill flex-1 py-2 px-3 rounded-lg text-sm font-medium ${state.upload_mode === 'guided' ? 'active' : 'text-slate-600 hover:bg-slate-100'}">
+        🎬 Guiado por tomas
+      </button>
+      <button onclick="switchUploadMode('simple')"
+              class="mode-pill flex-1 py-2 px-3 rounded-lg text-sm font-medium ${state.upload_mode === 'simple' ? 'active' : 'text-slate-600 hover:bg-slate-100'}">
+        ⚡ Subir videos existentes
+      </button>
+    </div>
+  `;
+
+  let content;
+  if (state.upload_mode === "simple") {
+    content = renderSimpleUpload();
+  } else {
+    content = renderGuidedSections();
+  }
+
+  return `
+    <div class="fade-in">
+      <h1 class="text-2xl font-bold text-slate-900 mb-1 text-center">Tus videos</h1>
+      <p class="text-slate-600 mb-5 text-center text-sm">Elegí cómo querés cargar los videos de la propiedad</p>
+      ${modeToggle}
+      ${content}
+    </div>
+  `;
+}
+
+// — SIMPLE MODE (single dropzone + reorderable grid)
+function renderSimpleUpload() {
+  const hasClips = state.simple_clips.length > 0;
+  const total = state.simple_clips.length;
+  const totalDur = calcAutoDuration(total) * total;
 
   const dropzone = `
     <div class="dropzone bg-white border-2 border-slate-300 rounded-2xl p-8 text-center mb-4"
-         id="dropzone"
          ondragover="event.preventDefault(); this.classList.add('drag')"
          ondragleave="this.classList.remove('drag')"
-         ondrop="event.preventDefault(); this.classList.remove('drag'); handleClipsUpload(event.dataTransfer.files)">
+         ondrop="event.preventDefault(); this.classList.remove('drag'); handleSimpleUpload(event.dataTransfer.files)">
       <div class="text-4xl mb-2">🎬</div>
-      <div class="font-medium text-slate-900 mb-1">Arrastrá tus videos acá</div>
-      <div class="text-sm text-slate-500 mb-4">o</div>
+      <div class="font-medium text-slate-900 mb-1">Arrastrá tus videos o tocá abajo</div>
+      <div class="text-sm text-slate-500 mb-4">Podés subir varios a la vez</div>
       <div class="flex flex-wrap justify-center gap-2">
         <label class="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-lg cursor-pointer hover:bg-slate-800 font-medium">
           📤 Subir videos
           <input type="file" accept="video/*" multiple class="hidden"
-                 onchange="handleClipsUpload(event.target.files)">
+                 onchange="handleSimpleUpload(event.target.files)">
         </label>
         <label class="inline-flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-slate-900 text-slate-900 rounded-lg cursor-pointer hover:bg-slate-100 font-medium">
-          📷 Grabar
+          📷 Grabar ahora
           <input type="file" accept="video/*" capture="environment" class="hidden"
-                 onchange="handleClipsUpload(event.target.files)">
+                 onchange="handleSimpleUpload(event.target.files)">
         </label>
       </div>
-      <div class="text-xs text-slate-400 mt-3">Subí entre 4 y 12 videos cortos · Verticales se ven mejor</div>
     </div>
   `;
 
@@ -242,73 +361,64 @@ function renderStep1() {
     <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">
       <div class="flex items-center justify-between mb-3">
         <div class="text-sm font-medium text-slate-900">
-          ${state.clips.length} video${state.clips.length !== 1 ? 's' : ''} ·
+          ${total} video${total !== 1 ? 's' : ''} ·
           <span class="text-slate-500 font-normal">~${Math.round(totalDur)}s de reel + cierre</span>
         </div>
         <div class="text-xs text-slate-400">Arrastrá para reordenar</div>
       </div>
-      <div id="clips-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-        ${state.clips.map((c, i) => `
-          <div class="clip-tile grab-tile relative bg-slate-100 rounded-lg overflow-hidden" data-id="${c.id}">
+      <div id="simple-clips-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+        ${state.simple_clips.map((c, i) => `
+          <div class="clip-tile relative bg-slate-100 rounded-lg overflow-hidden cursor-grab" data-id="${c.id}">
             <video src="${c.dataUrl}" muted playsinline preload="metadata" class="w-full aspect-[9/16] object-cover bg-black"></video>
             <div class="absolute top-1 left-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">${i + 1}</div>
-            <button onclick="removeClip('${c.id}')" class="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full text-xs hover:bg-red-600">×</button>
+            <button onclick="removeSimpleClip('${c.id}')" class="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full text-xs hover:bg-red-600">×</button>
           </div>
         `).join("")}
       </div>
     </div>
   ` : "";
 
-  return `
-    <div class="fade-in">
-      <h1 class="text-2xl font-bold text-slate-900 mb-1">Tus videos</h1>
-      <p class="text-slate-600 mb-6">Subí los videos de la propiedad. Después los ordenás como quieras.</p>
-      ${dropzone}
-      ${grid}
-    </div>
-  `;
+  return dropzone + grid;
 }
 
-function handleClipsUpload(files) {
+function handleSimpleUpload(files) {
   const arr = Array.from(files).filter(f => f.type.startsWith("video/"));
   if (arr.length === 0) return;
-
   let pending = arr.length;
   arr.forEach(f => {
     const reader = new FileReader();
     reader.onload = e => {
-      state.clips.push({
-        id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      state.simple_clips.push({
+        id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         file: f, dataUrl: e.target.result, name: f.name,
       });
       pending--;
       if (pending === 0) {
         render();
-        setTimeout(initClipsSortable, 50);
+        setTimeout(initSimpleSortable, 50);
       }
     };
     reader.readAsDataURL(f);
   });
 }
 
-function removeClip(id) {
-  state.clips = state.clips.filter(c => c.id !== id);
+function removeSimpleClip(id) {
+  state.simple_clips = state.simple_clips.filter(c => c.id !== id);
   render();
-  setTimeout(initClipsSortable, 50);
+  setTimeout(initSimpleSortable, 50);
 }
 
-function initClipsSortable() {
-  const grid = document.getElementById("clips-grid");
+function initSimpleSortable() {
+  const grid = document.getElementById("simple-clips-grid");
   if (!grid || typeof Sortable === "undefined") return;
-  if (state.clips_sortable) state.clips_sortable.destroy();
-  state.clips_sortable = Sortable.create(grid, {
+  if (state.simple_sortable) state.simple_sortable.destroy();
+  state.simple_sortable = Sortable.create(grid, {
     animation: 150,
     ghostClass: "sortable-ghost",
     chosenClass: "sortable-chosen",
     onEnd: (evt) => {
-      const moved = state.clips.splice(evt.oldIndex, 1)[0];
-      state.clips.splice(evt.newIndex, 0, moved);
-      // re-render numbers without losing sortable
+      const moved = state.simple_clips.splice(evt.oldIndex, 1)[0];
+      state.simple_clips.splice(evt.newIndex, 0, moved);
       const tiles = grid.querySelectorAll(".clip-tile");
       tiles.forEach((tile, i) => {
         const badge = tile.querySelector("div");
@@ -316,6 +426,105 @@ function initClipsSortable() {
       });
     }
   });
+}
+
+// — GUIDED MODE (sections with tips)
+function renderGuidedSections() {
+  return `
+    <div class="space-y-3">
+      ${SECTION_ORDER.map(k => renderSectionCard(k)).join("")}
+    </div>
+    <div class="mt-5 text-center text-xs text-slate-500">
+      Tip: no es obligatorio llenar todas. Con al menos una toma ya podés generar el reel.
+    </div>
+  `;
+}
+
+function renderSectionCard(key) {
+  const cfg = SECTION_CONFIG[key];
+  const sec = state.sections[key];
+  const count = sec.clips.length;
+  const complete = count > 0;
+  const slotsLeft = cfg.maxClips - count;
+
+  const speedTag = cfg.speed !== 1.0
+    ? `<span class="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full ml-1">×${cfg.speed}</span>`
+    : "";
+  const limitTag = `<span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full ml-1">
+    ${cfg.maxClips === 1 ? `1 toma · ${cfg.defaultDuration}s` : `máx ${cfg.maxClips} · ${cfg.defaultDuration}s c/u`}
+  </span>`;
+
+  const clipsHtml = sec.clips.length === 0
+    ? ""
+    : `<div class="flex flex-wrap gap-2 mb-3">
+        ${sec.clips.map((c, i) => `
+          <div class="relative">
+            <video src="${c.dataUrl}" class="w-20 h-28 object-cover rounded-lg bg-black" muted playsinline preload="metadata"></video>
+            <button onclick="removeSectionClip('${key}', ${i})" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs hover:bg-red-600">×</button>
+          </div>
+        `).join("")}
+      </div>`;
+
+  const actionButtons = slotsLeft > 0
+    ? `<div class="flex flex-wrap gap-2">
+        <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs rounded-lg cursor-pointer hover:bg-slate-800">
+          📤 Subir
+          <input type="file" accept="video/*" multiple class="hidden"
+                 onchange="handleSectionUpload('${key}', event.target.files)">
+        </label>
+        <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-900 text-slate-900 text-xs rounded-lg cursor-pointer hover:bg-slate-100">
+          📷 Grabar
+          <input type="file" accept="video/*" capture="environment" class="hidden"
+                 onchange="handleSectionUpload('${key}', event.target.files)">
+        </label>
+      </div>`
+    : `<span class="text-xs text-emerald-700 font-medium">✓ Sección completa</span>`;
+
+  return `
+    <div class="section-card border-2 ${complete ? 'complete' : 'border-slate-200'} rounded-xl p-4 bg-white">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center flex-wrap">
+          <span class="text-xl mr-2">${cfg.icon}</span>
+          <h3 class="font-bold text-slate-900">${cfg.label}</h3>
+          ${limitTag}
+          ${speedTag}
+        </div>
+        <div class="text-xs ${complete ? 'text-emerald-600' : 'text-slate-400'} font-medium">
+          ${count}/${cfg.maxClips}
+        </div>
+      </div>
+      <p class="text-xs text-slate-700 mb-1">${escapeHtml(cfg.description)}</p>
+      <p class="text-[11px] text-slate-500 italic mb-3">💡 ${escapeHtml(cfg.tip)}</p>
+      ${clipsHtml}
+      ${actionButtons}
+    </div>
+  `;
+}
+
+function handleSectionUpload(key, files) {
+  const cfg = SECTION_CONFIG[key];
+  const sec = state.sections[key];
+  const slotsLeft = cfg.maxClips - sec.clips.length;
+  const arr = Array.from(files).filter(f => f.type.startsWith("video/")).slice(0, slotsLeft);
+  let pending = arr.length;
+  if (pending === 0) return;
+  arr.forEach(f => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      sec.clips.push({
+        id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        file: f, dataUrl: e.target.result, name: f.name,
+      });
+      pending--;
+      if (pending === 0) render();
+    };
+    reader.readAsDataURL(f);
+  });
+}
+
+function removeSectionClip(key, idx) {
+  state.sections[key].clips.splice(idx, 1);
+  render();
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -326,12 +535,10 @@ function renderStep2() {
   const presetOptions = state.music_presets_catalog
     .map(pr => `<option value="${pr.key}" ${state.music_preset === pr.key ? 'selected' : ''}>${escapeHtml(pr.label)}</option>`)
     .join("");
-
-  // Auto-preview of CTA
   const previewInfo = state.custom_cta_info ||
     `${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`;
   const previewPrecio = state.custom_cta_precio ||
-    (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Desde — UF');
+    (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar');
 
   return `
     <div class="fade-in max-w-2xl mx-auto">
@@ -386,7 +593,6 @@ function renderStep2() {
         </div>
       </div>
 
-      <!-- CTA Preview -->
       <div class="bg-black rounded-2xl p-6 mb-4 text-center">
         <div class="text-white text-sm mb-4">${escapeHtml(previewInfo)}</div>
         <div class="bg-white px-5 py-3 rounded inline-block mb-4">
@@ -396,7 +602,6 @@ function renderStep2() {
         <div class="text-slate-500 text-[10px] mt-3">↑ Cierre del reel (preview)</div>
       </div>
 
-      <!-- Advanced options (collapsible) -->
       <details class="bg-white border border-slate-200 rounded-2xl mb-4" ${state.advanced_open ? 'open' : ''}
                ontoggle="state.advanced_open=this.open">
         <summary class="px-5 py-4 flex items-center justify-between">
@@ -408,7 +613,6 @@ function renderStep2() {
         </summary>
 
         <div class="border-t border-slate-200 p-5 space-y-5">
-          <!-- Música -->
           <div>
             <div class="text-sm font-medium text-slate-900 mb-2">🎵 Música de fondo</div>
             <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mb-2"
@@ -428,7 +632,6 @@ function renderStep2() {
                 </label>`}
           </div>
 
-          <!-- Voz -->
           <div>
             <div class="text-sm font-medium text-slate-900 mb-2">🎙️ Voz / narración (opcional)</div>
             ${state.voice_audio_file
@@ -444,7 +647,6 @@ function renderStep2() {
                 <span class="text-xs text-slate-500 ml-2">La música baja al 25% cuando hablás</span>`}
           </div>
 
-          <!-- Logo -->
           <div>
             <div class="text-sm font-medium text-slate-900 mb-2">🏷️ Logo (opcional)</div>
             ${state.logo_dataUrl
@@ -460,7 +662,6 @@ function renderStep2() {
                 <span class="text-xs text-slate-500 ml-2">Aparece 2s antes del cierre</span>`}
           </div>
 
-          <!-- CTA personalizable -->
           <div>
             <div class="text-sm font-medium text-slate-900 mb-2">💎 Personalizar cierre (opcional)</div>
             <div class="space-y-2">
@@ -468,7 +669,7 @@ function renderStep2() {
                      value="${escapeAttr(state.custom_cta_info)}" maxlength="60"
                      oninput="state.custom_cta_info=this.value; render()"
                      class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
-              <input type="text" placeholder="Precio (default: ${escapeAttr(p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Desde — UF')})"
+              <input type="text" placeholder="Precio (default: ${escapeAttr(p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar')})"
                      value="${escapeAttr(state.custom_cta_precio)}" maxlength="30"
                      oninput="state.custom_cta_precio=this.value; render()"
                      class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
@@ -505,8 +706,8 @@ function renderStep3() {
     return `
       <div class="fade-in max-w-md mx-auto text-center pt-12">
         <div class="spinner w-12 h-12 border-4 border-slate-200 border-t-slate-900 rounded-full mx-auto mb-6"></div>
-        <h1 class="text-2xl font-bold text-slate-900 mb-2">${state.is_reprocessing ? 'Re-procesando tu reel' : 'Creando tu reel'}</h1>
-        <p class="text-slate-600 mb-6">Estamos editando los videos, agregando música y armando el cierre. Toma 1-2 minutos.</p>
+        <h1 class="text-2xl font-bold text-slate-900 mb-2">${state.is_reprocessing ? 'Re-procesando' : 'Creando tu reel'}</h1>
+        <p class="text-slate-600 mb-6">Editando los videos, agregando música y armando el cierre. Toma 1-2 minutos.</p>
         ${state.job_log.length
           ? `<div class="text-xs text-slate-400 italic">${escapeHtml(state.job_log[state.job_log.length - 1])}</div>`
           : ''}
@@ -516,11 +717,26 @@ function renderStep3() {
 
   if (isError) {
     return `
-      <div class="fade-in max-w-md mx-auto text-center pt-8">
-        <div class="text-5xl mb-4">😕</div>
-        <h1 class="text-2xl font-bold text-slate-900 mb-2">Algo salió mal</h1>
-        <p class="text-slate-600 mb-4">${escapeHtml(state.job_error || "Error desconocido")}</p>
-        <button onclick="state.step=1; render()" class="px-5 py-2.5 bg-slate-900 text-white rounded-lg">Volver al inicio</button>
+      <div class="fade-in max-w-lg mx-auto pt-6">
+        <div class="text-center mb-4">
+          <div class="text-5xl mb-3">😕</div>
+          <h1 class="text-2xl font-bold text-slate-900 mb-2">Algo salió mal</h1>
+        </div>
+        <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+          <div class="text-sm text-red-800 font-mono break-words">${escapeHtml(state.job_error || "Error desconocido")}</div>
+        </div>
+        ${state.job_log.length
+          ? `<details class="bg-slate-50 rounded-xl p-4 mb-4 text-xs">
+              <summary class="cursor-pointer text-slate-700">Ver log (${state.job_log.length} pasos antes del error)</summary>
+              <div class="mt-2 text-slate-600 font-mono">
+                ${state.job_log.map(l => `<div>✓ ${escapeHtml(l)}</div>`).join("")}
+              </div>
+            </details>`
+          : ''}
+        <div class="flex gap-2 justify-center">
+          <button onclick="state.step=1; render()" class="px-5 py-2.5 bg-slate-900 text-white rounded-lg">← Volver al inicio</button>
+          <button onclick="state.has_been_processed=false; state.job_status=null; state.job_error=null; processReel()" class="px-5 py-2.5 bg-amber-500 text-white rounded-lg">Reintentar</button>
+        </div>
       </div>
     `;
   }
@@ -562,7 +778,6 @@ function renderStep3() {
     `;
   }
 
-  // Initial state (before processing)
   return `
     <div class="fade-in max-w-md mx-auto text-center pt-12">
       <div class="text-5xl mb-4">🚀</div>
@@ -578,37 +793,69 @@ function renderStep3() {
 function buildCtaData() {
   const p = state.property;
   return {
-    info: state.custom_cta_info ||
+    info: (state.custom_cta_info || "").trim() ||
           `${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`,
-    precio: state.custom_cta_precio ||
+    precio: (state.custom_cta_precio || "").trim() ||
             (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar'),
-    tagline: state.custom_tagline || "",
+    tagline: (state.custom_tagline || "").trim() || "Vivir distinto",
   };
 }
 
-function buildSimpleSections() {
-  const dur = calcAutoDuration(state.clips.length);
-  return [{
-    name: "default",
-    clips: state.clips.map((c, i) => ({
-      file_index: i,
-      trim_start: 0,
-      trim_duration: dur,
-      speed: 1.0,
-      headline: "",
-      subline: "",
-    }))
-  }];
+/** Returns {files: [...File], sections: [...]} */
+function buildPayload() {
+  if (state.upload_mode === "simple") {
+    const dur = calcAutoDuration(state.simple_clips.length);
+    const files = state.simple_clips.map(c => c.file);
+    const sections = [{
+      name: "default",
+      clips: state.simple_clips.map((_, i) => ({
+        file_index: i,
+        trim_start: 0,
+        trim_duration: dur,
+        speed: 1.0,
+        headline: "",
+        subline: "",
+      }))
+    }];
+    return { files, sections };
+  }
+  // guided
+  const files = [];
+  const sections = [];
+  for (const key of SECTION_ORDER) {
+    const cfg = SECTION_CONFIG[key];
+    const sec = state.sections[key];
+    if (sec.clips.length === 0) continue;
+    const clips = sec.clips.map((c, i) => {
+      const fi = files.length;
+      files.push(c.file);
+      return {
+        file_index: fi,
+        trim_start: 0,
+        trim_duration: cfg.defaultDuration,
+        speed: cfg.speed,
+        headline: i === 0 ? ((sec.headline || "").trim()) : "",
+        subline: "",
+      };
+    });
+    sections.push({ name: key, clips });
+  }
+  return { files, sections };
 }
 
 async function processReel() {
-  if (state.clips.length === 0) { alert("No hay videos para procesar"); state.step = 1; render(); return; }
+  const { files, sections } = buildPayload();
+  if (files.length === 0) {
+    alert("No hay videos para procesar");
+    state.step = 1; render();
+    return;
+  }
 
   const fd = new FormData();
-  fd.append("sections", JSON.stringify(buildSimpleSections()));
+  fd.append("sections", JSON.stringify(sections));
   fd.append("cta_data", JSON.stringify(buildCtaData()));
   fd.append("music_preset", state.music_preset || "chill");
-  state.clips.forEach(c => fd.append("clips", c.file));
+  files.forEach(f => fd.append("clips", f));
   if (state.music_file)       fd.append("music",       state.music_file);
   if (state.voice_audio_file) fd.append("voice_audio", state.voice_audio_file);
   if (state.logo_file)        fd.append("logo",        state.logo_file);
@@ -616,11 +863,20 @@ async function processReel() {
   state.job_status = "uploading";
   state.is_reprocessing = false;
   state.has_been_processed = true;
+  state.job_error = null;
+  state.job_log = [];
   render();
 
   try {
     const r = await fetch(API("/jobs"), { method: "POST", body: fd });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) {
+      let detail = `HTTP ${r.status}`;
+      try {
+        const errBody = await r.text();
+        if (errBody) detail += ` — ${errBody.slice(0, 400)}`;
+      } catch (_) {}
+      throw new Error(detail);
+    }
     const j = await r.json();
     state.job_id = j.job_id;
     state.job_status = j.status;
@@ -628,7 +884,7 @@ async function processReel() {
     pollJobStatus();
   } catch (e) {
     state.job_status = "error";
-    state.job_error = e.message;
+    state.job_error = e.message || String(e);
     render();
   }
 }
@@ -637,8 +893,11 @@ async function reprocessFromCurrent() {
   if (!state.job_id) { processReel(); return; }
   if (!confirm("¿Re-procesar el reel con los cambios?")) return;
 
+  const { sections } = buildPayload();
+  if (sections.length === 0) { alert("No hay videos"); return; }
+
   const fd = new FormData();
-  fd.append("sections", JSON.stringify(buildSimpleSections()));
+  fd.append("sections", JSON.stringify(sections));
   fd.append("cta_data", JSON.stringify(buildCtaData()));
   fd.append("music_preset", state.music_preset || "chill");
 
@@ -651,11 +910,18 @@ async function reprocessFromCurrent() {
 
   try {
     const r = await fetch(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) {
+      let detail = `HTTP ${r.status}`;
+      try {
+        const errBody = await r.text();
+        if (errBody) detail += ` — ${errBody.slice(0, 400)}`;
+      } catch (_) {}
+      throw new Error(detail);
+    }
     pollJobStatus();
   } catch (e) {
     state.job_status = "error";
-    state.job_error = e.message;
+    state.job_error = e.message || String(e);
     render();
   }
 }
@@ -681,29 +947,36 @@ async function pollJobStatus() {
 //  MANUAL EDITOR (timeline tipo CapCut)
 // ──────────────────────────────────────────────────────────────────────────
 function openManualEditor() {
-  const dur = calcAutoDuration(state.clips.length);
-  state.editor_clips = state.clips.map((c, i) => ({
-    id: `eclip_${i}`,
-    fileIndex: i,
-    fileName: c.name,
-    dataUrl: c.dataUrl,
-    trim_start: 0,
-    trim_duration: dur,
-    speed: 1.0,
-    headline: "",
-    subline: "",
-    sourceDuration: null,
-  }));
+  const { files, sections } = buildPayload();
+  if (files.length === 0) { alert("No hay clips para editar"); return; }
+  // Flat list of clips with metadata
+  const editorClips = [];
+  let i = 0;
+  sections.forEach(s => {
+    s.clips.forEach(c => {
+      editorClips.push({
+        id: `eclip_${i}`,
+        fileIndex: c.file_index,
+        fileName: files[c.file_index].name,
+        dataUrl: URL.createObjectURL(files[c.file_index]),
+        trim_start: c.trim_start,
+        trim_duration: c.trim_duration,
+        speed: c.speed,
+        headline: c.headline || "",
+        subline: c.subline || "",
+        sourceDuration: null,
+      });
+      i++;
+    });
+  });
+  state.editor_clips = editorClips;
   state.editor_open = true;
   render();
   setTimeout(initEditorSortable, 50);
 }
 
 function closeManualEditor() {
-  if (state.editor_sortable) {
-    state.editor_sortable.destroy();
-    state.editor_sortable = null;
-  }
+  if (state.editor_sortable) { state.editor_sortable.destroy(); state.editor_sortable = null; }
   state.editor_open = false;
   render();
 }
@@ -873,23 +1146,20 @@ async function applyEditorChanges() {
 
   try {
     const r = await fetch(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) {
+      let detail = `HTTP ${r.status}`;
+      try {
+        const errBody = await r.text();
+        if (errBody) detail += ` — ${errBody.slice(0, 400)}`;
+      } catch (_) {}
+      throw new Error(detail);
+    }
     pollJobStatus();
   } catch (e) {
     state.job_status = "error";
-    state.job_error = e.message;
+    state.job_error = e.message || String(e);
     render();
   }
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-//  HELPERS
-// ──────────────────────────────────────────────────────────────────────────
-function escapeHtml(s) {
-  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-function escapeAttr(s) {
-  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -900,12 +1170,11 @@ function render() {
   const c = document.getElementById("step-content");
   if (state.step === 1) {
     c.innerHTML = renderStep1();
-    setTimeout(initClipsSortable, 50);
+    if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50);
   }
   if (state.step === 2) c.innerHTML = renderStep2();
   if (state.step === 3) c.innerHTML = renderStep3();
 
-  // Editor overlay
   const existing = document.getElementById("editor-overlay");
   if (state.editor_open) {
     if (existing) existing.remove();
