@@ -1,11 +1,12 @@
 """
-GreatDeal · Backend FastAPI
+GreatDeal · Backend FastAPI (v0.2 — secciones)
 Endpoints:
   GET  /                          → sirve el frontend HTML
   GET  /api/voices                → lista de voces curadas
-  POST /api/jobs                  → crea un job de edición (upload de clips + datos propiedad)
+  POST /api/jobs                  → crea un job (clips + secciones + cta + logo)
   GET  /api/jobs/{job_id}         → estado de un job
   GET  /api/jobs/{job_id}/download → descarga el MP4 final
+  POST /api/jobs/{job_id}/reprocess → re-procesa el job con nuevos sections/cta_data
 """
 import os
 import shutil
@@ -34,10 +35,10 @@ WORK_DIR = ROOT / "work"
 for p in [UPLOAD_DIR, OUTPUT_DIR, WORK_DIR]:
     p.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="GreatDeal Editor API", version="0.1")
+app = FastAPI(title="GreatDeal Editor API", version="0.2")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# In-memory job store (v0.1)
+# In-memory job store
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 
@@ -51,7 +52,6 @@ def set_job(job_id: str, **updates):
 
 @app.get("/")
 async def root():
-    """Serve the frontend HTML."""
     index = FRONTEND_DIR / "index.html"
     if index.exists():
         return FileResponse(str(index))
@@ -60,77 +60,87 @@ async def root():
 
 @app.get("/api/voices")
 async def voices():
-    """Return curated voice list."""
     return {"voices": list_voices()}
 
 
 @app.post("/api/jobs")
 async def create_job(
-    property_data: str = Form(...),
+    sections: str = Form(...),
+    cta_data: str = Form(...),
     clips: list[UploadFile] = File(...),
+    logo: Optional[UploadFile] = File(None),
     music: Optional[UploadFile] = File(None),
     voice_audio: Optional[UploadFile] = File(None),
     voice_key: Optional[str] = Form(None),
     generate_voice: bool = Form(False),
 ):
     """
-    Create a new editing job.
+    Create a new editing job with section-based structure.
 
     Multipart form:
-      - property_data: JSON string with property info + clips_meta (headlines, trim ranges)
-      - clips: list of MP4 files
-      - music: optional MP3 (else synth ambient)
-      - voice_audio: optional MP3 voiceover from user
-      - voice_key: optional voice ID to generate with ElevenLabs
-      - generate_voice: bool, if true generate voiceover from property_data via ElevenLabs
+      - sections: JSON string. Array of {name, clips: [{file_index, trim_start, trim_duration, headline, subline, speed}]}
+                  file_index refers to the index in the `clips` array (0-based)
+      - cta_data: JSON string {info, precio, tagline}
+      - clips: list of MP4 files (all videos for all sections, in order)
+      - logo: optional PNG/JPG of corredor logo
+      - music: optional MP3
+      - voice_audio: optional MP3 voiceover
+      - voice_key: optional ElevenLabs voice ID
+      - generate_voice: bool, generate voice from cta_data via ElevenLabs
     """
     try:
-        data = json.loads(property_data)
+        sections_data = json.loads(sections)
     except json.JSONDecodeError as e:
-        raise HTTPException(400, f"Invalid property_data JSON: {e}")
+        raise HTTPException(400, f"Invalid sections JSON: {e}")
+    try:
+        cta = json.loads(cta_data)
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, f"Invalid cta_data JSON: {e}")
 
     job_id = uuid.uuid4().hex[:12]
     job_upload = UPLOAD_DIR / job_id
     job_upload.mkdir(parents=True, exist_ok=True)
 
-    # Save clips
+    # Save clips (preserve order — important for file_index lookup)
     clip_paths = []
-    for i, c in enumerate(clips, start=1):
-        ext = Path(c.filename).suffix or ".mp4"
-        path = job_upload / f"clip_{i}{ext}"
+    for i, c in enumerate(clips):
+        ext = Path(c.filename or "").suffix or ".mp4"
+        path = job_upload / f"clip_{i:03d}{ext}"
         with open(path, "wb") as f:
             shutil.copyfileobj(c.file, f)
         clip_paths.append(str(path))
 
-    # Save uploaded music
+    # Save logo (optional)
+    logo_path = None
+    if logo:
+        ext = Path(logo.filename or "").suffix or ".png"
+        logo_path = job_upload / f"logo{ext}"
+        with open(logo_path, "wb") as f:
+            shutil.copyfileobj(logo.file, f)
+        logo_path = str(logo_path)
+
+    # Save music (optional)
     music_path = None
     if music:
-        ext = Path(music.filename).suffix or ".mp3"
+        ext = Path(music.filename or "").suffix or ".mp3"
         music_path = job_upload / f"music{ext}"
         with open(music_path, "wb") as f:
             shutil.copyfileobj(music.file, f)
         music_path = str(music_path)
 
-    # Save uploaded voice audio
+    # Save voice audio (optional)
     voice_audio_path = None
     if voice_audio:
-        ext = Path(voice_audio.filename).suffix or ".mp3"
+        ext = Path(voice_audio.filename or "").suffix or ".mp3"
         voice_audio_path = job_upload / f"voice{ext}"
         with open(voice_audio_path, "wb") as f:
             shutil.copyfileobj(voice_audio.file, f)
         voice_audio_path = str(voice_audio_path)
 
-    # Build clips_meta — either provided in property_data or auto-default
-    clips_meta = data.get("clips_meta")
-    if not clips_meta:
-        # Sensible defaults: 4s each, no headlines
-        clips_meta = [
-            {"trim_start": 0, "trim_duration": min(4, 5), "headline": "", "subline": ""}
-            for _ in clip_paths
-        ]
-    # Attach input_path to each meta
-    for meta, path in zip(clips_meta, clip_paths):
-        meta["input_path"] = path
+    # Resolve file_index → input_path in each section's clips
+    resolved_sections = _resolve_sections(sections_data, clip_paths)
+    if isinstance(resolved_sections, dict) and "error" in resolved_sections:
+        raise HTTPException(400, resolved_sections["error"])
 
     output_path = OUTPUT_DIR / f"reel_{job_id}.mp4"
     work_dir = WORK_DIR / job_id
@@ -139,23 +149,25 @@ async def create_job(
         "id": job_id,
         "status": "pending",
         "created": datetime.utcnow().isoformat(),
-        "property": data,
-        "clips_meta": clips_meta,
+        "sections": resolved_sections,
+        "cta_data": cta,
+        "clip_paths": clip_paths,
+        "logo_path": logo_path,
         "voice_key": voice_key,
         "voice_audio_path": voice_audio_path,
         "music_path": music_path,
         "output_path": str(output_path),
+        "work_dir": str(work_dir),
         "log": [],
         "error": None,
     }
     with JOBS_LOCK:
         JOBS[job_id] = job
 
-    # Run processing in background thread
     threading.Thread(
         target=process_job,
-        args=(job_id, clips_meta, data, str(work_dir),
-              voice_audio_path, music_path, str(output_path),
+        args=(job_id, resolved_sections, cta, str(work_dir),
+              voice_audio_path, music_path, logo_path, str(output_path),
               voice_key, generate_voice),
         daemon=True,
     ).start()
@@ -163,15 +175,41 @@ async def create_job(
     return {"job_id": job_id, "status": "pending"}
 
 
-def process_job(job_id, clips_meta, property_data, work_dir,
-                voice_audio_path, music_path, output_path,
+def _resolve_sections(sections_data, clip_paths):
+    """Replace file_index in each clip with actual input_path."""
+    resolved = []
+    for section in sections_data:
+        s = {"name": section.get("name", "custom"), "clips": []}
+        for c in section.get("clips", []):
+            idx = c.get("file_index")
+            if idx is None or idx < 0 or idx >= len(clip_paths):
+                return {"error": f"Invalid file_index {idx} in section {section.get('name')}"}
+            s["clips"].append({
+                "input_path": clip_paths[idx],
+                "trim_start": c.get("trim_start", 0),
+                "trim_duration": c.get("trim_duration", 3),
+                "headline": c.get("headline", ""),
+                "subline": c.get("subline", ""),
+                "speed": c.get("speed", 1.0),
+            })
+        resolved.append(s)
+    return resolved
+
+
+def process_job(job_id, sections, cta_data, work_dir,
+                voice_audio_path, music_path, logo_path, output_path,
                 voice_key, generate_voice):
-    """Background processing pipeline."""
     set_job(job_id, status="processing")
 
-    # Step 0: if no voice audio uploaded but user wants voice → generate with ElevenLabs
+    # If user wants ElevenLabs voice generation
     if not voice_audio_path and generate_voice and voice_key:
-        script = build_voiceover_script(property_data)
+        # Build minimal property dict for script generation
+        script_data = {
+            "comuna": cta_data.get("info", ""),
+            "precio_uf": cta_data.get("precio", ""),
+            "diferenciador": cta_data.get("tagline", ""),
+        }
+        script = build_voiceover_script(script_data)
         gen_path = Path(work_dir) / "voiceover.mp3"
         gen_path.parent.mkdir(parents=True, exist_ok=True)
         ok, err = generate_voiceover(script, voice_key, str(gen_path))
@@ -181,21 +219,64 @@ def process_job(job_id, clips_meta, property_data, work_dir,
         voice_audio_path = str(gen_path)
         set_job(job_id, voice_audio_path=voice_audio_path)
 
-    # Step 1: build reel
     result = build_reel(
-        clips=clips_meta,
-        property_data=property_data,
+        sections=sections,
+        cta_data=cta_data,
         work_dir=work_dir,
         voice_audio_path=voice_audio_path,
         music_path=music_path,
+        logo_path=logo_path,
         output_path=output_path,
     )
 
     if result.get("success"):
-        set_job(job_id, status="done", log=result.get("log", []), duration=result.get("duration"))
+        set_job(job_id, status="done", log=result.get("log", []),
+                duration=result.get("duration"))
     else:
         set_job(job_id, status="error", error=result.get("error", "unknown"),
                 log=result.get("log", []))
+
+
+@app.post("/api/jobs/{job_id}/reprocess")
+async def reprocess_job(
+    job_id: str,
+    sections: str = Form(...),
+    cta_data: str = Form(...),
+):
+    """Re-process an existing job with new sections/cta_data (re-edit feature).
+    Reuses the original clips, logo, music, voice. Only re-applies trim/text/CTA."""
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    try:
+        sections_data = json.loads(sections)
+        cta = json.loads(cta_data)
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, f"Invalid JSON: {e}")
+
+    resolved = _resolve_sections(sections_data, job["clip_paths"])
+    if isinstance(resolved, dict) and "error" in resolved:
+        raise HTTPException(400, resolved["error"])
+
+    # New work dir for the reprocess (avoid stale intermediates)
+    new_work = WORK_DIR / f"{job_id}_v{uuid.uuid4().hex[:4]}"
+    new_output = OUTPUT_DIR / f"reel_{job_id}_{new_work.name.split('_v')[-1]}.mp4"
+
+    set_job(job_id, status="processing", sections=resolved, cta_data=cta,
+            output_path=str(new_output), work_dir=str(new_work), log=[], error=None)
+
+    threading.Thread(
+        target=process_job,
+        args=(job_id, resolved, cta, str(new_work),
+              job.get("voice_audio_path"), job.get("music_path"),
+              job.get("logo_path"), str(new_output),
+              None, False),
+        daemon=True,
+    ).start()
+
+    return {"job_id": job_id, "status": "pending"}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -204,7 +285,6 @@ async def get_job(job_id: str):
         job = JOBS.get(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    # Return a safe subset (no internal paths)
     return {
         "id": job["id"],
         "status": job["status"],
@@ -213,6 +293,8 @@ async def get_job(job_id: str):
         "log": job.get("log", []),
         "error": job.get("error"),
         "duration": job.get("duration"),
+        "sections": job.get("sections"),
+        "cta_data": job.get("cta_data"),
         "download_url": f"/api/jobs/{job_id}/download" if job["status"] == "done" else None,
     }
 
@@ -228,14 +310,14 @@ async def download(job_id: str):
     path = job["output_path"]
     if not Path(path).exists():
         raise HTTPException(500, "Output file missing")
-    return FileResponse(path, media_type="video/mp4", filename=f"greatdeal_reel_{job_id}.mp4")
+    return FileResponse(path, media_type="video/mp4",
+                        filename=f"greatdeal_reel_{job_id}.mp4")
 
 
 @app.get("/api/script-preview")
 async def script_preview(comuna: str = "", m2: str = "", dorms: str = "",
-                          banos: str = "", precio_uf: str = "", diferenciador: str = "",
-                          tipo: str = "casa"):
-    """Preview the auto-generated voiceover script for given property data."""
+                          banos: str = "", precio_uf: str = "",
+                          diferenciador: str = "", tipo: str = "casa"):
     data = {
         "tipo": tipo, "comuna": comuna, "m2": m2, "dorms": dorms,
         "banos": banos, "precio_uf": precio_uf, "diferenciador": diferenciador,
