@@ -373,7 +373,7 @@ async function pollJob() {
       state.job_log = j.log || [];
       state.job_error = j.error;
       state.job_duration = j.duration;
-      state.job_download = j.download_url;
+      state.job_download = j.download_url ? `${API_BASE}${j.download_url}` : null;
       render();
       if (j.status === "done" || j.status === "error") break;
     } catch (e) { console.warn(e); break; }
