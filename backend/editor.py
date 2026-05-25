@@ -51,19 +51,45 @@ def probe_duration(file: str) -> float:
         return 0.0
 
 
-def normalize_clip(input_file: str, output_file: str) -> tuple[bool, str]:
-    """Scale to 540x960 vertical, 30fps, with color correction."""
+def normalize_clip(input_file: str, output_file: str,
+                   enhance: bool = False) -> tuple[bool, str]:
+    """Scale to 540x960 vertical, 30fps, with color correction.
+    If enhance=True, apply 'pro cameraman' look: denoise + lift shadows +
+    boost contrast/saturation + unsharp + sutil vignette.
+    """
+    if enhance:
+        # Cinematic enhancement pipeline:
+        # 1. hqdn3d   → denoise (limpia el grano de cámaras malas)
+        # 2. eq       → lift shadows, boost contrast/saturation/gamma
+        # 3. unsharp  → nitidez tipo lente bueno
+        # 4. vignette → sutil viñeta cinematográfica
+        vf = (
+            f"scale={W}:{H}:flags=lanczos:force_original_aspect_ratio=decrease,"
+            f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black,"
+            "hqdn3d=1.5:1.5:6:6,"
+            "eq=brightness=0.06:contrast=1.20:saturation=1.32:gamma=1.05,"
+            "unsharp=5:5:1.0:5:5:0.0,"
+            "vignette=PI/5"
+        )
+        # Better quality preset when enhancing
+        preset, crf = "fast", "21"
+    else:
+        vf = (
+            f"scale={W}:{H}:flags=bilinear:force_original_aspect_ratio=decrease,"
+            f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black,"
+            "eq=brightness=0.03:saturation=1.18:contrast=1.08:gamma=0.97"
+        )
+        preset, crf = "ultrafast", "23"
+
     cmd = [
         "ffmpeg", "-y", "-i", input_file,
-        "-vf", f"scale={W}:{H}:flags=bilinear:force_original_aspect_ratio=decrease,"
-               f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black,"
-               "eq=brightness=0.03:saturation=1.18:contrast=1.08:gamma=0.97",
+        "-vf", vf,
         "-r", "30",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-c:v", "libx264", "-preset", preset, "-crf", crf,
         "-pix_fmt", "yuv420p", "-an",
         output_file
     ]
-    return run(cmd, f"normalize {Path(input_file).name}")
+    return run(cmd, f"normalize{' +IA' if enhance else ''} {Path(input_file).name}")
 
 
 def trim_clip(input_file: str, output_file: str,
@@ -392,6 +418,7 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
                music_path: Optional[str] = None,
                music_preset: str = "chill",
                logo_path: Optional[str] = None,
+               enhance_ai: bool = False,
                output_path: str = "reel.mp4") -> dict:
     """
     Main entry. Builds a reel from structured sections.
@@ -423,12 +450,12 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
             headline = c.get("headline", "")
             subline = c.get("subline", "")
 
-            # 1. Normalize
+            # 1. Normalize (with optional AI enhancement)
             norm_file = str(work / f"norm_{clip_idx}.mp4")
-            ok, err = normalize_clip(input_path, norm_file)
+            ok, err = normalize_clip(input_path, norm_file, enhance=enhance_ai)
             if not ok:
                 return {"success": False, "error": f"normalize clip {clip_idx}: {err}", "log": log}
-            log.append(f"normalized clip {clip_idx} ({section_name})")
+            log.append(f"normalized clip {clip_idx} ({section_name}){' +IA' if enhance_ai else ''}")
 
             # 2. Trim
             trim_file = str(work / f"trim_{clip_idx}.mp4")

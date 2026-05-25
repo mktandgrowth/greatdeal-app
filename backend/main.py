@@ -85,6 +85,7 @@ async def create_job(
     voice_audio: Optional[UploadFile] = File(None),
     voice_key: Optional[str] = Form(None),
     generate_voice: bool = Form(False),
+    enhance_ai: str = Form("false"),
 ):
     """
     Create a new editing job with section-based structure.
@@ -157,6 +158,8 @@ async def create_job(
     output_path = OUTPUT_DIR / f"reel_{job_id}.mp4"
     work_dir = WORK_DIR / job_id
 
+    enhance_flag = (enhance_ai or "").strip().lower() in ("true", "1", "yes", "on")
+
     job = {
         "id": job_id,
         "status": "pending",
@@ -169,6 +172,7 @@ async def create_job(
         "voice_audio_path": voice_audio_path,
         "music_path": music_path,
         "music_preset": music_preset,
+        "enhance_ai": enhance_flag,
         "output_path": str(output_path),
         "work_dir": str(work_dir),
         "log": [],
@@ -181,7 +185,7 @@ async def create_job(
         target=process_job,
         args=(job_id, resolved_sections, cta, str(work_dir),
               voice_audio_path, music_path, music_preset, logo_path,
-              str(output_path), voice_key, generate_voice),
+              enhance_flag, str(output_path), voice_key, generate_voice),
         daemon=True,
     ).start()
 
@@ -211,7 +215,7 @@ def _resolve_sections(sections_data, clip_paths):
 
 def process_job(job_id, sections, cta_data, work_dir,
                 voice_audio_path, music_path, music_preset, logo_path,
-                output_path, voice_key, generate_voice):
+                enhance_ai, output_path, voice_key, generate_voice):
     set_job(job_id, status="processing")
 
     # If user wants ElevenLabs voice generation
@@ -240,6 +244,7 @@ def process_job(job_id, sections, cta_data, work_dir,
         music_path=music_path,
         music_preset=music_preset,
         logo_path=logo_path,
+        enhance_ai=enhance_ai,
         output_path=output_path,
     )
 
@@ -257,6 +262,7 @@ async def reprocess_job(
     sections: str = Form(...),
     cta_data: str = Form(...),
     music_preset: Optional[str] = Form(None),
+    enhance_ai: Optional[str] = Form(None),
 ):
     """Re-process an existing job with new sections/cta_data (re-edit feature).
     Reuses the original clips, logo, music, voice. Only re-applies trim/text/CTA.
@@ -281,17 +287,23 @@ async def reprocess_job(
     new_output = OUTPUT_DIR / f"reel_{job_id}_{new_work.name.split('_v')[-1]}.mp4"
 
     effective_preset = music_preset or job.get("music_preset", "chill")
+    effective_enhance = (
+        (enhance_ai or "").strip().lower() in ("true", "1", "yes", "on")
+        if enhance_ai is not None
+        else bool(job.get("enhance_ai", False))
+    )
 
     set_job(job_id, status="processing", sections=resolved, cta_data=cta,
             output_path=str(new_output), work_dir=str(new_work),
-            music_preset=effective_preset, log=[], error=None)
+            music_preset=effective_preset, enhance_ai=effective_enhance,
+            log=[], error=None)
 
     threading.Thread(
         target=process_job,
         args=(job_id, resolved, cta, str(new_work),
               job.get("voice_audio_path"), job.get("music_path"),
               effective_preset, job.get("logo_path"),
-              str(new_output), None, False),
+              effective_enhance, str(new_output), None, False),
         daemon=True,
     ).start()
 
@@ -331,6 +343,86 @@ async def download(job_id: str):
         raise HTTPException(500, "Output file missing")
     return FileResponse(path, media_type="video/mp4",
                         filename=f"greatdeal_reel_{job_id}.mp4")
+
+
+@app.post("/api/generate-voice")
+async def generate_voice_standalone(
+    script: str = Form(...),
+    voice_key: str = Form(...),
+):
+    """Genera voz con ElevenLabs y devuelve el MP3 directamente.
+    El frontend puede usar el blob como un archivo de voz para el reel."""
+    if not script.strip():
+        raise HTTPException(400, "Script vacío")
+    voice_id = uuid.uuid4().hex[:12]
+    out_path = OUTPUT_DIR / f"voice_{voice_id}.mp3"
+    ok, err = generate_voiceover(script, voice_key, str(out_path))
+    if not ok:
+        raise HTTPException(500, f"Voice gen failed: {err[:300]}")
+    if not out_path.exists():
+        raise HTTPException(500, "Audio file not generated")
+    return FileResponse(
+        str(out_path),
+        media_type="audio/mpeg",
+        filename=f"voice_{voice_id}.mp3",
+        headers={"X-Voice-Id": voice_id},
+    )
+
+
+@app.get("/api/script-preview")
+async def script_preview(comuna: str = "", m2: str = "", dorms: str = "",
+                          banos: str = "", precio_uf: str = "",
+                          diferenciador: str = "", tipo: str = "casa"):
+    data = {
+        "tipo": tipo, "comuna": comuna, "m2": m2, "dorms": dorms,
+        "banos": banos, "precio_uf": precio_uf, "diferenciador": diferenciador,
+    }
+    return {"script": build_voiceover_script(data)}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+        "download_url": f"/api/jobs/{job_id}/download" if job["status"] == "done" else None,
+    }
+
+
+@app.get("/api/jobs/{job_id}/download")
+async def download(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job["status"] != "done":
+        raise HTTPException(409, f"Job not done (status={job['status']})")
+    path = job["output_path"]
+    if not Path(path).exists():
+        raise HTTPException(500, "Output file missing")
+    return FileResponse(path, media_type="video/mp4",
+                        filename=f"greatdeal_reel_{job_id}.mp4")
+
+
+@app.post("/api/generate-voice")
+async def generate_voice_standalone(
+    script: str = Form(...),
+    voice_key: str = Form(...),
+):
+    """Genera voz con ElevenLabs y devuelve el MP3 directamente."""
+    if not script.strip():
+        raise HTTPException(400, "Script vacío")
+    voice_id = uuid.uuid4().hex[:12]
+    out_path = OUTPUT_DIR / f"voice_{voice_id}.mp3"
+    ok, err = generate_voiceover(script, voice_key, str(out_path))
+    if not ok:
+        raise HTTPException(500, f"Voice gen failed: {err[:300]}")
+    if not out_path.exists():
+        raise HTTPException(500, "Audio file not generated")
+    return FileResponse(
+        str(out_path),
+        media_type="audio/mpeg",
+        filename=f"voice_{voice_id}.mp3",
+        headers={"X-Voice-Id": voice_id},
+    )
 
 
 @app.get("/api/script-preview")

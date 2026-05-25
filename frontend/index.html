@@ -19,7 +19,6 @@
   .section-card.complete { border-color: #10b981; background: #f0fdf4; }
   .clip-tile.sortable-ghost { opacity: 0.3; }
   .clip-tile.sortable-chosen { transform: scale(1.05); z-index: 10; }
-  /* Manual editor */
   .editor-modal { position: fixed; inset: 0; background: rgba(15,23,42,0.97); z-index: 100; overflow-y: auto; }
   .editor-clip.sortable-ghost { opacity: 0.4; background: #1e40af; }
   .editor-clip.sortable-chosen { transform: scale(1.02); box-shadow: 0 10px 40px rgba(0,0,0,0.4); }
@@ -34,6 +33,14 @@
   .chev { transition: transform 0.2s; }
   .mode-pill { transition: all 0.2s; }
   .mode-pill.active { background: #0f172a; color: white; }
+  .dual-range { position: relative; height: 36px; margin: 4px 0; }
+  .dual-range .track-bg { position: absolute; top: 16px; left: 0; right: 0; height: 4px; background: #334155; border-radius: 2px; }
+  .dual-range .track-sel { position: absolute; top: 16px; height: 4px; background: #fbbf24; border-radius: 2px; pointer-events: none; }
+  .dual-range input[type="range"] { position: absolute; top: 0; left: 0; width: 100%; height: 36px; background: transparent; -webkit-appearance: none; appearance: none; pointer-events: none; margin: 0; }
+  .dual-range input[type="range"]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none; width: 22px; height: 22px; background: #fbbf24; border: 3px solid white; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.4); margin-top: -9px; }
+  .dual-range input[type="range"]::-moz-range-thumb { pointer-events: auto; width: 22px; height: 22px; background: #fbbf24; border: 3px solid white; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+  .trim-preview-video { width: 100%; max-height: 220px; background: black; border-radius: 8px; }
+  .ai-badge { background: linear-gradient(90deg, #a855f7, #ec4899); color: white; }
 </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
@@ -50,7 +57,7 @@
 
 <main class="max-w-4xl mx-auto px-5 pb-32">
   <div class="pt-6 mb-6">
-    <div class="flex items-center justify-center gap-3" id="stepper"></div>
+    <div class="flex items-center justify-center gap-3 flex-wrap" id="stepper"></div>
   </div>
   <div id="step-content"></div>
 </main>
@@ -63,66 +70,23 @@
 </div>
 
 <script>
-// ──────────────────────────────────────────────────────────────────────────
-//  CONFIG
-// ──────────────────────────────────────────────────────────────────────────
+// ── CONFIG ─────────────────────────────────────────────────────────
 const STEPS = [
   { id: 1, label: "Videos" },
   { id: 2, label: "Datos" },
-  { id: 3, label: "Tu reel" },
+  { id: 3, label: "Audio" },
+  { id: 4, label: "Tu reel" },
 ];
 
 const SECTION_ORDER = ["exterior", "entrada", "dormitorios", "banos", "areas", "vista"];
 
 const SECTION_CONFIG = {
-  exterior: {
-    label: "Exterior",
-    icon: "🏡",
-    description: "Una toma del lugar desde afuera. Mostrá la fachada completa con luz natural.",
-    tip: "Celular vertical, distancia que se vea el lugar entero. 3-4 segundos.",
-    minClips: 0, maxClips: 1, defaultDuration: 3.5, speed: 1.0,
-    defaultHeadline: ""
-  },
-  entrada: {
-    label: "Entrada",
-    icon: "🚪",
-    description: "Grabá ~15 segundos caminando hacia y entrando al lugar. Lo aceleramos 3x.",
-    tip: "Caminá firme y lento, celular vertical. Desde afuera hasta el living.",
-    minClips: 0, maxClips: 1, defaultDuration: 15, speed: 3.0,
-    defaultHeadline: ""
-  },
-  dormitorios: {
-    label: "Dormitorios",
-    icon: "🛏️",
-    description: "1 a 5 panorámicas de cada dormitorio. 2.5 segundos cada toma.",
-    tip: "Parate en un extremo y barré con el celular hacia el otro lado, fluído. Camas hechas.",
-    minClips: 0, maxClips: 5, defaultDuration: 2.5, speed: 1.0,
-    defaultHeadline: "Dormitorios"
-  },
-  banos: {
-    label: "Baños",
-    icon: "🚿",
-    description: "1 a 5 tomas cortas de baños. 2.5 seg cada una.",
-    tip: "Panorámica o detalle de la grifería. Sin objetos personales (toallas, productos).",
-    minClips: 0, maxClips: 5, defaultDuration: 2.5, speed: 1.0,
-    defaultHeadline: "Baños"
-  },
-  areas: {
-    label: "Áreas comunes",
-    icon: "🛋️",
-    description: "1 a 5 tomas de living, cocina, terraza, comedor. 2.5 seg cada una.",
-    tip: "Ángulos amplios. Encendé luces y abrí cortinas para más luminosidad.",
-    minClips: 0, maxClips: 5, defaultDuration: 2.5, speed: 1.0,
-    defaultHeadline: "Áreas comunes"
-  },
-  vista: {
-    label: "Vista",
-    icon: "🌅",
-    description: "Cierre con la vista del lugar. 3 segundos.",
-    tip: "Vista exterior (mar, cordillera, ciudad) desde la mejor ventana o terraza.",
-    minClips: 0, maxClips: 1, defaultDuration: 3, speed: 1.0,
-    defaultHeadline: ""
-  },
+  exterior: { label: "Exterior", icon: "🏡", description: "Una toma del lugar desde afuera. Mostrá la fachada completa con luz natural.", tip: "Celular vertical, distancia que se vea el lugar entero. 3-4 segundos.", minClips: 0, maxClips: 1, defaultDuration: 3.5, speed: 1.0, defaultHeadline: "" },
+  entrada: { label: "Entrada", icon: "🚪", description: "Grabá ~15 segundos caminando hacia y entrando al lugar. Lo aceleramos 3x.", tip: "Caminá firme y lento, celular vertical. Desde afuera hasta el living.", minClips: 0, maxClips: 1, defaultDuration: 15, speed: 3.0, defaultHeadline: "" },
+  dormitorios: { label: "Dormitorios", icon: "🛏️", description: "1 a 5 panorámicas de cada dormitorio. 2.5 segundos cada toma.", tip: "Parate en un extremo y barré con el celular hacia el otro lado, fluído. Camas hechas.", minClips: 0, maxClips: 5, defaultDuration: 2.5, speed: 1.0, defaultHeadline: "Dormitorios" },
+  banos: { label: "Baños", icon: "🚿", description: "1 a 5 tomas cortas de baños. 2.5 seg cada una.", tip: "Panorámica o detalle de la grifería. Sin objetos personales.", minClips: 0, maxClips: 5, defaultDuration: 2.5, speed: 1.0, defaultHeadline: "Baños" },
+  areas: { label: "Áreas comunes", icon: "🛋️", description: "1 a 5 tomas de living, cocina, terraza, comedor. 2.5 seg cada una.", tip: "Ángulos amplios. Encendé luces y abrí cortinas para más luminosidad.", minClips: 0, maxClips: 5, defaultDuration: 2.5, speed: 1.0, defaultHeadline: "Áreas comunes" },
+  vista: { label: "Vista", icon: "🌅", description: "Cierre con la vista del lugar. 3 segundos.", tip: "Vista exterior (mar, cordillera, ciudad) desde la mejor ventana o terraza.", minClips: 0, maxClips: 1, defaultDuration: 3, speed: 1.0, defaultHeadline: "" },
 };
 
 const API_BASE = (() => {
@@ -132,70 +96,89 @@ const API_BASE = (() => {
 })();
 const API = (path) => `${API_BASE}/api${path}`;
 
-function calcAutoDuration(numClips) {
-  if (numClips === 0) return 3;
-  return Math.max(1.8, Math.min(5, 26 / numClips));
+function calcAutoDuration(n) {
+  if (n === 0) return 3;
+  return Math.max(1.8, Math.min(5, 26 / n));
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-//  STATE
-// ──────────────────────────────────────────────────────────────────────────
+// ── STATE ──────────────────────────────────────────────────────────
 function emptySections() {
   const s = {};
-  for (const k of SECTION_ORDER) {
-    s[k] = { clips: [], headline: SECTION_CONFIG[k].defaultHeadline };
-  }
+  for (const k of SECTION_ORDER) s[k] = { clips: [], headline: SECTION_CONFIG[k].defaultHeadline };
   return s;
 }
 
 let state = {
   step: 1,
-  upload_mode: "guided",       // "guided" | "simple"
-  sections: emptySections(),   // for guided mode
-  simple_clips: [],            // for simple mode (flat list)
-  property: {
-    tipo: "Casa", comuna: "",
-    m2: "", dorms: "", banos: "", precio_uf: "",
-  },
+  upload_mode: "guided",
+  sections: emptySections(),
+  simple_clips: [],
+  property: { tipo: "Casa", comuna: "", m2: "", dorms: "", banos: "", precio_uf: "" },
   advanced_open: false,
+  enhance_ai: false,
   music_preset: "chill",
   music_file: null,
   music_presets_catalog: [],
   voice_audio_file: null,
+  voice_audio_url: null,
+  voice_method: "none",
+  voice_script: "",
+  voice_eleven_key: "",
+  eleven_voices: [],
+  is_recording: false,
+  media_recorder: null,
+  recorded_chunks: [],
+  is_generating_voice: false,
   logo_file: null,
   logo_dataUrl: null,
   custom_tagline: "Vivir distinto",
   custom_cta_info: "",
   custom_cta_precio: "",
-  job_id: null,
-  job_status: null,
-  job_log: [],
-  job_error: null,
-  job_download: null,
-  job_duration: null,
-  is_reprocessing: false,
-  has_been_processed: false,
-  editor_open: false,
-  editor_clips: [],
-  editor_sortable: null,
-  simple_sortable: null,
+  job_id: null, job_status: null, job_log: [], job_error: null,
+  job_download: null, job_duration: null,
+  is_reprocessing: false, has_been_processed: false,
+  editor_open: false, editor_clips: [], editor_sortable: null, simple_sortable: null,
 };
 
 function resetAll() {
   if (!confirm("¿Empezar de cero? Se pierden los videos cargados.")) return;
   const catalog = state.music_presets_catalog;
+  const voices = state.eleven_voices;
   state = {
     step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [],
     property: { tipo: "Casa", comuna: "", m2: "", dorms: "", banos: "", precio_uf: "" },
-    advanced_open: false,
+    advanced_open: false, enhance_ai: false,
     music_preset: "chill", music_file: null, music_presets_catalog: catalog,
-    voice_audio_file: null, logo_file: null, logo_dataUrl: null,
+    voice_audio_file: null, voice_audio_url: null, voice_method: "none",
+    voice_script: "", voice_eleven_key: "", eleven_voices: voices,
+    is_recording: false, media_recorder: null, recorded_chunks: [], is_generating_voice: false,
+    logo_file: null, logo_dataUrl: null,
     custom_tagline: "Vivir distinto", custom_cta_info: "", custom_cta_precio: "",
     job_id: null, job_status: null, job_log: [], job_error: null,
     job_download: null, job_duration: null,
     is_reprocessing: false, has_been_processed: false,
     editor_open: false, editor_clips: [], editor_sortable: null, simple_sortable: null,
   };
+  render();
+}
+
+// ── HELPERS ────────────────────────────────────────────────────────
+function escapeHtml(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function escapeAttr(s) { return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;"); }
+
+function totalClipsCount() {
+  if (state.upload_mode === "simple") return state.simple_clips.length;
+  return SECTION_ORDER.reduce((acc, k) => acc + state.sections[k].clips.length, 0);
+}
+
+function switchUploadMode(mode) {
+  if (mode === state.upload_mode) return;
+  if (totalClipsCount() > 0) {
+    if (!confirm("Si cambiás de modo se pierden los videos cargados. ¿Seguir?")) return;
+    state.sections = emptySections();
+    state.simple_clips = [];
+  }
+  state.upload_mode = mode;
   render();
 }
 
@@ -207,46 +190,104 @@ async function loadMusicPresets() {
   } catch (e) { console.warn("Music presets:", e); }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-//  HELPERS
-// ──────────────────────────────────────────────────────────────────────────
-function escapeHtml(s) {
-  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-function escapeAttr(s) {
-  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-}
-
-function totalClipsCount() {
-  if (state.upload_mode === "simple") return state.simple_clips.length;
-  return SECTION_ORDER.reduce((acc, k) => acc + state.sections[k].clips.length, 0);
+async function loadElevenVoices() {
+  try {
+    const r = await fetch(API("/voices"));
+    const j = await r.json();
+    state.eleven_voices = j.voices || [];
+    if (!state.voice_eleven_key && state.eleven_voices.length) {
+      state.voice_eleven_key = state.eleven_voices[0].key || state.eleven_voices[0].id || "";
+    }
+  } catch (e) { console.warn("Eleven voices:", e); }
 }
 
-function switchUploadMode(mode) {
-  if (mode === state.upload_mode) return;
-  const hasAny = totalClipsCount() > 0;
-  if (hasAny) {
-    if (!confirm("Si cambiás de modo se pierden los videos cargados. ¿Seguir?")) return;
-    state.sections = emptySections();
-    state.simple_clips = [];
+function estimateReelDuration() {
+  let total = 0;
+  if (state.upload_mode === "simple") {
+    const n = state.simple_clips.length;
+    total = n > 0 ? calcAutoDuration(n) * n : 0;
+  } else {
+    for (const k of SECTION_ORDER) {
+      const cfg = SECTION_CONFIG[k];
+      state.sections[k].clips.forEach(() => { total += cfg.defaultDuration / cfg.speed; });
+    }
   }
-  state.upload_mode = mode;
+  total += 5;
+  if (state.logo_file) total += 2;
+  return total;
+}
+
+function recommendedChars(d) {
+  return { min: Math.round(d * 12), ideal: Math.round(d * 14), max: Math.round(d * 16) };
+}
+
+// ── VOICE: recording + Eleven generation ───────────────────────────
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mr = new MediaRecorder(stream);
+    state.media_recorder = mr;
+    state.recorded_chunks = [];
+    mr.ondataavailable = e => { if (e.data.size > 0) state.recorded_chunks.push(e.data); };
+    mr.onstop = () => {
+      const blob = new Blob(state.recorded_chunks, { type: mr.mimeType || 'audio/webm' });
+      const ext = (mr.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
+      state.voice_audio_file = new File([blob], `voz_grabada.${ext}`, { type: mr.mimeType || 'audio/webm' });
+      if (state.voice_audio_url) URL.revokeObjectURL(state.voice_audio_url);
+      state.voice_audio_url = URL.createObjectURL(blob);
+      stream.getTracks().forEach(t => t.stop());
+      state.is_recording = false;
+      state.media_recorder = null;
+      render();
+    };
+    mr.start();
+    state.is_recording = true;
+    render();
+  } catch (e) { alert("No se pudo acceder al micrófono: " + e.message); }
+}
+
+function stopRecording() {
+  if (state.media_recorder && state.is_recording) state.media_recorder.stop();
+}
+
+async function generateVoiceWithEleven() {
+  if (!state.voice_script.trim()) { alert("Escribí el guion primero"); return; }
+  if (!state.voice_eleven_key) { alert("Elegí una voz"); return; }
+  state.is_generating_voice = true;
+  render();
+  try {
+    const fd = new FormData();
+    fd.append("script", state.voice_script);
+    fd.append("voice_key", state.voice_eleven_key);
+    const r = await fetch(API("/generate-voice"), { method: "POST", body: fd });
+    if (!r.ok) { const t = await r.text(); throw new Error(`HTTP ${r.status} — ${t.slice(0, 300)}`); }
+    const blob = await r.blob();
+    state.voice_audio_file = new File([blob], "voz_eleven.mp3", { type: "audio/mpeg" });
+    if (state.voice_audio_url) URL.revokeObjectURL(state.voice_audio_url);
+    state.voice_audio_url = URL.createObjectURL(blob);
+  } catch (e) {
+    alert("Error generando voz: " + e.message);
+  } finally {
+    state.is_generating_voice = false;
+    render();
+  }
+}
+
+function clearVoice() {
+  if (state.voice_audio_url) URL.revokeObjectURL(state.voice_audio_url);
+  state.voice_audio_file = null;
+  state.voice_audio_url = null;
   render();
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-//  STEPPER + NAVIGATION
-// ──────────────────────────────────────────────────────────────────────────
+// ── STEPPER + NAV ──────────────────────────────────────────────────
 function renderStepper() {
   const html = STEPS.map((s, i) => {
     const active = state.step === s.id;
     const done = state.step > s.id;
     return `
       <div class="flex items-center gap-2">
-        <div class="step-dot w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold
-          ${active ? 'bg-slate-900 text-white' : done ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500'}">
-          ${done ? '✓' : s.id}
-        </div>
+        <div class="step-dot w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${active ? 'bg-slate-900 text-white' : done ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500'}">${done ? '✓' : s.id}</div>
         <span class="text-sm ${active ? 'text-slate-900 font-medium' : 'text-slate-500'}">${s.label}</span>
       </div>
       ${i < STEPS.length - 1 ? '<div class="w-8 h-px bg-slate-300"></div>' : ''}
@@ -256,84 +297,65 @@ function renderStepper() {
 
   document.getElementById("btn-prev").disabled = (state.step === 1);
   const next = document.getElementById("btn-next");
-  if (state.step === 3) {
-    const isProcessing = state.job_status && state.job_status !== "done" && state.job_status !== "error";
-    if (isProcessing) { next.textContent = "Procesando…"; next.disabled = true; }
+  if (state.step === 4) {
+    const isProc = state.job_status && state.job_status !== "done" && state.job_status !== "error";
+    if (isProc) { next.textContent = "Procesando…"; next.disabled = true; }
     else if (!state.has_been_processed) { next.textContent = "Generar mi reel →"; next.disabled = false; }
     else { next.textContent = "✓ Listo"; next.disabled = true; }
-  } else if (state.step === 2) {
-    next.textContent = "Generar mi reel →";
-    next.disabled = false;
-  } else {
+  } else if (state.step === 1) {
     next.textContent = "Continuar →";
     next.disabled = totalClipsCount() === 0;
+  } else {
+    next.textContent = "Continuar →";
+    next.disabled = false;
   }
 }
 
 function goNext() {
-  if (state.step === 1) {
-    if (totalClipsCount() === 0) { alert("Subí al menos un video"); return; }
-  }
-  if (state.step === 2) {
-    state.step = 3;
-    render();
-    processReel();
-    return;
-  }
-  if (state.step === 3 && !state.has_been_processed) {
-    processReel();
-    return;
-  }
+  if (state.step === 1 && totalClipsCount() === 0) { alert("Subí al menos un video"); return; }
+  if (state.step === 4 && !state.has_been_processed) { processReel(); return; }
   if (state.step < STEPS.length) { state.step++; render(); }
 }
 
-function goPrev() {
-  if (state.step > 1) { state.step--; render(); }
-}
+function goPrev() { if (state.step > 1) { state.step--; render(); } }
 
-// ──────────────────────────────────────────────────────────────────────────
-//  STEP 1 — VIDEOS (guided OR simple)
-// ──────────────────────────────────────────────────────────────────────────
+// ── STEP 1: VIDEOS ─────────────────────────────────────────────────
 function renderStep1() {
-  const total = totalClipsCount();
-  const totalDur = calcAutoDuration(total) * total;
-
   const modeToggle = `
     <div class="bg-white border border-slate-200 rounded-xl p-1.5 flex gap-1 mb-5 max-w-md mx-auto">
-      <button onclick="switchUploadMode('guided')"
-              class="mode-pill flex-1 py-2 px-3 rounded-lg text-sm font-medium ${state.upload_mode === 'guided' ? 'active' : 'text-slate-600 hover:bg-slate-100'}">
-        🎬 Guiado por tomas
-      </button>
-      <button onclick="switchUploadMode('simple')"
-              class="mode-pill flex-1 py-2 px-3 rounded-lg text-sm font-medium ${state.upload_mode === 'simple' ? 'active' : 'text-slate-600 hover:bg-slate-100'}">
-        ⚡ Subir videos existentes
-      </button>
+      <button onclick="switchUploadMode('guided')" class="mode-pill flex-1 py-2 px-3 rounded-lg text-sm font-medium ${state.upload_mode === 'guided' ? 'active' : 'text-slate-600 hover:bg-slate-100'}">🎬 Guiado por tomas</button>
+      <button onclick="switchUploadMode('simple')" class="mode-pill flex-1 py-2 px-3 rounded-lg text-sm font-medium ${state.upload_mode === 'simple' ? 'active' : 'text-slate-600 hover:bg-slate-100'}">⚡ Subir existentes</button>
     </div>
   `;
-
-  let content;
-  if (state.upload_mode === "simple") {
-    content = renderSimpleUpload();
-  } else {
-    content = renderGuidedSections();
-  }
-
+  const aiToggle = `
+    <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4 max-w-md mx-auto flex items-center gap-3">
+      <div class="ai-badge text-xs px-2 py-1 rounded-full font-bold">✨ IA</div>
+      <div class="flex-1">
+        <div class="text-sm font-medium text-slate-900">Mejorar imagen con IA</div>
+        <div class="text-xs text-slate-500">Color pro, nitidez, contraste cinematográfico</div>
+      </div>
+      <label class="relative inline-flex items-center cursor-pointer">
+        <input type="checkbox" ${state.enhance_ai ? 'checked' : ''} onchange="state.enhance_ai=this.checked; render()" class="sr-only peer">
+        <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-purple-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5"></div>
+      </label>
+    </div>
+  `;
+  const content = state.upload_mode === "simple" ? renderSimpleUpload() : renderGuidedSections();
   return `
     <div class="fade-in">
       <h1 class="text-2xl font-bold text-slate-900 mb-1 text-center">Tus videos</h1>
       <p class="text-slate-600 mb-5 text-center text-sm">Elegí cómo querés cargar los videos de la propiedad</p>
       ${modeToggle}
+      ${aiToggle}
       ${content}
     </div>
   `;
 }
 
-// — SIMPLE MODE (single dropzone + reorderable grid)
 function renderSimpleUpload() {
   const hasClips = state.simple_clips.length > 0;
   const total = state.simple_clips.length;
   const totalDur = calcAutoDuration(total) * total;
-
   const dropzone = `
     <div class="dropzone bg-white border-2 border-slate-300 rounded-2xl p-8 text-center mb-4"
          ondragover="event.preventDefault(); this.classList.add('drag')"
@@ -345,25 +367,19 @@ function renderSimpleUpload() {
       <div class="flex flex-wrap justify-center gap-2">
         <label class="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-lg cursor-pointer hover:bg-slate-800 font-medium">
           📤 Subir videos
-          <input type="file" accept="video/*" multiple class="hidden"
-                 onchange="handleSimpleUpload(event.target.files)">
+          <input type="file" accept="video/*" multiple class="hidden" onchange="handleSimpleUpload(event.target.files)">
         </label>
         <label class="inline-flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-slate-900 text-slate-900 rounded-lg cursor-pointer hover:bg-slate-100 font-medium">
           📷 Grabar ahora
-          <input type="file" accept="video/*" capture="environment" class="hidden"
-                 onchange="handleSimpleUpload(event.target.files)">
+          <input type="file" accept="video/*" capture="environment" class="hidden" onchange="handleSimpleUpload(event.target.files)">
         </label>
       </div>
     </div>
   `;
-
   const grid = hasClips ? `
     <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-sm font-medium text-slate-900">
-          ${total} video${total !== 1 ? 's' : ''} ·
-          <span class="text-slate-500 font-normal">~${Math.round(totalDur)}s de reel + cierre</span>
-        </div>
+        <div class="text-sm font-medium text-slate-900">${total} video${total !== 1 ? 's' : ''} · <span class="text-slate-500 font-normal">~${Math.round(totalDur)}s de reel + cierre</span></div>
         <div class="text-xs text-slate-400">Arrastrá para reordenar</div>
       </div>
       <div id="simple-clips-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
@@ -377,7 +393,6 @@ function renderSimpleUpload() {
       </div>
     </div>
   ` : "";
-
   return dropzone + grid;
 }
 
@@ -388,15 +403,9 @@ function handleSimpleUpload(files) {
   arr.forEach(f => {
     const reader = new FileReader();
     reader.onload = e => {
-      state.simple_clips.push({
-        id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        file: f, dataUrl: e.target.result, name: f.name,
-      });
+      state.simple_clips.push({ id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, file: f, dataUrl: e.target.result, name: f.name });
       pending--;
-      if (pending === 0) {
-        render();
-        setTimeout(initSimpleSortable, 50);
-      }
+      if (pending === 0) { render(); setTimeout(initSimpleSortable, 50); }
     };
     reader.readAsDataURL(f);
   });
@@ -413,14 +422,11 @@ function initSimpleSortable() {
   if (!grid || typeof Sortable === "undefined") return;
   if (state.simple_sortable) state.simple_sortable.destroy();
   state.simple_sortable = Sortable.create(grid, {
-    animation: 150,
-    ghostClass: "sortable-ghost",
-    chosenClass: "sortable-chosen",
+    animation: 150, ghostClass: "sortable-ghost", chosenClass: "sortable-chosen",
     onEnd: (evt) => {
       const moved = state.simple_clips.splice(evt.oldIndex, 1)[0];
       state.simple_clips.splice(evt.newIndex, 0, moved);
-      const tiles = grid.querySelectorAll(".clip-tile");
-      tiles.forEach((tile, i) => {
+      grid.querySelectorAll(".clip-tile").forEach((tile, i) => {
         const badge = tile.querySelector("div");
         if (badge) badge.textContent = i + 1;
       });
@@ -428,15 +434,10 @@ function initSimpleSortable() {
   });
 }
 
-// — GUIDED MODE (sections with tips)
 function renderGuidedSections() {
   return `
-    <div class="space-y-3">
-      ${SECTION_ORDER.map(k => renderSectionCard(k)).join("")}
-    </div>
-    <div class="mt-5 text-center text-xs text-slate-500">
-      Tip: no es obligatorio llenar todas. Con al menos una toma ya podés generar el reel.
-    </div>
+    <div class="space-y-3">${SECTION_ORDER.map(k => renderSectionCard(k)).join("")}</div>
+    <div class="mt-5 text-center text-xs text-slate-500">Tip: no es obligatorio llenar todas. Con al menos una toma ya podés generar el reel.</div>
   `;
 }
 
@@ -446,52 +447,39 @@ function renderSectionCard(key) {
   const count = sec.clips.length;
   const complete = count > 0;
   const slotsLeft = cfg.maxClips - count;
-
-  const speedTag = cfg.speed !== 1.0
-    ? `<span class="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full ml-1">×${cfg.speed}</span>`
-    : "";
-  const limitTag = `<span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full ml-1">
-    ${cfg.maxClips === 1 ? `1 toma · ${cfg.defaultDuration}s` : `máx ${cfg.maxClips} · ${cfg.defaultDuration}s c/u`}
-  </span>`;
-
-  const clipsHtml = sec.clips.length === 0
-    ? ""
-    : `<div class="flex flex-wrap gap-2 mb-3">
-        ${sec.clips.map((c, i) => `
-          <div class="relative">
-            <video src="${c.dataUrl}" class="w-20 h-28 object-cover rounded-lg bg-black" muted playsinline preload="metadata"></video>
-            <button onclick="removeSectionClip('${key}', ${i})" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs hover:bg-red-600">×</button>
-          </div>
-        `).join("")}
-      </div>`;
-
-  const actionButtons = slotsLeft > 0
-    ? `<div class="flex flex-wrap gap-2">
-        <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs rounded-lg cursor-pointer hover:bg-slate-800">
-          📤 Subir
-          <input type="file" accept="video/*" multiple class="hidden"
-                 onchange="handleSectionUpload('${key}', event.target.files)">
-        </label>
-        <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-900 text-slate-900 text-xs rounded-lg cursor-pointer hover:bg-slate-100">
-          📷 Grabar
-          <input type="file" accept="video/*" capture="environment" class="hidden"
-                 onchange="handleSectionUpload('${key}', event.target.files)">
-        </label>
-      </div>`
-    : `<span class="text-xs text-emerald-700 font-medium">✓ Sección completa</span>`;
-
+  const speedTag = cfg.speed !== 1.0 ? `<span class="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full ml-1">×${cfg.speed}</span>` : "";
+  const limitTag = `<span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full ml-1">${cfg.maxClips === 1 ? `1 toma · ${cfg.defaultDuration}s` : `máx ${cfg.maxClips} · ${cfg.defaultDuration}s c/u`}</span>`;
+  const clipsHtml = sec.clips.length === 0 ? "" : `
+    <div class="flex flex-wrap gap-2 mb-3">
+      ${sec.clips.map((c, i) => `
+        <div class="relative">
+          <video src="${c.dataUrl}" class="w-20 h-28 object-cover rounded-lg bg-black" muted playsinline preload="metadata"></video>
+          <button onclick="removeSectionClip('${key}', ${i})" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs hover:bg-red-600">×</button>
+        </div>
+      `).join("")}
+    </div>
+  `;
+  const actionButtons = slotsLeft > 0 ? `
+    <div class="flex flex-wrap gap-2">
+      <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs rounded-lg cursor-pointer hover:bg-slate-800">
+        📤 Subir
+        <input type="file" accept="video/*" multiple class="hidden" onchange="handleSectionUpload('${key}', event.target.files)">
+      </label>
+      <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-900 text-slate-900 text-xs rounded-lg cursor-pointer hover:bg-slate-100">
+        📷 Grabar
+        <input type="file" accept="video/*" capture="environment" class="hidden" onchange="handleSectionUpload('${key}', event.target.files)">
+      </label>
+    </div>
+  ` : `<span class="text-xs text-emerald-700 font-medium">✓ Sección completa</span>`;
   return `
     <div class="section-card border-2 ${complete ? 'complete' : 'border-slate-200'} rounded-xl p-4 bg-white">
       <div class="flex items-center justify-between mb-2">
         <div class="flex items-center flex-wrap">
           <span class="text-xl mr-2">${cfg.icon}</span>
           <h3 class="font-bold text-slate-900">${cfg.label}</h3>
-          ${limitTag}
-          ${speedTag}
+          ${limitTag}${speedTag}
         </div>
-        <div class="text-xs ${complete ? 'text-emerald-600' : 'text-slate-400'} font-medium">
-          ${count}/${cfg.maxClips}
-        </div>
+        <div class="text-xs ${complete ? 'text-emerald-600' : 'text-slate-400'} font-medium">${count}/${cfg.maxClips}</div>
       </div>
       <p class="text-xs text-slate-700 mb-1">${escapeHtml(cfg.description)}</p>
       <p class="text-[11px] text-slate-500 italic mb-3">💡 ${escapeHtml(cfg.tip)}</p>
@@ -511,10 +499,7 @@ function handleSectionUpload(key, files) {
   arr.forEach(f => {
     const reader = new FileReader();
     reader.onload = e => {
-      sec.clips.push({
-        id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        file: f, dataUrl: e.target.result, name: f.name,
-      });
+      sec.clips.push({ id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, file: f, dataUrl: e.target.result, name: f.name });
       pending--;
       if (pending === 0) render();
     };
@@ -527,161 +512,65 @@ function removeSectionClip(key, idx) {
   render();
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-//  STEP 2 — DATOS + AVANZADO
-// ──────────────────────────────────────────────────────────────────────────
+// ── STEP 2: DATOS + AVANZADO ───────────────────────────────────────
 function renderStep2() {
   const p = state.property;
-  const presetOptions = state.music_presets_catalog
-    .map(pr => `<option value="${pr.key}" ${state.music_preset === pr.key ? 'selected' : ''}>${escapeHtml(pr.label)}</option>`)
-    .join("");
-  const previewInfo = state.custom_cta_info ||
-    `${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`;
-  const previewPrecio = state.custom_cta_precio ||
-    (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar');
-
+  const previewInfo = state.custom_cta_info || `${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`;
+  const previewPrecio = state.custom_cta_precio || (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar');
   return `
     <div class="fade-in max-w-2xl mx-auto">
       <h1 class="text-2xl font-bold text-slate-900 mb-1">Datos de la propiedad</h1>
       <p class="text-slate-600 mb-6">Con esto armamos el cierre del reel automáticamente.</p>
-
       <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4 space-y-3">
         <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="text-xs text-slate-500 block mb-1">Tipo</label>
-            <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    onchange="state.property.tipo=this.value">
+          <div><label class="text-xs text-slate-500 block mb-1">Tipo</label>
+            <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.property.tipo=this.value">
               <option ${p.tipo === 'Casa' ? 'selected' : ''}>Casa</option>
               <option ${p.tipo === 'Departamento' ? 'selected' : ''}>Departamento</option>
               <option ${p.tipo === 'Parcela' ? 'selected' : ''}>Parcela</option>
               <option ${p.tipo === 'Oficina' ? 'selected' : ''}>Oficina</option>
               <option ${p.tipo === 'Local' ? 'selected' : ''}>Local comercial</option>
-            </select>
-          </div>
-          <div>
-            <label class="text-xs text-slate-500 block mb-1">Comuna</label>
-            <input type="text" value="${escapeAttr(p.comuna)}" placeholder="Ej: Las Condes"
-                   oninput="state.property.comuna=this.value"
-                   class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-          </div>
+            </select></div>
+          <div><label class="text-xs text-slate-500 block mb-1">Comuna</label>
+            <input type="text" value="${escapeAttr(p.comuna)}" placeholder="Ej: Las Condes" oninput="state.property.comuna=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
         </div>
         <div class="grid grid-cols-3 gap-3">
-          <div>
-            <label class="text-xs text-slate-500 block mb-1">m² construidos</label>
-            <input type="number" value="${escapeAttr(p.m2)}" placeholder="180"
-                   oninput="state.property.m2=this.value"
-                   class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-          </div>
-          <div>
-            <label class="text-xs text-slate-500 block mb-1">Dormitorios</label>
-            <input type="number" value="${escapeAttr(p.dorms)}" placeholder="3"
-                   oninput="state.property.dorms=this.value"
-                   class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-          </div>
-          <div>
-            <label class="text-xs text-slate-500 block mb-1">Baños</label>
-            <input type="number" value="${escapeAttr(p.banos)}" placeholder="2"
-                   oninput="state.property.banos=this.value"
-                   class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-          </div>
+          <div><label class="text-xs text-slate-500 block mb-1">m² construidos</label><input type="number" value="${escapeAttr(p.m2)}" placeholder="180" oninput="state.property.m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+          <div><label class="text-xs text-slate-500 block mb-1">Dormitorios</label><input type="number" value="${escapeAttr(p.dorms)}" placeholder="3" oninput="state.property.dorms=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+          <div><label class="text-xs text-slate-500 block mb-1">Baños</label><input type="number" value="${escapeAttr(p.banos)}" placeholder="2" oninput="state.property.banos=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
         </div>
-        <div>
-          <label class="text-xs text-slate-500 block mb-1">Precio (UF)</label>
-          <input type="text" value="${escapeAttr(p.precio_uf)}" placeholder="1500"
-                 oninput="state.property.precio_uf=this.value"
-                 class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-        </div>
+        <div><label class="text-xs text-slate-500 block mb-1">Precio (UF)</label><input type="text" value="${escapeAttr(p.precio_uf)}" placeholder="1500" oninput="state.property.precio_uf=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
       </div>
-
       <div class="bg-black rounded-2xl p-6 mb-4 text-center">
         <div class="text-white text-sm mb-4">${escapeHtml(previewInfo)}</div>
-        <div class="bg-white px-5 py-3 rounded inline-block mb-4">
-          <div class="text-black text-xl font-bold">${escapeHtml(previewPrecio)}</div>
-        </div>
+        <div class="bg-white px-5 py-3 rounded inline-block mb-4"><div class="text-black text-xl font-bold">${escapeHtml(previewPrecio)}</div></div>
         <div class="text-slate-400 text-xs">${escapeHtml(state.custom_tagline)}</div>
         <div class="text-slate-500 text-[10px] mt-3">↑ Cierre del reel (preview)</div>
       </div>
-
-      <details class="bg-white border border-slate-200 rounded-2xl mb-4" ${state.advanced_open ? 'open' : ''}
-               ontoggle="state.advanced_open=this.open">
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-sm text-blue-900">🎵 La música y la voz se configuran en el <strong>paso 3 (Audio)</strong>.</div>
+      <details class="bg-white border border-slate-200 rounded-2xl mb-4" ${state.advanced_open ? 'open' : ''} ontoggle="state.advanced_open=this.open">
         <summary class="px-5 py-4 flex items-center justify-between">
-          <div>
-            <div class="font-medium text-slate-900">Opciones avanzadas</div>
-            <div class="text-xs text-slate-500">Música, voz, logo, textos del cierre</div>
-          </div>
+          <div><div class="font-medium text-slate-900">Opciones avanzadas</div><div class="text-xs text-slate-500">Logo y textos personalizados del cierre</div></div>
           <span class="chev text-slate-400">▾</span>
         </summary>
-
         <div class="border-t border-slate-200 p-5 space-y-5">
-          <div>
-            <div class="text-sm font-medium text-slate-900 mb-2">🎵 Música de fondo</div>
-            <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mb-2"
-                    onchange="state.music_preset=this.value; state.music_file=null; render()"
-                    ${state.music_file ? 'disabled' : ''}>
-              ${presetOptions}
-            </select>
-            ${state.music_file
-              ? `<div class="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-xs">
-                  <span class="text-emerald-700">📎 ${escapeHtml(state.music_file.name)}</span>
-                  <button onclick="state.music_file=null; render()" class="text-red-500">Quitar</button>
-                </div>`
-              : `<label class="text-xs text-slate-500 cursor-pointer hover:text-slate-700">
-                  o <span class="underline">subí tu MP3 propio</span>
-                  <input type="file" accept="audio/mp3,audio/mpeg,audio/wav" class="hidden"
-                         onchange="state.music_file=event.target.files[0]; render()">
-                </label>`}
-          </div>
-
-          <div>
-            <div class="text-sm font-medium text-slate-900 mb-2">🎙️ Voz / narración (opcional)</div>
-            ${state.voice_audio_file
-              ? `<div class="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-xs">
-                  <span class="text-emerald-700">📎 ${escapeHtml(state.voice_audio_file.name)}</span>
-                  <button onclick="state.voice_audio_file=null; render()" class="text-red-500">Quitar</button>
-                </div>`
-              : `<label class="inline-block px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded cursor-pointer">
-                  + Subir audio
-                  <input type="file" accept="audio/*" class="hidden"
-                         onchange="state.voice_audio_file=event.target.files[0]; render()">
-                </label>
-                <span class="text-xs text-slate-500 ml-2">La música baja al 25% cuando hablás</span>`}
-          </div>
-
           <div>
             <div class="text-sm font-medium text-slate-900 mb-2">🏷️ Logo (opcional)</div>
             ${state.logo_dataUrl
-              ? `<div class="flex items-center gap-3">
-                  <div class="bg-black p-2 rounded"><img src="${state.logo_dataUrl}" class="h-10 max-w-24 object-contain"/></div>
-                  <button onclick="state.logo_file=null; state.logo_dataUrl=null; render()" class="text-red-500 text-xs">Quitar</button>
-                </div>`
-              : `<label class="inline-block px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded cursor-pointer">
-                  + Subir logo (PNG)
-                  <input type="file" accept="image/png,image/jpeg" class="hidden"
-                         onchange="handleLogoUpload(event.target.files[0])">
-                </label>
-                <span class="text-xs text-slate-500 ml-2">Aparece 2s antes del cierre</span>`}
+              ? `<div class="flex items-center gap-3"><div class="bg-black p-2 rounded"><img src="${state.logo_dataUrl}" class="h-10 max-w-24 object-contain"/></div><button onclick="state.logo_file=null; state.logo_dataUrl=null; render()" class="text-red-500 text-xs">Quitar</button></div>`
+              : `<label class="inline-block px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded cursor-pointer">+ Subir logo (PNG)<input type="file" accept="image/png,image/jpeg" class="hidden" onchange="handleLogoUpload(event.target.files[0])"></label><span class="text-xs text-slate-500 ml-2">Aparece 2s antes del cierre</span>`}
           </div>
-
           <div>
             <div class="text-sm font-medium text-slate-900 mb-2">💎 Personalizar cierre (opcional)</div>
             <div class="space-y-2">
-              <input type="text" placeholder="Info (default: ${escapeAttr(`${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`)})"
-                     value="${escapeAttr(state.custom_cta_info)}" maxlength="60"
-                     oninput="state.custom_cta_info=this.value; render()"
-                     class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
-              <input type="text" placeholder="Precio (default: ${escapeAttr(p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar')})"
-                     value="${escapeAttr(state.custom_cta_precio)}" maxlength="30"
-                     oninput="state.custom_cta_precio=this.value; render()"
-                     class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
-              <input type="text" placeholder="Tagline final" value="${escapeAttr(state.custom_tagline)}" maxlength="40"
-                     oninput="state.custom_tagline=this.value; render()"
-                     class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
+              <input type="text" placeholder="Info (default: ${escapeAttr(`${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`)})" value="${escapeAttr(state.custom_cta_info)}" maxlength="60" oninput="state.custom_cta_info=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
+              <input type="text" placeholder="Precio (default: ${escapeAttr(p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar')})" value="${escapeAttr(state.custom_cta_precio)}" maxlength="30" oninput="state.custom_cta_precio=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
+              <input type="text" placeholder="Tagline final" value="${escapeAttr(state.custom_tagline)}" maxlength="40" oninput="state.custom_tagline=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
             </div>
           </div>
         </div>
       </details>
-
-      <div class="text-xs text-slate-500 text-center">Tocá <strong>Generar mi reel</strong> abajo. Toma 1-2 minutos.</div>
+      <div class="text-xs text-slate-500 text-center">Continuá al paso de audio →</div>
     </div>
   `;
 }
@@ -694,53 +583,98 @@ function handleLogoUpload(file) {
   reader.readAsDataURL(file);
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-//  STEP 3 — TU REEL
-// ──────────────────────────────────────────────────────────────────────────
+// ── STEP 3: AUDIO ──────────────────────────────────────────────────
 function renderStep3() {
+  const presetOptions = state.music_presets_catalog.map(pr => `<option value="${pr.key}" ${state.music_preset === pr.key ? 'selected' : ''}>${escapeHtml(pr.label)}</option>`).join("");
+  const reelDur = estimateReelDuration();
+  const chars = recommendedChars(reelDur);
+  const currentChars = (state.voice_script || "").length;
+  const durBanner = `
+    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-center">
+      <div class="text-xs text-slate-500">Duración estimada del reel</div>
+      <div class="text-2xl font-bold text-slate-900">~${reelDur.toFixed(0)} seg</div>
+      <div class="text-xs text-slate-500">Para voz natural: <strong>${chars.min}–${chars.max} caracteres</strong></div>
+    </div>`;
+  const musicBlock = `
+    <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+      <div class="flex items-center mb-3"><span class="text-xl mr-2">🎵</span><h3 class="font-bold text-slate-900">Música de fondo</h3></div>
+      ${state.music_file ? `<div class="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3"><span class="text-sm text-emerald-700">📎 ${escapeHtml(state.music_file.name)} (en uso)</span><button onclick="state.music_file=null; render()" class="text-sm text-red-500">Usar preset</button></div>` : ''}
+      <label class="text-xs text-slate-500 block mb-1">Elegí un preset:</label>
+      <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mb-3" onchange="state.music_preset=this.value; state.music_file=null; render()" ${state.music_file ? 'disabled' : ''}>${presetOptions || '<option>Cargando…</option>'}</select>
+      <div class="flex items-center text-xs text-slate-400 my-2"><div class="flex-1 h-px bg-slate-200"></div><span class="px-3">o</span><div class="flex-1 h-px bg-slate-200"></div></div>
+      <label class="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-lg cursor-pointer">📤 ${state.music_file ? "Cambiar MP3" : "Subir tu MP3"}<input type="file" accept="audio/mp3,audio/mpeg,audio/wav" class="hidden" onchange="state.music_file=event.target.files[0]; render()"></label>
+    </div>`;
+  const tabs = [{key:"none",icon:"🚫",label:"Sin voz"},{key:"upload",icon:"📤",label:"Subir audio"},{key:"record",icon:"🎤",label:"Grabar acá"},{key:"eleven",icon:"🤖",label:"Generar con IA"}];
+  const tabsHtml = tabs.map(t => `<button onclick="setVoiceMethod('${t.key}')" class="flex-1 py-2 px-2 rounded-lg text-xs font-medium ${state.voice_method === t.key ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}">${t.icon} ${t.label}</button>`).join("");
+  let voiceContent = "";
+  if (state.voice_method === "none") {
+    voiceContent = `<div class="text-sm text-slate-500 italic text-center py-6">El reel se procesa sin voz. Solo música.</div>`;
+  } else if (state.voice_method === "upload") {
+    voiceContent = `${state.voice_audio_file ? `<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3"><div class="flex items-center justify-between mb-2"><span class="text-sm text-emerald-700">📎 ${escapeHtml(state.voice_audio_file.name)}</span><button onclick="clearVoice()" class="text-sm text-red-500">Quitar</button></div><audio src="${state.voice_audio_url || ''}" controls class="w-full"></audio></div>` : ''}<label class="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm rounded-lg cursor-pointer hover:bg-slate-800">📤 ${state.voice_audio_file ? "Cambiar archivo" : "Subir audio (MP3 / WAV)"}<input type="file" accept="audio/*" class="hidden" onchange="handleVoiceUpload(event.target.files[0])"></label>`;
+  } else if (state.voice_method === "record") {
+    voiceContent = `${state.voice_audio_file && state.voice_audio_url ? `<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3"><div class="flex items-center justify-between mb-2"><span class="text-sm text-emerald-700">🎤 Grabación lista</span><button onclick="clearVoice()" class="text-sm text-red-500">Quitar</button></div><audio src="${state.voice_audio_url}" controls class="w-full"></audio></div>` : ''}${state.is_recording ? `<div class="bg-red-50 border-2 border-red-300 rounded-lg p-4 text-center mb-3"><div class="flex items-center justify-center gap-2 mb-2"><div class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div><span class="text-red-700 font-bold">Grabando…</span></div><button onclick="stopRecording()" class="px-6 py-2 bg-red-600 text-white rounded-lg font-medium">⏹ Detener grabación</button></div>` : `<button onclick="startRecording()" class="w-full px-6 py-3 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800">${state.voice_audio_file ? '🎤 Volver a grabar' : '🎤 Empezar a grabar'}</button>`}<p class="text-xs text-slate-500 mt-3">💡 En móvil te pide permiso para usar el micrófono. Hablá cerca y leé tu guion completo.</p>`;
+  } else if (state.voice_method === "eleven") {
+    const voiceOptions = state.eleven_voices.map(v => { const key = v.key || v.id || ""; const label = v.label || v.name || key; return `<option value="${key}" ${state.voice_eleven_key === key ? 'selected' : ''}>${escapeHtml(label)}</option>`; }).join("");
+    voiceContent = `<div class="space-y-3"><div><label class="text-xs text-slate-500 block mb-1">Voz</label><select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.voice_eleven_key=this.value">${voiceOptions || '<option>Cargando voces…</option>'}</select></div><div><div class="flex items-center justify-between mb-1"><label class="text-xs text-slate-500">Guion (lo que va a decir la voz)</label><span class="text-xs ${currentChars > chars.max ? 'text-red-600 font-bold' : currentChars < chars.min ? 'text-amber-600' : 'text-emerald-600 font-medium'}">${currentChars} / ${chars.ideal} caracteres ideal</span></div><textarea rows="4" maxlength="800" oninput="state.voice_script=this.value; render()" placeholder="Ej: Esta hermosa casa en Las Condes te ofrece 180 metros cuadrados de luminosidad y diseño..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">${escapeHtml(state.voice_script)}</textarea><div class="text-[11px] text-slate-500 mt-1">Recomendado: <strong>${chars.min}–${chars.max} caracteres</strong> (ideal ${chars.ideal}) para que calce con la duración del reel (~${reelDur.toFixed(0)}s)</div></div>${state.voice_audio_file && state.voice_audio_url ? `<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3"><div class="flex items-center justify-between mb-2"><span class="text-sm text-emerald-700">✓ Voz generada</span><button onclick="clearVoice()" class="text-sm text-red-500">Quitar</button></div><audio src="${state.voice_audio_url}" controls class="w-full"></audio></div>` : ''}<button onclick="generateVoiceWithEleven()" ${state.is_generating_voice ? 'disabled' : ''} class="w-full px-4 py-2.5 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50">${state.is_generating_voice ? '⏳ Generando…' : (state.voice_audio_file ? '↻ Regenerar voz' : '✨ Generar voz')}</button><p class="text-xs text-slate-500">💡 Requiere ELEVENLABS_API_KEY en el server. Si falla, mostramos el error.</p></div>`;
+  }
+  return `
+    <div class="fade-in max-w-2xl mx-auto">
+      <h1 class="text-2xl font-bold text-slate-900 mb-1">Audio del reel</h1>
+      <p class="text-slate-600 mb-5">Música de fondo y voz opcional.</p>
+      ${durBanner}${musicBlock}
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+        <div class="flex items-center mb-3"><span class="text-xl mr-2">🎙️</span><h3 class="font-bold text-slate-900">Voz / narración</h3><span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full ml-2">Opcional</span></div>
+        <div class="flex gap-2 mb-4">${tabsHtml}</div>
+        <div>${voiceContent}</div>
+      </div>
+      <div class="text-xs text-slate-500 text-center">Cuando estés lista, continuá al paso final.</div>
+    </div>`;
+}
+
+function setVoiceMethod(method) {
+  if (method !== state.voice_method && state.voice_audio_file) {
+    if (!confirm("Hay una voz cargada. ¿Cambiar de método? (se borra la voz actual)")) return;
+    clearVoice();
+  }
+  if (method === "none") clearVoice();
+  state.voice_method = method;
+  render();
+}
+
+function handleVoiceUpload(file) {
+  if (!file) return;
+  if (state.voice_audio_url) URL.revokeObjectURL(state.voice_audio_url);
+  state.voice_audio_file = file;
+  state.voice_audio_url = URL.createObjectURL(file);
+  render();
+}
+
+// ── STEP 4: TU REEL ────────────────────────────────────────────────
+function renderStep4() {
   const isDone = state.job_status === "done";
   const isError = state.job_status === "error";
-  const isProcessing = state.job_status && !isDone && !isError;
-
-  if (isProcessing || state.job_status === "uploading") {
+  const isProc = state.job_status && !isDone && !isError;
+  if (isProc || state.job_status === "uploading") {
     return `
       <div class="fade-in max-w-md mx-auto text-center pt-12">
         <div class="spinner w-12 h-12 border-4 border-slate-200 border-t-slate-900 rounded-full mx-auto mb-6"></div>
         <h1 class="text-2xl font-bold text-slate-900 mb-2">${state.is_reprocessing ? 'Re-procesando' : 'Creando tu reel'}</h1>
-        <p class="text-slate-600 mb-6">Editando los videos, agregando música y armando el cierre. Toma 1-2 minutos.</p>
-        ${state.job_log.length
-          ? `<div class="text-xs text-slate-400 italic">${escapeHtml(state.job_log[state.job_log.length - 1])}</div>`
-          : ''}
-      </div>
-    `;
+        <p class="text-slate-600 mb-6">Editando los videos, agregando música y armando el cierre.${state.enhance_ai ? ' Aplicando mejora IA.' : ''} Toma 1-2 minutos.</p>
+        ${state.job_log.length ? `<div class="text-xs text-slate-400 italic">${escapeHtml(state.job_log[state.job_log.length - 1])}</div>` : ''}
+      </div>`;
   }
-
   if (isError) {
     return `
       <div class="fade-in max-w-lg mx-auto pt-6">
-        <div class="text-center mb-4">
-          <div class="text-5xl mb-3">😕</div>
-          <h1 class="text-2xl font-bold text-slate-900 mb-2">Algo salió mal</h1>
-        </div>
-        <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
-          <div class="text-sm text-red-800 font-mono break-words">${escapeHtml(state.job_error || "Error desconocido")}</div>
-        </div>
-        ${state.job_log.length
-          ? `<details class="bg-slate-50 rounded-xl p-4 mb-4 text-xs">
-              <summary class="cursor-pointer text-slate-700">Ver log (${state.job_log.length} pasos antes del error)</summary>
-              <div class="mt-2 text-slate-600 font-mono">
-                ${state.job_log.map(l => `<div>✓ ${escapeHtml(l)}</div>`).join("")}
-              </div>
-            </details>`
-          : ''}
+        <div class="text-center mb-4"><div class="text-5xl mb-3">😕</div><h1 class="text-2xl font-bold text-slate-900 mb-2">Algo salió mal</h1></div>
+        <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4"><div class="text-sm text-red-800 font-mono break-words">${escapeHtml(state.job_error || "Error desconocido")}</div></div>
+        ${state.job_log.length ? `<details class="bg-slate-50 rounded-xl p-4 mb-4 text-xs"><summary class="cursor-pointer text-slate-700">Ver log (${state.job_log.length} pasos antes del error)</summary><div class="mt-2 text-slate-600 font-mono">${state.job_log.map(l => `<div>✓ ${escapeHtml(l)}</div>`).join("")}</div></details>` : ''}
         <div class="flex gap-2 justify-center">
           <button onclick="state.step=1; render()" class="px-5 py-2.5 bg-slate-900 text-white rounded-lg">← Volver al inicio</button>
           <button onclick="state.has_been_processed=false; state.job_status=null; state.job_error=null; processReel()" class="px-5 py-2.5 bg-amber-500 text-white rounded-lg">Reintentar</button>
         </div>
-      </div>
-    `;
+      </div>`;
   }
-
   if (isDone && state.job_download) {
     return `
       <div class="fade-in max-w-2xl mx-auto">
@@ -749,95 +683,54 @@ function renderStep3() {
           <h1 class="text-2xl font-bold text-slate-900 mb-1">Tu reel está listo</h1>
           <p class="text-slate-600 text-sm">Duración: ${state.job_duration ? state.job_duration.toFixed(1) : '?'}s · Listo para Instagram / TikTok</p>
         </div>
-
-        <div class="bg-black rounded-2xl overflow-hidden mb-4">
-          <video src="${state.job_download}" controls class="w-full" style="max-height: 70vh; background: black;"></video>
-        </div>
-
-        <a href="${state.job_download}" download class="block w-full text-center px-6 py-4 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 mb-3">
-          ⬇ Descargar MP4
-        </a>
-
-        <button onclick="openManualEditor()" class="block w-full text-center px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 rounded-xl font-medium hover:bg-slate-50 mb-2">
-          🎨 Editor avanzado (ajustar clips, velocidad, recortes)
-        </button>
-
+        <div class="bg-black rounded-2xl overflow-hidden mb-4"><video src="${state.job_download}" controls class="w-full" style="max-height: 70vh; background: black;"></video></div>
+        <a href="${state.job_download}" download class="block w-full text-center px-6 py-4 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 mb-3">⬇ Descargar MP4</a>
+        <button onclick="openManualEditor()" class="block w-full text-center px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 rounded-xl font-medium hover:bg-slate-50 mb-2">🎨 Editor avanzado (ajustar clips, velocidad, recortes visuales)</button>
         <details class="bg-slate-50 rounded-xl px-4 py-3 text-sm">
-          <summary class="flex items-center justify-between">
-            <span class="text-slate-600">¿Querés cambiar algo simple? (música, datos, logo)</span>
-            <span class="chev text-slate-400">▾</span>
-          </summary>
+          <summary class="flex items-center justify-between"><span class="text-slate-600">¿Querés cambiar algo? (volver al wizard)</span><span class="chev text-slate-400">▾</span></summary>
           <div class="border-t border-slate-200 pt-3 mt-3 flex flex-wrap gap-2">
             <button onclick="state.step=1; render()" class="px-3 py-1.5 bg-white border border-slate-300 rounded text-xs">📹 Cambiar videos</button>
             <button onclick="state.step=2; render()" class="px-3 py-1.5 bg-white border border-slate-300 rounded text-xs">📝 Cambiar datos</button>
-            <button onclick="state.step=2; state.advanced_open=true; render()" class="px-3 py-1.5 bg-white border border-slate-300 rounded text-xs">⚙️ Música / logo / voz</button>
+            <button onclick="state.step=3; render()" class="px-3 py-1.5 bg-white border border-slate-300 rounded text-xs">🎵 Cambiar audio</button>
+            <button onclick="state.step=2; state.advanced_open=true; render()" class="px-3 py-1.5 bg-white border border-slate-300 rounded text-xs">🏷️ Logo / CTA</button>
             <button onclick="reprocessFromCurrent()" class="px-3 py-1.5 bg-amber-500 text-white rounded text-xs font-medium">↻ Re-procesar</button>
           </div>
         </details>
-      </div>
-    `;
+      </div>`;
   }
-
   return `
     <div class="fade-in max-w-md mx-auto text-center pt-12">
       <div class="text-5xl mb-4">🚀</div>
       <h1 class="text-2xl font-bold text-slate-900 mb-2">Listo para generar</h1>
       <p class="text-slate-600 mb-6">Tocá <strong>Generar mi reel</strong> abajo. Toma 1-2 minutos.</p>
-    </div>
-  `;
+      ${state.enhance_ai ? '<div class="bg-purple-50 border border-purple-200 rounded-xl p-3 text-sm text-purple-900">✨ Mejora IA activada — color y nitidez pro automáticos</div>' : ''}
+    </div>`;
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-//  PROCESS / REPROCESS
-// ──────────────────────────────────────────────────────────────────────────
+// ── PROCESS / REPROCESS ────────────────────────────────────────────
 function buildCtaData() {
   const p = state.property;
   return {
-    info: (state.custom_cta_info || "").trim() ||
-          `${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`,
-    precio: (state.custom_cta_precio || "").trim() ||
-            (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar'),
+    info: (state.custom_cta_info || "").trim() || `${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`,
+    precio: (state.custom_cta_precio || "").trim() || (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar'),
     tagline: (state.custom_tagline || "").trim() || "Vivir distinto",
   };
 }
 
-/** Returns {files: [...File], sections: [...]} */
 function buildPayload() {
   if (state.upload_mode === "simple") {
     const dur = calcAutoDuration(state.simple_clips.length);
     const files = state.simple_clips.map(c => c.file);
-    const sections = [{
-      name: "default",
-      clips: state.simple_clips.map((_, i) => ({
-        file_index: i,
-        trim_start: 0,
-        trim_duration: dur,
-        speed: 1.0,
-        headline: "",
-        subline: "",
-      }))
-    }];
+    const sections = [{ name: "default", clips: state.simple_clips.map((_, i) => ({ file_index: i, trim_start: 0, trim_duration: dur, speed: 1.0, headline: "", subline: "" })) }];
     return { files, sections };
   }
-  // guided
   const files = [];
   const sections = [];
   for (const key of SECTION_ORDER) {
     const cfg = SECTION_CONFIG[key];
     const sec = state.sections[key];
     if (sec.clips.length === 0) continue;
-    const clips = sec.clips.map((c, i) => {
-      const fi = files.length;
-      files.push(c.file);
-      return {
-        file_index: fi,
-        trim_start: 0,
-        trim_duration: cfg.defaultDuration,
-        speed: cfg.speed,
-        headline: i === 0 ? ((sec.headline || "").trim()) : "",
-        subline: "",
-      };
-    });
+    const clips = sec.clips.map((c, i) => { const fi = files.length; files.push(c.file); return { file_index: fi, trim_start: 0, trim_duration: cfg.defaultDuration, speed: cfg.speed, headline: i === 0 ? ((sec.headline || "").trim()) : "", subline: "" }; });
     sections.push({ name: key, clips });
   }
   return { files, sections };
@@ -845,85 +738,54 @@ function buildPayload() {
 
 async function processReel() {
   const { files, sections } = buildPayload();
-  if (files.length === 0) {
-    alert("No hay videos para procesar");
-    state.step = 1; render();
-    return;
-  }
-
+  if (files.length === 0) { alert("No hay videos para procesar"); state.step = 1; render(); return; }
   const fd = new FormData();
   fd.append("sections", JSON.stringify(sections));
   fd.append("cta_data", JSON.stringify(buildCtaData()));
   fd.append("music_preset", state.music_preset || "chill");
+  fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
   files.forEach(f => fd.append("clips", f));
-  if (state.music_file)       fd.append("music",       state.music_file);
+  if (state.music_file) fd.append("music", state.music_file);
   if (state.voice_audio_file) fd.append("voice_audio", state.voice_audio_file);
-  if (state.logo_file)        fd.append("logo",        state.logo_file);
-
+  if (state.logo_file) fd.append("logo", state.logo_file);
   state.job_status = "uploading";
   state.is_reprocessing = false;
   state.has_been_processed = true;
   state.job_error = null;
   state.job_log = [];
   render();
-
   try {
     const r = await fetch(API("/jobs"), { method: "POST", body: fd });
-    if (!r.ok) {
-      let detail = `HTTP ${r.status}`;
-      try {
-        const errBody = await r.text();
-        if (errBody) detail += ` — ${errBody.slice(0, 400)}`;
-      } catch (_) {}
-      throw new Error(detail);
-    }
+    if (!r.ok) { let d = `HTTP ${r.status}`; try { d += ` — ${(await r.text()).slice(0,400)}`; } catch(_) {} throw new Error(d); }
     const j = await r.json();
     state.job_id = j.job_id;
     state.job_status = j.status;
     render();
     pollJobStatus();
-  } catch (e) {
-    state.job_status = "error";
-    state.job_error = e.message || String(e);
-    render();
-  }
+  } catch (e) { state.job_status = "error"; state.job_error = e.message || String(e); render(); }
 }
 
 async function reprocessFromCurrent() {
   if (!state.job_id) { processReel(); return; }
   if (!confirm("¿Re-procesar el reel con los cambios?")) return;
-
   const { sections } = buildPayload();
   if (sections.length === 0) { alert("No hay videos"); return; }
-
   const fd = new FormData();
   fd.append("sections", JSON.stringify(sections));
   fd.append("cta_data", JSON.stringify(buildCtaData()));
   fd.append("music_preset", state.music_preset || "chill");
-
+  fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
   state.job_status = "reprocessing";
   state.is_reprocessing = true;
   state.job_log = [];
   state.job_error = null;
   state.job_download = null;
   render();
-
   try {
     const r = await fetch(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
-    if (!r.ok) {
-      let detail = `HTTP ${r.status}`;
-      try {
-        const errBody = await r.text();
-        if (errBody) detail += ` — ${errBody.slice(0, 400)}`;
-      } catch (_) {}
-      throw new Error(detail);
-    }
+    if (!r.ok) { let d = `HTTP ${r.status}`; try { d += ` — ${(await r.text()).slice(0,400)}`; } catch(_) {} throw new Error(d); }
     pollJobStatus();
-  } catch (e) {
-    state.job_status = "error";
-    state.job_error = e.message || String(e);
-    render();
-  }
+  } catch (e) { state.job_status = "error"; state.job_error = e.message || String(e); render(); }
 }
 
 async function pollJobStatus() {
@@ -943,29 +805,15 @@ async function pollJobStatus() {
   }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-//  MANUAL EDITOR (timeline tipo CapCut)
-// ──────────────────────────────────────────────────────────────────────────
+// ── MANUAL EDITOR (CapCut-style with visual trim) ──────────────────
 function openManualEditor() {
   const { files, sections } = buildPayload();
   if (files.length === 0) { alert("No hay clips para editar"); return; }
-  // Flat list of clips with metadata
   const editorClips = [];
   let i = 0;
   sections.forEach(s => {
     s.clips.forEach(c => {
-      editorClips.push({
-        id: `eclip_${i}`,
-        fileIndex: c.file_index,
-        fileName: files[c.file_index].name,
-        dataUrl: URL.createObjectURL(files[c.file_index]),
-        trim_start: c.trim_start,
-        trim_duration: c.trim_duration,
-        speed: c.speed,
-        headline: c.headline || "",
-        subline: c.subline || "",
-        sourceDuration: null,
-      });
+      editorClips.push({ id: `eclip_${i}`, fileIndex: c.file_index, fileName: files[c.file_index].name, dataUrl: URL.createObjectURL(files[c.file_index]), trim_start: c.trim_start, trim_duration: c.trim_duration, speed: c.speed, headline: c.headline || "", subline: c.subline || "", sourceDuration: null });
       i++;
     });
   });
@@ -985,10 +833,8 @@ function initEditorSortable() {
   const list = document.getElementById("editor-clip-list");
   if (!list || typeof Sortable === "undefined") return;
   state.editor_sortable = Sortable.create(list, {
-    handle: ".drag-handle",
-    animation: 150,
-    ghostClass: "sortable-ghost",
-    chosenClass: "sortable-chosen",
+    handle: ".drag-handle", animation: 150,
+    ghostClass: "sortable-ghost", chosenClass: "sortable-chosen",
     onEnd: (evt) => {
       const moved = state.editor_clips.splice(evt.oldIndex, 1)[0];
       state.editor_clips.splice(evt.newIndex, 0, moved);
@@ -1015,75 +861,108 @@ function editorMetadataLoaded(id, duration) {
   const c = state.editor_clips.find(x => x.id === id);
   if (!c) return;
   c.sourceDuration = duration;
-  if (c.trim_duration > duration) c.trim_duration = duration;
-  const slider = document.getElementById(`trim-dur-${id}`);
-  if (slider) {
-    slider.max = duration.toFixed(2);
-    slider.value = c.trim_duration.toFixed(2);
-    const lbl = document.getElementById(`trim-dur-lbl-${id}`);
-    if (lbl) lbl.textContent = `${c.trim_duration.toFixed(1)}s`;
-    const max = document.getElementById(`source-dur-${id}`);
-    if (max) max.textContent = `(fuente: ${duration.toFixed(1)}s)`;
+  if (c.trim_start + c.trim_duration > duration) c.trim_duration = Math.max(0.5, duration - c.trim_start);
+  const startInput = document.getElementById(`vstart-input-${id}`);
+  const endInput = document.getElementById(`vend-input-${id}`);
+  if (startInput) startInput.max = duration.toFixed(2);
+  if (endInput) { endInput.max = duration.toFixed(2); endInput.value = (c.trim_start + c.trim_duration).toFixed(2); }
+  const sourceLbl = document.getElementById(`source-dur-${id}`);
+  if (sourceLbl) sourceLbl.textContent = `(fuente: ${duration.toFixed(1)}s)`;
+  updateTrimUI(id);
+}
+
+function onTrimChange(id, which, value) {
+  const c = state.editor_clips.find(x => x.id === id);
+  if (!c) return;
+  const v = document.getElementById(`video-${id}`);
+  const maxDur = c.sourceDuration || 30;
+  const minGap = 0.3;
+  let val = parseFloat(value);
+  if (which === 'start') {
+    val = Math.max(0, Math.min(val, c.trim_start + c.trim_duration - minGap));
+    const oldEnd = c.trim_start + c.trim_duration;
+    c.trim_start = val;
+    c.trim_duration = oldEnd - val;
+    if (v) v.currentTime = val;
+  } else {
+    val = Math.min(maxDur, Math.max(val, c.trim_start + minGap));
+    c.trim_duration = val - c.trim_start;
+    if (v) v.currentTime = val;
   }
+  updateTrimUI(id);
+}
+
+function updateTrimUI(id) {
+  const c = state.editor_clips.find(x => x.id === id);
+  if (!c) return;
+  const trimEnd = c.trim_start + c.trim_duration;
+  const srcDur = c.sourceDuration || 30;
+  const startLbl = document.getElementById(`vstart-${id}`);
+  const endLbl = document.getElementById(`vend-${id}`);
+  const durLbl = document.getElementById(`vdur-${id}`);
+  const startInput = document.getElementById(`vstart-input-${id}`);
+  const endInput = document.getElementById(`vend-input-${id}`);
+  const track = document.getElementById(`vtrack-${id}`);
+  const effEl = document.getElementById(`eff-${id}`);
+  if (startLbl) startLbl.textContent = c.trim_start.toFixed(1);
+  if (endLbl) endLbl.textContent = trimEnd.toFixed(1);
+  if (durLbl) durLbl.textContent = c.trim_duration.toFixed(1);
+  if (startInput) startInput.value = c.trim_start;
+  if (endInput) endInput.value = trimEnd;
+  if (track) { track.style.left = ((c.trim_start / srcDur) * 100) + '%'; track.style.right = (100 - (trimEnd / srcDur) * 100) + '%'; }
+  if (effEl) effEl.textContent = `${(c.trim_duration / c.speed).toFixed(1)}s en pantalla`;
+}
+
+function playSegment(id) {
+  const c = state.editor_clips.find(x => x.id === id);
+  const v = document.getElementById(`video-${id}`);
+  if (!c || !v) return;
+  v.currentTime = c.trim_start;
+  v.play().catch(() => {});
+  const stopAt = c.trim_start + c.trim_duration;
+  const onTime = () => { if (v.currentTime >= stopAt) { v.pause(); v.removeEventListener('timeupdate', onTime); } };
+  v.addEventListener('timeupdate', onTime);
+}
+
+function resetTrim(id) {
+  const c = state.editor_clips.find(x => x.id === id);
+  if (!c || !c.sourceDuration) return;
+  c.trim_start = 0;
+  c.trim_duration = c.sourceDuration;
+  updateTrimUI(id);
 }
 
 function renderEditorClip(c, idx) {
   const effDur = (c.trim_duration / c.speed).toFixed(1);
+  const srcDur = c.sourceDuration || 30;
+  const trimEnd = c.trim_start + c.trim_duration;
+  const startPct = (c.trim_start / srcDur) * 100;
+  const endPct = (trimEnd / srcDur) * 100;
   return `
     <div class="editor-clip bg-slate-800 border border-slate-700 rounded-xl p-4 mb-3" data-id="${c.id}">
-      <div class="flex items-start gap-3">
+      <div class="flex items-start gap-3 mb-3">
         <div class="drag-handle text-slate-500 text-2xl pt-1 select-none">☰</div>
-        <video src="${c.dataUrl}" preload="metadata" muted playsinline
-               class="w-20 h-28 object-cover rounded bg-black flex-shrink-0"
-               onloadedmetadata="editorMetadataLoaded('${c.id}', this.duration)"></video>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center justify-between gap-2 mb-2">
-            <div class="min-w-0">
-              <div class="text-xs text-slate-400">Clip ${idx + 1}</div>
-              <div class="text-sm text-white truncate">${escapeHtml(c.fileName)}</div>
-            </div>
-            <div class="text-right">
-              <div class="text-xs text-amber-400 font-semibold" id="eff-${c.id}">${effDur}s en pantalla</div>
-              <button onclick="editorDeleteClip('${c.id}')" class="text-xs text-red-400 hover:text-red-300 mt-1">× Eliminar</button>
-            </div>
-          </div>
-          <div class="mb-2">
-            <div class="flex justify-between text-xs text-slate-400 mb-1">
-              <span>⚡ Velocidad</span>
-              <span class="text-white font-mono"><span id="speed-lbl-${c.id}">${c.speed.toFixed(1)}</span>x</span>
-            </div>
-            <input type="range" min="0.5" max="4" step="0.25" value="${c.speed}" class="w-full"
-                   oninput="this.parentElement.querySelector('#speed-lbl-${c.id}').textContent=parseFloat(this.value).toFixed(1); editorUpdateClip('${c.id}','speed',parseFloat(this.value))">
-          </div>
-          <div class="mb-2">
-            <div class="flex justify-between text-xs text-slate-400 mb-1">
-              <span>✂️ Duración <span id="source-dur-${c.id}" class="text-slate-600 text-[10px]">${c.sourceDuration ? `(fuente: ${c.sourceDuration.toFixed(1)}s)` : ''}</span></span>
-              <span class="text-white font-mono"><span id="trim-dur-lbl-${c.id}">${c.trim_duration.toFixed(1)}</span>s</span>
-            </div>
-            <input type="range" min="0.5" max="${c.sourceDuration || 30}" step="0.1" value="${c.trim_duration}" class="w-full"
-                   id="trim-dur-${c.id}"
-                   oninput="this.parentElement.querySelector('#trim-dur-lbl-${c.id}').textContent=parseFloat(this.value).toFixed(1); editorUpdateClip('${c.id}','trim_duration',parseFloat(this.value))">
-          </div>
-          <div class="mb-3">
-            <div class="flex justify-between text-xs text-slate-400 mb-1">
-              <span>⏱️ Empezar desde</span>
-              <span class="text-white font-mono"><span id="trim-start-lbl-${c.id}">${c.trim_start.toFixed(1)}</span>s</span>
-            </div>
-            <input type="range" min="0" max="${Math.max(0, (c.sourceDuration || 30) - 0.5)}" step="0.1" value="${c.trim_start}" class="w-full"
-                   oninput="this.parentElement.querySelector('#trim-start-lbl-${c.id}').textContent=parseFloat(this.value).toFixed(1); editorUpdateClip('${c.id}','trim_start',parseFloat(this.value))">
-          </div>
-          <div class="grid grid-cols-2 gap-2">
-            <input type="text" placeholder="Título (opcional)" value="${escapeAttr(c.headline)}" maxlength="40"
-                   class="px-2 py-1.5 bg-slate-900 border border-slate-700 text-white text-xs rounded"
-                   oninput="editorUpdateClip('${c.id}','headline',this.value)">
-            <input type="text" placeholder="Subtítulo (opcional)" value="${escapeAttr(c.subline)}" maxlength="50"
-                   class="px-2 py-1.5 bg-slate-900 border border-slate-700 text-white text-xs rounded"
-                   oninput="editorUpdateClip('${c.id}','subline',this.value)">
-          </div>
-        </div>
+        <div class="flex-1 min-w-0"><div class="text-xs text-slate-400">Clip ${idx + 1}</div><div class="text-sm text-white truncate">${escapeHtml(c.fileName)}</div></div>
+        <div class="text-right"><div class="text-xs text-amber-400 font-semibold" id="eff-${c.id}">${effDur}s en pantalla</div><button onclick="editorDeleteClip('${c.id}')" class="text-xs text-red-400 hover:text-red-300 mt-1">× Eliminar</button></div>
       </div>
-    </div>
-  `;
+      <div class="bg-slate-900 rounded-lg p-3 mb-3">
+        <video src="${c.dataUrl}" id="video-${c.id}" preload="metadata" muted playsinline class="trim-preview-video mb-3" onloadedmetadata="editorMetadataLoaded('${c.id}', this.duration)"></video>
+        <div class="flex justify-between text-xs text-slate-400 mb-1"><span>✂️ Recortar segmento <span id="source-dur-${c.id}" class="text-slate-600 text-[10px]">${c.sourceDuration ? `(fuente: ${c.sourceDuration.toFixed(1)}s)` : ''}</span></span><span class="text-white font-mono"><span id="vdur-${c.id}">${c.trim_duration.toFixed(1)}</span>s</span></div>
+        <div class="dual-range" id="dr-${c.id}">
+          <div class="track-bg"></div>
+          <div class="track-sel" id="vtrack-${c.id}" style="left: ${startPct}%; right: ${100 - endPct}%;"></div>
+          <input type="range" id="vstart-input-${c.id}" min="0" max="${srcDur}" step="0.1" value="${c.trim_start}" oninput="onTrimChange('${c.id}', 'start', this.value)">
+          <input type="range" id="vend-input-${c.id}" min="0" max="${srcDur}" step="0.1" value="${trimEnd}" oninput="onTrimChange('${c.id}', 'end', this.value)">
+        </div>
+        <div class="flex justify-between text-[11px] text-slate-300 mt-1 font-mono"><span>🟢 Inicio: <span id="vstart-${c.id}">${c.trim_start.toFixed(1)}</span>s</span><span>🔴 Fin: <span id="vend-${c.id}">${trimEnd.toFixed(1)}</span>s</span></div>
+        <div class="flex gap-2 mt-3"><button onclick="playSegment('${c.id}')" class="flex-1 px-3 py-2 bg-amber-400 text-slate-900 rounded font-medium text-xs hover:bg-amber-300">▶️ Previa del segmento</button><button onclick="resetTrim('${c.id}')" class="px-3 py-2 bg-slate-700 text-slate-200 rounded text-xs hover:bg-slate-600">↺ Todo</button></div>
+      </div>
+      <div class="mb-3"><div class="flex justify-between text-xs text-slate-400 mb-1"><span>⚡ Velocidad</span><span class="text-white font-mono"><span id="speed-lbl-${c.id}">${c.speed.toFixed(1)}</span>x</span></div><input type="range" min="0.5" max="4" step="0.25" value="${c.speed}" class="w-full" oninput="this.parentElement.querySelector('#speed-lbl-${c.id}').textContent=parseFloat(this.value).toFixed(1); editorUpdateClip('${c.id}','speed',parseFloat(this.value))"></div>
+      <div class="grid grid-cols-2 gap-2">
+        <input type="text" placeholder="Título (opcional)" value="${escapeAttr(c.headline)}" maxlength="40" class="px-2 py-1.5 bg-slate-900 border border-slate-700 text-white text-xs rounded" oninput="editorUpdateClip('${c.id}','headline',this.value)">
+        <input type="text" placeholder="Subtítulo (opcional)" value="${escapeAttr(c.subline)}" maxlength="50" class="px-2 py-1.5 bg-slate-900 border border-slate-700 text-white text-xs rounded" oninput="editorUpdateClip('${c.id}','subline',this.value)">
+      </div>
+    </div>`;
 }
 
 function renderManualEditor() {
@@ -1091,51 +970,29 @@ function renderManualEditor() {
   return `
     <div class="editor-modal">
       <div class="sticky top-0 bg-slate-900 border-b border-slate-700 px-4 py-3 flex items-center justify-between z-10">
-        <div>
-          <div class="text-white font-bold">🎨 Editor avanzado</div>
-          <div class="text-xs text-slate-400">${state.editor_clips.length} clips · ${totalEffDur.toFixed(1)}s + cierre (5s)${state.logo_file ? ' + Logo (2s)' : ''}</div>
-        </div>
+        <div><div class="text-white font-bold">🎨 Editor avanzado</div><div class="text-xs text-slate-400">${state.editor_clips.length} clips · ${totalEffDur.toFixed(1)}s + cierre (5s)${state.logo_file ? ' + Logo (2s)' : ''}</div></div>
         <div class="flex gap-2">
           <button onclick="closeManualEditor()" class="px-4 py-2 text-slate-300 hover:text-white text-sm">Cancelar</button>
           <button onclick="applyEditorChanges()" class="px-4 py-2 bg-amber-400 text-slate-900 font-semibold rounded text-sm hover:bg-amber-300">Re-procesar</button>
         </div>
       </div>
       <div class="max-w-3xl mx-auto px-4 py-6">
-        <div class="text-xs text-slate-400 mb-4">
-          ☰ Arrastrá para reordenar · "En pantalla" = duración tras aplicar velocidad
-        </div>
-        <div id="editor-clip-list">
-          ${state.editor_clips.map((c, i) => renderEditorClip(c, i)).join("")}
-        </div>
-        ${state.editor_clips.length === 0
-          ? '<div class="text-center text-slate-400 py-12">No quedan clips. Cancelá para volver.</div>'
-          : ''}
+        <div class="text-xs text-slate-400 mb-4">☰ Arrastrá para reordenar · Movés los handles 🟢🔴 para recortar viendo el video</div>
+        <div id="editor-clip-list">${state.editor_clips.map((c, i) => renderEditorClip(c, i)).join("")}</div>
+        ${state.editor_clips.length === 0 ? '<div class="text-center text-slate-400 py-12">No quedan clips. Cancelá para volver.</div>' : ''}
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 async function applyEditorChanges() {
   if (state.editor_clips.length === 0) { alert("No hay clips"); return; }
   if (!confirm(`¿Re-procesar con ${state.editor_clips.length} clips? Toma 1-2 minutos.`)) return;
-
-  const sections = [{
-    name: "custom",
-    clips: state.editor_clips.map(c => ({
-      file_index: c.fileIndex,
-      trim_start: c.trim_start,
-      trim_duration: c.trim_duration,
-      speed: c.speed,
-      headline: c.headline || "",
-      subline: c.subline || "",
-    }))
-  }];
-
+  const sections = [{ name: "custom", clips: state.editor_clips.map(c => ({ file_index: c.fileIndex, trim_start: c.trim_start, trim_duration: c.trim_duration, speed: c.speed, headline: c.headline || "", subline: c.subline || "" })) }];
   const fd = new FormData();
   fd.append("sections", JSON.stringify(sections));
   fd.append("cta_data", JSON.stringify(buildCtaData()));
   fd.append("music_preset", state.music_preset || "chill");
-
+  fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
   state.editor_open = false;
   state.job_status = "reprocessing";
   state.is_reprocessing = true;
@@ -1143,38 +1000,21 @@ async function applyEditorChanges() {
   state.job_error = null;
   state.job_download = null;
   render();
-
   try {
     const r = await fetch(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
-    if (!r.ok) {
-      let detail = `HTTP ${r.status}`;
-      try {
-        const errBody = await r.text();
-        if (errBody) detail += ` — ${errBody.slice(0, 400)}`;
-      } catch (_) {}
-      throw new Error(detail);
-    }
+    if (!r.ok) { let d = `HTTP ${r.status}`; try { d += ` — ${(await r.text()).slice(0,400)}`; } catch(_) {} throw new Error(d); }
     pollJobStatus();
-  } catch (e) {
-    state.job_status = "error";
-    state.job_error = e.message || String(e);
-    render();
-  }
+  } catch (e) { state.job_status = "error"; state.job_error = e.message || String(e); render(); }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-//  MAIN RENDER
-// ──────────────────────────────────────────────────────────────────────────
+// ── MAIN RENDER ────────────────────────────────────────────────────
 function render() {
   renderStepper();
   const c = document.getElementById("step-content");
-  if (state.step === 1) {
-    c.innerHTML = renderStep1();
-    if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50);
-  }
+  if (state.step === 1) { c.innerHTML = renderStep1(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); }
   if (state.step === 2) c.innerHTML = renderStep2();
   if (state.step === 3) c.innerHTML = renderStep3();
-
+  if (state.step === 4) c.innerHTML = renderStep4();
   const existing = document.getElementById("editor-overlay");
   if (state.editor_open) {
     if (existing) existing.remove();
@@ -1190,6 +1030,7 @@ function render() {
 document.addEventListener("DOMContentLoaded", async () => {
   render();
   await loadMusicPresets();
+  await loadElevenVoices();
   render();
 });
 </script>
