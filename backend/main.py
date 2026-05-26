@@ -24,6 +24,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from editor import build_reel, MUSIC_PRESETS
 from voice import list_voices, generate_voiceover, build_voiceover_script
+from runway_ai import (
+    enhance_clip_with_runway, STYLE_PRESETS as RUNWAY_PRESETS,
+    estimate_cost_usd,
+)
 
 # Paths
 ROOT = Path(__file__).parent.parent
@@ -72,6 +76,149 @@ async def music_presets():
             for k, v in MUSIC_PRESETS.items()
         ]
     }
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  RUNWAY AI — Video-to-video regeneration por toma
+# ──────────────────────────────────────────────────────────────────────
+
+@app.get("/api/runway/presets")
+async def runway_presets():
+    """Lista de presets de estilo rápido para Runway."""
+    return {
+        "presets": [
+            {"key": k, "label": v["label"], "prompt": v["prompt"]}
+            for k, v in RUNWAY_PRESETS.items()
+        ],
+        "available": bool(os.environ.get("RUNWAY_API_KEY", "").strip()),
+    }
+
+
+# In-memory store of Runway tasks
+RUNWAY_TASKS: dict[str, dict] = {}
+RUNWAY_LOCK = threading.Lock()
+
+
+def set_runway_task(task_id: str, **updates):
+    with RUNWAY_LOCK:
+        if task_id in RUNWAY_TASKS:
+            RUNWAY_TASKS[task_id].update(updates)
+            RUNWAY_TASKS[task_id]["updated"] = datetime.utcnow().isoformat()
+
+
+@app.post("/api/runway/enhance-clip")
+async def runway_enhance_clip(
+    clip: UploadFile = File(...),
+    prompt: str = Form(...),
+    model: str = Form("gen3a_turbo"),
+    duration: int = Form(5),
+):
+    """Inicia una tarea de regeneración con Runway.
+    Devuelve task_id, status, cost_estimate."""
+    if not os.environ.get("RUNWAY_API_KEY", "").strip():
+        raise HTTPException(503, "RUNWAY_API_KEY no configurada en el server")
+    if not prompt.strip():
+        raise HTTPException(400, "Prompt vacío")
+    if duration < 2 or duration > 10:
+        raise HTTPException(400, "duration debe estar entre 2 y 10 segundos")
+
+    task_id = uuid.uuid4().hex[:12]
+    upload_dir = UPLOAD_DIR / f"runway_{task_id}"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save uploaded clip
+    ext = Path(clip.filename or "").suffix or ".mp4"
+    clip_path = upload_dir / f"input{ext}"
+    with open(clip_path, "wb") as f:
+        shutil.copyfileobj(clip.file, f)
+
+    output_path = OUTPUT_DIR / f"runway_{task_id}.mp4"
+    work_dir = WORK_DIR / f"runway_{task_id}"
+
+    task = {
+        "id": task_id,
+        "status": "pending",
+        "created": datetime.utcnow().isoformat(),
+        "prompt": prompt,
+        "model": model,
+        "duration": duration,
+        "input_path": str(clip_path),
+        "output_path": str(output_path),
+        "work_dir": str(work_dir),
+        "cost_usd": estimate_cost_usd(duration, model),
+        "error": None,
+    }
+    with RUNWAY_LOCK:
+        RUNWAY_TASKS[task_id] = task
+
+    threading.Thread(
+        target=_runway_process,
+        args=(task_id, str(clip_path), prompt, str(output_path),
+              str(work_dir), model, duration),
+        daemon=True,
+    ).start()
+
+    return {
+        "task_id": task_id,
+        "status": "pending",
+        "cost_estimate_usd": task["cost_usd"],
+        "expected_wait_seconds": 60 if model == "gen3a_turbo" else 120,
+    }
+
+
+def _runway_process(task_id, input_path, prompt, output_path,
+                     work_dir, model, duration):
+    set_runway_task(task_id, status="processing")
+    try:
+        ok, err = enhance_clip_with_runway(
+            input_video=input_path,
+            prompt=prompt,
+            output_video=output_path,
+            work_dir=work_dir,
+            model=model,
+            duration=duration,
+        )
+        if ok:
+            set_runway_task(task_id, status="done")
+        else:
+            set_runway_task(task_id, status="error", error=err)
+    except Exception as e:
+        set_runway_task(task_id, status="error", error=f"unexpected: {str(e)[:300]}")
+
+
+@app.get("/api/runway/tasks/{task_id}")
+async def runway_task_status(task_id: str):
+    with RUNWAY_LOCK:
+        task = RUNWAY_TASKS.get(task_id)
+    if not task:
+        raise HTTPException(404, "Runway task not found")
+    return {
+        "id": task["id"],
+        "status": task["status"],
+        "created": task["created"],
+        "updated": task.get("updated"),
+        "prompt": task["prompt"],
+        "model": task["model"],
+        "duration": task["duration"],
+        "cost_usd": task["cost_usd"],
+        "error": task.get("error"),
+        "download_url": f"/api/runway/tasks/{task_id}/download" if task["status"] == "done" else None,
+    }
+
+
+@app.get("/api/runway/tasks/{task_id}/download")
+async def runway_task_download(task_id: str):
+    with RUNWAY_LOCK:
+        task = RUNWAY_TASKS.get(task_id)
+    if not task:
+        raise HTTPException(404, "Runway task not found")
+    if task["status"] != "done":
+        raise HTTPException(409, f"Task not done (status={task['status']})")
+    path = task["output_path"]
+    if not Path(path).exists():
+        raise HTTPException(500, "Output file missing")
+    return FileResponse(path, media_type="video/mp4",
+                        filename=f"runway_{task_id}.mp4")
 
 
 @app.post("/api/jobs")

@@ -138,6 +138,18 @@ let state = {
   job_download: null, job_duration: null,
   is_reprocessing: false, has_been_processed: false,
   editor_open: false, editor_clips: [], editor_sortable: null, simple_sortable: null,
+  // Runway AI per-clip regeneration
+  runway_modal_open: false,
+  runway_active_clip_id: null,
+  runway_prompt: "",
+  runway_preset_key: "luz_natural",
+  runway_presets: [],
+  runway_available: false,
+  runway_task_id: null,
+  runway_task_status: null,
+  runway_task_error: null,
+  runway_cost_estimate: 0,
+  runway_replaced_clips: {},  // map: clip_id -> {url, blob, file}
 };
 
 function resetAll() {
@@ -199,6 +211,240 @@ async function loadElevenVoices() {
       state.voice_eleven_key = state.eleven_voices[0].key || state.eleven_voices[0].id || "";
     }
   } catch (e) { console.warn("Eleven voices:", e); }
+}
+
+async function loadRunwayPresets() {
+  try {
+    const r = await fetch(API("/runway/presets"));
+    const j = await r.json();
+    state.runway_presets = j.presets || [];
+    state.runway_available = !!j.available;
+  } catch (e) { console.warn("Runway presets:", e); state.runway_available = false; }
+}
+
+// ── RUNWAY AI por toma ────────────────────────────────────────────
+function openRunwayModal(clipId) {
+  const c = state.editor_clips.find(x => x.id === clipId);
+  if (!c) return;
+  state.runway_active_clip_id = clipId;
+  state.runway_prompt = "";
+  state.runway_preset_key = state.runway_presets[0]?.key || "luz_natural";
+  state.runway_task_id = null;
+  state.runway_task_status = null;
+  state.runway_task_error = null;
+  state.runway_cost_estimate = Math.round((c.trim_duration / c.speed) * 0.05 * 100) / 100;
+  state.runway_modal_open = true;
+  render();
+}
+
+function closeRunwayModal() {
+  state.runway_modal_open = false;
+  state.runway_active_clip_id = null;
+  render();
+}
+
+function selectRunwayPreset(key) {
+  const p = state.runway_presets.find(x => x.key === key);
+  if (!p) return;
+  state.runway_preset_key = key;
+  state.runway_prompt = p.prompt;
+  render();
+}
+
+async function runwayGenerate() {
+  const c = state.editor_clips.find(x => x.id === state.runway_active_clip_id);
+  if (!c) return;
+  if (!state.runway_prompt.trim()) { alert("Escribí o elegí un prompt"); return; }
+  if (!state.runway_available) {
+    alert("Runway no está configurada en el server. Pedile a Vale que agregue RUNWAY_API_KEY en Render.");
+    return;
+  }
+
+  // Round duration to integer for Runway (2-10s)
+  const dur = Math.max(2, Math.min(10, Math.round(c.trim_duration / c.speed)));
+
+  // Fetch the source clip as a blob (it's already a blob URL or file)
+  let clipBlob;
+  try {
+    if (c.dataUrl.startsWith('blob:')) {
+      const resp = await fetch(c.dataUrl);
+      clipBlob = await resp.blob();
+    } else {
+      // data URL
+      const resp = await fetch(c.dataUrl);
+      clipBlob = await resp.blob();
+    }
+  } catch (e) {
+    alert("Error preparando el clip: " + e.message);
+    return;
+  }
+
+  const fd = new FormData();
+  fd.append("clip", clipBlob, c.fileName || "clip.mp4");
+  fd.append("prompt", state.runway_prompt);
+  fd.append("model", "gen3a_turbo");
+  fd.append("duration", String(dur));
+
+  state.runway_task_status = "uploading";
+  state.runway_task_error = null;
+  render();
+
+  try {
+    const r = await fetch(API("/runway/enhance-clip"), { method: "POST", body: fd });
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(`HTTP ${r.status} — ${t.slice(0, 300)}`);
+    }
+    const j = await r.json();
+    state.runway_task_id = j.task_id;
+    state.runway_task_status = j.status;
+    render();
+    runwayPollTask();
+  } catch (e) {
+    state.runway_task_status = "error";
+    state.runway_task_error = e.message || String(e);
+    render();
+  }
+}
+
+async function runwayPollTask() {
+  if (!state.runway_task_id) return;
+  while (state.runway_task_id) {
+    await new Promise(r => setTimeout(r, 4000));
+    if (!state.runway_modal_open) return;  // user closed modal
+    try {
+      const r = await fetch(API(`/runway/tasks/${state.runway_task_id}`));
+      const j = await r.json();
+      state.runway_task_status = j.status;
+      state.runway_task_error = j.error;
+      render();
+      if (j.status === "done") {
+        // Download the regenerated clip
+        const dlUrl = `${API_BASE}${j.download_url}`;
+        const dlResp = await fetch(dlUrl);
+        const blob = await dlResp.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const file = new File([blob], `runway_${state.runway_active_clip_id}.mp4`, { type: "video/mp4" });
+        applyRunwayResult(state.runway_active_clip_id, file, blobUrl);
+        return;
+      }
+      if (j.status === "error") return;
+    } catch (e) {
+      console.warn("Poll error:", e);
+      break;
+    }
+  }
+}
+
+function applyRunwayResult(clipId, file, blobUrl) {
+  const c = state.editor_clips.find(x => x.id === clipId);
+  if (!c) return;
+  // Save backup of original (in case user wants to revert)
+  if (!state.runway_replaced_clips[clipId]) {
+    state.runway_replaced_clips[clipId] = {
+      original_dataUrl: c.dataUrl,
+      original_fileName: c.fileName,
+    };
+  }
+  // Free old blob URL
+  if (c.dataUrl.startsWith('blob:')) URL.revokeObjectURL(c.dataUrl);
+  c.dataUrl = blobUrl;
+  c.fileName = file.name;
+  c._runwayFile = file;  // marker to know we need to upload this on reprocess
+  c.sourceDuration = null;  // re-detect from new video
+  state.runway_modal_open = false;
+  render();
+  setTimeout(initEditorSortable, 50);
+  setTimeout(() => alert("✓ Toma regenerada con IA. Si te gusta, dale 'Re-procesar' arriba para incluirla en el reel."), 100);
+}
+
+function revertRunwayClip(clipId) {
+  const backup = state.runway_replaced_clips[clipId];
+  const c = state.editor_clips.find(x => x.id === clipId);
+  if (!backup || !c) return;
+  if (!confirm("¿Volver a la toma original (descartar la versión IA)?")) return;
+  if (c.dataUrl.startsWith('blob:')) URL.revokeObjectURL(c.dataUrl);
+  c.dataUrl = backup.original_dataUrl;
+  c.fileName = backup.original_fileName;
+  delete c._runwayFile;
+  delete state.runway_replaced_clips[clipId];
+  render();
+  setTimeout(initEditorSortable, 50);
+}
+
+function renderRunwayModal() {
+  const c = state.editor_clips.find(x => x.id === state.runway_active_clip_id);
+  if (!c) return "";
+  const presetsHtml = state.runway_presets.map(p => `
+    <button onclick="selectRunwayPreset('${p.key}')" class="text-left p-2 rounded ${state.runway_preset_key === p.key ? 'bg-purple-600 text-white' : 'bg-slate-700 text-slate-200 hover:bg-slate-600'} text-xs">
+      ${escapeHtml(p.label)}
+    </button>
+  `).join("");
+
+  const isProcessing = state.runway_task_status && state.runway_task_status !== "done" && state.runway_task_status !== "error";
+  const isError = state.runway_task_status === "error";
+
+  let actionArea = "";
+  if (isProcessing) {
+    actionArea = `
+      <div class="bg-slate-700 border border-slate-600 rounded-xl p-4 text-center">
+        <div class="spinner w-8 h-8 border-4 border-slate-500 border-t-purple-400 rounded-full mx-auto mb-3"></div>
+        <div class="text-white font-medium">Runway está regenerando…</div>
+        <div class="text-xs text-slate-400 mt-1">Status: ${escapeHtml(state.runway_task_status)} · 30-90 seg</div>
+        <div class="text-[10px] text-slate-500 mt-2">No cierres el modal o se cancela el polling</div>
+      </div>
+    `;
+  } else if (isError) {
+    actionArea = `
+      <div class="bg-red-900/40 border border-red-700 rounded-xl p-4">
+        <div class="text-red-200 font-medium mb-1">✗ Error</div>
+        <div class="text-xs text-red-300 break-words mb-3">${escapeHtml(state.runway_task_error || "Unknown")}</div>
+        <button onclick="state.runway_task_status=null; state.runway_task_error=null; render()" class="px-3 py-1.5 bg-amber-500 text-slate-900 rounded text-xs">Reintentar</button>
+      </div>
+    `;
+  } else {
+    actionArea = `
+      <button onclick="runwayGenerate()" ${!state.runway_available ? 'disabled' : ''} class="w-full px-4 py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed">
+        ✨ Generar con Runway (~$${state.runway_cost_estimate})
+      </button>
+      ${!state.runway_available ? '<div class="text-xs text-red-300 mt-2 text-center">⚠ RUNWAY_API_KEY no configurada en el server</div>' : ''}
+    `;
+  }
+
+  return `
+    <div class="editor-modal" style="background: rgba(0,0,0,0.85);">
+      <div class="max-w-lg mx-auto px-4 py-6">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <div class="text-white font-bold text-lg">✨ Rehacer con IA</div>
+              <div class="text-xs text-slate-400">Clip: ${escapeHtml(c.fileName)} · ~${(c.trim_duration / c.speed).toFixed(1)}s</div>
+            </div>
+            <button onclick="closeRunwayModal()" class="text-slate-300 hover:text-white text-2xl leading-none">×</button>
+          </div>
+
+          <video src="${c.dataUrl}" muted playsinline controls class="w-full rounded-lg bg-black mb-4" style="max-height: 240px;"></video>
+
+          <div class="mb-3">
+            <label class="text-xs text-slate-400 block mb-2">Estilos rápidos:</label>
+            <div class="grid grid-cols-2 gap-2">${presetsHtml || '<div class="text-xs text-slate-500">Sin presets</div>'}</div>
+          </div>
+
+          <div class="mb-4">
+            <label class="text-xs text-slate-400 block mb-1">Tu instrucción:</label>
+            <textarea rows="3" maxlength="500" oninput="state.runway_prompt=this.value" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 text-white text-sm rounded" placeholder="Ej: misma cocina pero con abundante luz natural entrando por la ventana, estilo cinematográfico">${escapeHtml(state.runway_prompt)}</textarea>
+            <div class="text-[10px] text-slate-500 mt-1">${(state.runway_prompt || "").length}/500 caracteres</div>
+          </div>
+
+          ${actionArea}
+
+          <div class="text-[10px] text-slate-500 mt-3 text-center">
+            Costo estimado: ~$${state.runway_cost_estimate} · Runway Gen-3 Turbo · 30-90 seg de espera
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function estimateReelDuration() {
@@ -329,15 +575,23 @@ function renderStep1() {
   `;
   const aiToggle = `
     <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4 max-w-md mx-auto flex items-center gap-3">
-      <div class="ai-badge text-xs px-2 py-1 rounded-full font-bold">✨ IA</div>
+      <div class="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full font-bold">🎬</div>
       <div class="flex-1">
-        <div class="text-sm font-medium text-slate-900">Mejorar imagen con IA</div>
-        <div class="text-xs text-slate-500">Color pro, nitidez, contraste cinematográfico</div>
+        <div class="text-sm font-medium text-slate-900">Color cinematográfico</div>
+        <div class="text-xs text-slate-500">Color pro, nitidez y contraste para TODAS las tomas</div>
       </div>
       <label class="relative inline-flex items-center cursor-pointer">
         <input type="checkbox" ${state.enhance_ai ? 'checked' : ''} onchange="state.enhance_ai=this.checked; render()" class="sr-only peer">
-        <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-purple-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5"></div>
+        <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-amber-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5"></div>
       </label>
+    </div>
+    <div class="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-4 mb-5 max-w-md mx-auto">
+      <div class="flex items-start gap-2">
+        <div class="ai-badge text-xs px-2 py-1 rounded-full font-bold">✨ IA</div>
+        <div class="flex-1 text-xs text-slate-700">
+          <strong>¿Regenerar tomas con IA real (Runway)?</strong> Subí los videos primero. Después en <strong>"Editor avanzado"</strong> (paso 4) vas a poder rehacer cada toma con un prompt tipo "más luz natural cinematográfica".
+        </div>
+      </div>
     </div>
   `;
   const content = state.upload_mode === "simple" ? renderSimpleUpload() : renderGuidedSections();
@@ -956,6 +1210,11 @@ function renderEditorClip(c, idx) {
         </div>
         <div class="flex justify-between text-[11px] text-slate-300 mt-1 font-mono"><span>🟢 Inicio: <span id="vstart-${c.id}">${c.trim_start.toFixed(1)}</span>s</span><span>🔴 Fin: <span id="vend-${c.id}">${trimEnd.toFixed(1)}</span>s</span></div>
         <div class="flex gap-2 mt-3"><button onclick="playSegment('${c.id}')" class="flex-1 px-3 py-2 bg-amber-400 text-slate-900 rounded font-medium text-xs hover:bg-amber-300">▶️ Previa del segmento</button><button onclick="resetTrim('${c.id}')" class="px-3 py-2 bg-slate-700 text-slate-200 rounded text-xs hover:bg-slate-600">↺ Todo</button></div>
+        <div class="flex gap-2 mt-2">
+          <button onclick="openRunwayModal('${c.id}')" class="flex-1 px-3 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded font-medium text-xs hover:opacity-90">✨ Rehacer con IA (Runway)</button>
+          ${state.runway_replaced_clips[c.id] ? `<button onclick="revertRunwayClip('${c.id}')" class="px-3 py-2 bg-slate-700 text-slate-200 rounded text-xs hover:bg-slate-600" title="Volver al original">↺ Original</button>` : ''}
+        </div>
+        ${state.runway_replaced_clips[c.id] ? '<div class="text-[10px] text-purple-300 mt-1 text-center">✨ Toma regenerada con IA</div>' : ''}
       </div>
       <div class="mb-3"><div class="flex justify-between text-xs text-slate-400 mb-1"><span>⚡ Velocidad</span><span class="text-white font-mono"><span id="speed-lbl-${c.id}">${c.speed.toFixed(1)}</span>x</span></div><input type="range" min="0.5" max="4" step="0.25" value="${c.speed}" class="w-full" oninput="this.parentElement.querySelector('#speed-lbl-${c.id}').textContent=parseFloat(this.value).toFixed(1); editorUpdateClip('${c.id}','speed',parseFloat(this.value))"></div>
       <div class="grid grid-cols-2 gap-2">
@@ -987,24 +1246,76 @@ function renderManualEditor() {
 async function applyEditorChanges() {
   if (state.editor_clips.length === 0) { alert("No hay clips"); return; }
   if (!confirm(`¿Re-procesar con ${state.editor_clips.length} clips? Toma 1-2 minutos.`)) return;
-  const sections = [{ name: "custom", clips: state.editor_clips.map(c => ({ file_index: c.fileIndex, trim_start: c.trim_start, trim_duration: c.trim_duration, speed: c.speed, headline: c.headline || "", subline: c.subline || "" })) }];
-  const fd = new FormData();
-  fd.append("sections", JSON.stringify(sections));
-  fd.append("cta_data", JSON.stringify(buildCtaData()));
-  fd.append("music_preset", state.music_preset || "chill");
-  fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
-  state.editor_open = false;
-  state.job_status = "reprocessing";
-  state.is_reprocessing = true;
-  state.job_log = [];
-  state.job_error = null;
-  state.job_download = null;
-  render();
-  try {
-    const r = await fetch(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
-    if (!r.ok) { let d = `HTTP ${r.status}`; try { d += ` — ${(await r.text()).slice(0,400)}`; } catch(_) {} throw new Error(d); }
-    pollJobStatus();
-  } catch (e) { state.job_status = "error"; state.job_error = e.message || String(e); render(); }
+
+  const hasRegenerated = state.editor_clips.some(c => c._runwayFile);
+
+  if (hasRegenerated) {
+    // Hay clips regenerados con Runway: tenemos que mandar un job NUEVO con todos los files
+    const { files: originalFiles } = buildPayload();
+    const finalFiles = [];
+    const sections = [{
+      name: "custom",
+      clips: state.editor_clips.map((c, newIdx) => {
+        finalFiles.push(c._runwayFile || originalFiles[c.fileIndex]);
+        return {
+          file_index: newIdx,
+          trim_start: 0,  // Runway output is already trimmed to the segment
+          trim_duration: c._runwayFile ? (c.trim_duration / c.speed) : c.trim_duration,
+          speed: c._runwayFile ? 1.0 : c.speed,
+          headline: c.headline || "",
+          subline: c.subline || "",
+        };
+      })
+    }];
+
+    const fd = new FormData();
+    fd.append("sections", JSON.stringify(sections));
+    fd.append("cta_data", JSON.stringify(buildCtaData()));
+    fd.append("music_preset", state.music_preset || "chill");
+    fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+    finalFiles.forEach(f => fd.append("clips", f));
+    if (state.music_file) fd.append("music", state.music_file);
+    if (state.voice_audio_file) fd.append("voice_audio", state.voice_audio_file);
+    if (state.logo_file) fd.append("logo", state.logo_file);
+
+    state.editor_open = false;
+    state.job_status = "uploading";
+    state.is_reprocessing = false;
+    state.job_log = [];
+    state.job_error = null;
+    state.job_download = null;
+    render();
+
+    try {
+      const r = await fetch(API("/jobs"), { method: "POST", body: fd });
+      if (!r.ok) { let d = `HTTP ${r.status}`; try { d += ` — ${(await r.text()).slice(0,400)}`; } catch(_) {} throw new Error(d); }
+      const j = await r.json();
+      state.job_id = j.job_id;
+      state.job_status = j.status;
+      render();
+      pollJobStatus();
+    } catch (e) { state.job_status = "error"; state.job_error = e.message || String(e); render(); }
+  } else {
+    // Reprocess standard (clips ya están en el server)
+    const sections = [{ name: "custom", clips: state.editor_clips.map(c => ({ file_index: c.fileIndex, trim_start: c.trim_start, trim_duration: c.trim_duration, speed: c.speed, headline: c.headline || "", subline: c.subline || "" })) }];
+    const fd = new FormData();
+    fd.append("sections", JSON.stringify(sections));
+    fd.append("cta_data", JSON.stringify(buildCtaData()));
+    fd.append("music_preset", state.music_preset || "chill");
+    fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+    state.editor_open = false;
+    state.job_status = "reprocessing";
+    state.is_reprocessing = true;
+    state.job_log = [];
+    state.job_error = null;
+    state.job_download = null;
+    render();
+    try {
+      const r = await fetch(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
+      if (!r.ok) { let d = `HTTP ${r.status}`; try { d += ` — ${(await r.text()).slice(0,400)}`; } catch(_) {} throw new Error(d); }
+      pollJobStatus();
+    } catch (e) { state.job_status = "error"; state.job_error = e.message || String(e); render(); }
+  }
 }
 
 // ── MAIN RENDER ────────────────────────────────────────────────────
@@ -1025,12 +1336,26 @@ function render() {
   } else if (existing) {
     existing.remove();
   }
+
+  // Runway modal on top of editor
+  const rwExisting = document.getElementById("runway-overlay");
+  if (state.runway_modal_open) {
+    if (rwExisting) rwExisting.remove();
+    const div = document.createElement("div");
+    div.id = "runway-overlay";
+    div.style.zIndex = "150";
+    div.style.position = "fixed";
+    div.style.inset = "0";
+    div.innerHTML = renderRunwayModal();
+    document.body.appendChild(div);
+  } else if (rwExisting) {
+    rwExisting.remove();
+  }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   render();
-  await loadMusicPresets();
-  await loadElevenVoices();
+  await Promise.all([loadMusicPresets(), loadElevenVoices(), loadRunwayPresets()]);
   render();
 });
 </script>
