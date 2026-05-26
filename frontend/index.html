@@ -106,6 +106,27 @@ const API_BASE = (() => {
 })();
 const API = (path) => `${API_BASE}/api${path}`;
 
+// Fetch wrapper con mensajes de error útiles (sobre todo en móvil)
+async function fetchWithDetail(url, opts) {
+  try {
+    const resp = await fetch(url, opts);
+    return resp;
+  } catch (e) {
+    // "Failed to fetch" típico = network error o CORS
+    const msg = String(e.message || e);
+    const isOffline = !navigator.onLine;
+    const detail = [
+      `Error de red: ${msg}`,
+      isOffline ? "📴 Estás sin conexión." : "📡 Verificá tu conexión a internet.",
+      `URL: ${url}`,
+      `Tip: si estás en red móvil, probá con WiFi. Las redes móviles a veces bloquean uploads grandes.`,
+    ].join("\n");
+    const err = new Error(detail);
+    err.isNetworkError = true;
+    throw err;
+  }
+}
+
 function calcAutoDuration(n) {
   if (n === 0) return 3;
   return Math.max(1.8, Math.min(5, 26 / n));
@@ -443,8 +464,11 @@ function renderRunwayModal() {
 
           <div class="mb-4">
             <label class="text-xs text-slate-400 block mb-1">Tu instrucción:</label>
-            <textarea rows="3" maxlength="500" oninput="state.runway_prompt=this.value" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 text-white text-sm rounded" placeholder="Ej: misma cocina pero con abundante luz natural entrando por la ventana, estilo cinematográfico">${escapeHtml(state.runway_prompt)}</textarea>
-            <div class="text-[10px] text-slate-500 mt-1">${(state.runway_prompt || "").length}/500 caracteres</div>
+            <textarea rows="3" maxlength="500"
+                      oninput="state.runway_prompt=this.value; updateRunwayPromptCounter()"
+                      class="w-full px-3 py-2 bg-slate-900 border border-slate-700 text-white text-sm rounded"
+                      placeholder="Ej: misma cocina pero con abundante luz natural entrando por la ventana, estilo cinematográfico">${escapeHtml(state.runway_prompt)}</textarea>
+            <div id="runway-prompt-counter" class="text-[10px] text-slate-500 mt-1">${(state.runway_prompt || "").length}/500 caracteres</div>
           </div>
 
           ${actionArea}
@@ -528,6 +552,13 @@ async function generateVoiceWithEleven() {
     state.is_generating_voice = false;
     render();
   }
+}
+
+function updateRunwayPromptCounter() {
+  const el = document.getElementById("runway-prompt-counter");
+  if (!el) return;
+  const len = (state.runway_prompt || "").length;
+  el.textContent = `${len}/500 caracteres`;
 }
 
 function clearVoice() {
@@ -1054,7 +1085,7 @@ async function applyVoiceToReel() {
   render();
 
   try {
-    const r = await fetch(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
+    const r = await fetchWithDetail(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
     if (!r.ok) { let d = `HTTP ${r.status}`; try { d += ` — ${(await r.text()).slice(0,400)}`; } catch(_) {} throw new Error(d); }
     pollJobStatus();
   } catch (e) {
@@ -1182,7 +1213,7 @@ async function processReel() {
   state.job_log = [];
   render();
   try {
-    const r = await fetch(API("/jobs"), { method: "POST", body: fd });
+    const r = await fetchWithDetail(API("/jobs"), { method: "POST", body: fd });
     if (!r.ok) { let d = `HTTP ${r.status}`; try { d += ` — ${(await r.text()).slice(0,400)}`; } catch(_) {} throw new Error(d); }
     const j = await r.json();
     state.job_id = j.job_id;
@@ -1210,7 +1241,7 @@ async function reprocessFromCurrent() {
   state.job_download = null;
   render();
   try {
-    const r = await fetch(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
+    const r = await fetchWithDetail(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
     if (!r.ok) { let d = `HTTP ${r.status}`; try { d += ` — ${(await r.text()).slice(0,400)}`; } catch(_) {} throw new Error(d); }
     pollJobStatus();
   } catch (e) { state.job_status = "error"; state.job_error = e.message || String(e); render(); }
@@ -1487,7 +1518,7 @@ async function applyEditorChanges() {
     state.job_download = null;
     render();
     try {
-      const r = await fetch(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
+      const r = await fetchWithDetail(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
       if (!r.ok) { let d = `HTTP ${r.status}`; try { d += ` — ${(await r.text()).slice(0,400)}`; } catch(_) {} throw new Error(d); }
       pollJobStatus();
     } catch (e) { state.job_status = "error"; state.job_error = e.message || String(e); render(); }
