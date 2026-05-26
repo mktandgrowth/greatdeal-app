@@ -226,6 +226,8 @@ Configurar en https://dashboard.render.com/ → `greatdeal-api` → Environment:
 - **OneDrive sync**: a veces el archivo en disco no refleja inmediatamente el último Write. Si algo se ve raro, releer con Read tool antes de asumir corrupción.
 - **`__pycache__` bloqueado** desde el sandbox de bash: si necesitás testar editor.py modificado, copiarlo a `/tmp` antes de importar para evitar pyc stale.
 - **AskUserQuestion** a veces falla con "permission stream closed". Si pasa, hacer preguntas en texto plano y proceder con defaults sensatos.
+- **CRÍTICO al reparar archivos truncados**: si vas a usar `head -n -1 file > tmp && mv tmp file && cat >> file`, el `mv` puede fallar silenciosamente (permission denied desde sandbox a OneDrive paths) y el `cat >>` se ejecuta igual, dejando código DUPLICADO al final del archivo. Después puede compilar pero fallar en runtime con IndentationError raro. **Siempre validar después con `grep -n "@app\\.\\|^if __name__" file`** para ver duplicados antes de pushear.
+- **NUNCA pinear versiones de packages externos** sin verificar primero. `runwayml==3.6.0` rompió el deploy porque esa versión no existe en PyPI. Mejor usar la API REST directa con `requests` cuando es factible.
 
 ### FFmpeg
 - **Escape de caracteres especiales** en drawtext: `'` → `\'`, `:` → `\:`, `%` → `\%`, `\` → `\\`. Está en `_esc()` helper.
