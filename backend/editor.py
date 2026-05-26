@@ -123,11 +123,12 @@ def speedup_clip(input_file: str, output_file: str,
 def add_text_overlay(input_file: str, output_file: str,
                      headline: str, subline: str,
                      duration: float) -> tuple[bool, str]:
-    """Add headline + subline overlay centered in the lower-third (IG/TikTok safe zone).
-    - Headline: 32px bold, baseline ~y=760 (W=540, H=960)
-    - Subline: 20px regular, baseline ~y=800
+    """Add headline + subline overlay CENTERED VERTICALLY (zona media del video).
+    - Headline: 36px bold, top at y=446 (W=540, H=960)
+    - Subline: 22px regular, top at y=492
     - Both horizontally centered
-    - Soft black gradient behind for legibility
+    - Strong shadow + outline for legibility (sin gradient — los subtítulos
+      automáticos ocupan el tercio inferior).
     If both empty, just copies the file (no re-encode = faster)."""
     if not headline and not subline:
         shutil.copy(input_file, output_file)
@@ -135,27 +136,22 @@ def add_text_overlay(input_file: str, output_file: str,
 
     fade_out_start = max(0.1, duration - 0.3)
     filters = []
-    # Gradient: subtle, behind the lower-third text block (~y 700-855)
-    filters.append(
-        "drawbox=x=0:y=h-260:w=iw:h=20:color=black@0.05:t=fill,"
-        "drawbox=x=0:y=h-240:w=iw:h=30:color=black@0.15:t=fill,"
-        "drawbox=x=0:y=h-210:w=iw:h=50:color=black@0.28:t=fill,"
-        "drawbox=x=0:y=h-160:w=iw:h=130:color=black@0.42:t=fill"
-    )
     if headline:
-        # Headline: smaller (32px), centered horizontally, lower-third
+        # Headline centrado vertical (ligeramente sobre el centro)
         filters.append(
             f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
-            f"fontsize=32:fontcolor=white:"
-            f"x=(w-text_w)/2:y=h-200:"
+            f"fontsize=36:fontcolor=white:"
+            f"x=(w-text_w)/2:y=(h-text_h)/2-25:"
+            f"borderw=3:bordercolor=black@0.85:"
             f"shadowx=2:shadowy=2:shadowcolor=black@0.7"
         )
     if subline:
-        # Subline: smaller (20px), centered, JUST below the headline (same vertical axis)
+        # Subline justo abajo del headline (centro + 25)
         filters.append(
             f"drawtext=fontfile={FONT_REG}:text='{_esc(subline)}':"
-            f"fontsize=20:fontcolor=0xe5e5e5:"
-            f"x=(w-text_w)/2:y=h-160:"
+            f"fontsize=22:fontcolor=0xe5e5e5:"
+            f"x=(w-text_w)/2:y=(h-text_h)/2+25:"
+            f"borderw=2:bordercolor=black@0.8:"
             f"shadowx=1:shadowy=1:shadowcolor=black@0.6"
         )
     filters.append(f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_out_start}:d=0.3")

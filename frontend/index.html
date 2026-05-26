@@ -1250,22 +1250,48 @@ async function reprocessFromCurrent() {
   } catch (e) { state.job_status = "error"; state.job_error = e.message || String(e); render(); }
 }
 
+let _pollRunning = false;
 async function pollJobStatus() {
-  while (true) {
-    await new Promise(r => setTimeout(r, 2500));
-    try {
-      const r = await fetch(API(`/jobs/${state.job_id}`));
-      const j = await r.json();
-      state.job_status = j.status;
-      state.job_log = j.log || [];
-      state.job_error = j.error;
-      state.job_duration = j.duration;
-      state.job_download = j.download_url ? `${API_BASE}${j.download_url}` : null;
-      render();
-      if (j.status === "done" || j.status === "error") break;
-    } catch (e) { console.warn(e); break; }
+  if (_pollRunning) return;  // evita pollings duplicados
+  _pollRunning = true;
+  try {
+    while (state.job_id) {
+      await new Promise(r => setTimeout(r, 2500));
+      if (!state.job_id) break;
+      try {
+        const r = await fetch(API(`/jobs/${state.job_id}`));
+        if (!r.ok) {
+          console.warn("Poll non-OK:", r.status);
+          continue;
+        }
+        const j = await r.json();
+        state.job_status = j.status;
+        state.job_log = j.log || [];
+        state.job_error = j.error;
+        state.job_duration = j.duration;
+        state.job_download = j.download_url ? `${API_BASE}${j.download_url}` : null;
+        render();
+        if (j.status === "done" || j.status === "error") break;
+      } catch (e) {
+        // Network blip — esperá y reintentá (no rompas el loop)
+        console.warn("Poll error, retrying:", e.message);
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    }
+  } finally {
+    _pollRunning = false;
   }
 }
+
+// Cuando la pestaña/app vuelve a ser visible (después de bloquear el celular
+// o cambiar de app), reanudar el polling si había un job procesando
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.job_id &&
+      state.job_status && state.job_status !== "done" && state.job_status !== "error") {
+    console.log("Tab visible again — reanudando polling");
+    pollJobStatus();
+  }
+});
 
 // ── MANUAL EDITOR (CapCut-style with visual trim) ──────────────────
 function openManualEditor() {
