@@ -417,6 +417,8 @@ async def reprocess_job(
     music_preset: Optional[str] = Form(None),
     enhance_ai: Optional[str] = Form(None),
     auto_subtitles: Optional[str] = Form(None),
+    voice_audio: Optional[UploadFile] = File(None),
+    music: Optional[UploadFile] = File(None),
 ):
     """Re-process an existing job with new sections/cta_data (re-edit feature).
     Reuses the original clips, logo, music, voice. Only re-applies trim/text/CTA.
@@ -452,15 +454,40 @@ async def reprocess_job(
         else bool(job.get("auto_subtitles", False))
     )
 
+    # Si llega un voice_audio nuevo, guardarlo y reemplazar
+    effective_voice_path = job.get("voice_audio_path")
+    if voice_audio is not None:
+        upload_dir = UPLOAD_DIR / job_id
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        ext = Path(voice_audio.filename or "").suffix or ".mp3"
+        new_voice_path = upload_dir / f"voice_v{uuid.uuid4().hex[:4]}{ext}"
+        with open(new_voice_path, "wb") as f:
+            shutil.copyfileobj(voice_audio.file, f)
+        effective_voice_path = str(new_voice_path)
+
+    # Si llega música nueva, igual
+    effective_music_path = job.get("music_path")
+    if music is not None:
+        upload_dir = UPLOAD_DIR / job_id
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        ext = Path(music.filename or "").suffix or ".mp3"
+        new_music_path = upload_dir / f"music_v{uuid.uuid4().hex[:4]}{ext}"
+        with open(new_music_path, "wb") as f:
+            shutil.copyfileobj(music.file, f)
+        effective_music_path = str(new_music_path)
+
     set_job(job_id, status="processing", sections=resolved, cta_data=cta,
             output_path=str(new_output), work_dir=str(new_work),
             music_preset=effective_preset, enhance_ai=effective_enhance,
-            auto_subtitles=effective_subs, log=[], error=None)
+            auto_subtitles=effective_subs,
+            voice_audio_path=effective_voice_path,
+            music_path=effective_music_path,
+            log=[], error=None)
 
     threading.Thread(
         target=process_job,
         args=(job_id, resolved, cta, str(new_work),
-              job.get("voice_audio_path"), job.get("music_path"),
+              effective_voice_path, effective_music_path,
               effective_preset, job.get("logo_path"),
               effective_enhance, effective_subs,
               str(new_output), None, False),

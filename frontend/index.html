@@ -33,13 +33,23 @@
   .chev { transition: transform 0.2s; }
   .mode-pill { transition: all 0.2s; }
   .mode-pill.active { background: #0f172a; color: white; }
-  .dual-range { position: relative; height: 36px; margin: 4px 0; }
-  .dual-range .track-bg { position: absolute; top: 16px; left: 0; right: 0; height: 4px; background: #334155; border-radius: 2px; }
-  .dual-range .track-sel { position: absolute; top: 16px; height: 4px; background: #fbbf24; border-radius: 2px; pointer-events: none; }
-  .dual-range input[type="range"] { position: absolute; top: 0; left: 0; width: 100%; height: 36px; background: transparent; -webkit-appearance: none; appearance: none; pointer-events: none; margin: 0; }
-  .dual-range input[type="range"]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none; width: 22px; height: 22px; background: #fbbf24; border: 3px solid white; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.4); margin-top: -9px; }
-  .dual-range input[type="range"]::-moz-range-thumb { pointer-events: auto; width: 22px; height: 22px; background: #fbbf24; border: 3px solid white; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+  .dual-range { position: relative; height: 48px; margin: 8px 0; touch-action: none; }
+  .dual-range .track-bg { position: absolute; top: 22px; left: 0; right: 0; height: 4px; background: #334155; border-radius: 2px; }
+  .dual-range .track-sel { position: absolute; top: 22px; height: 4px; background: #fbbf24; border-radius: 2px; pointer-events: none; }
+  .dual-range input[type="range"] { position: absolute; top: 0; left: 0; width: 100%; height: 48px; background: transparent; -webkit-appearance: none; appearance: none; pointer-events: none; margin: 0; touch-action: pan-x; }
+  .dual-range input[type="range"]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none; width: 32px; height: 32px; background: #fbbf24; border: 3px solid white; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); margin-top: -14px; touch-action: pan-x; }
+  .dual-range input[type="range"]::-moz-range-thumb { pointer-events: auto; width: 32px; height: 32px; background: #fbbf24; border: 3px solid white; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); touch-action: pan-x; }
+  .dual-range input[type="range"]::-webkit-slider-runnable-track { background: transparent; height: 4px; }
+  .dual-range input[type="range"]::-moz-range-track { background: transparent; height: 4px; }
   .trim-preview-video { width: 100%; max-height: 220px; background: black; border-radius: 8px; }
+  /* Mobile-friendly editor */
+  .editor-modal { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+  .editor-clip input[type="range"]:not(.dual-range *) { height: 36px; touch-action: pan-x; }
+  .editor-clip input[type="range"]::-webkit-slider-thumb { width: 26px; height: 26px; touch-action: pan-x; }
+  .editor-clip input[type="range"]::-moz-range-thumb { width: 26px; height: 26px; touch-action: pan-x; }
+  /* Prevent text selection during drag in editor */
+  .editor-clip { -webkit-user-select: none; user-select: none; }
+  .editor-clip input, .editor-clip textarea { -webkit-user-select: text; user-select: text; }
   .ai-badge { background: linear-gradient(90deg, #a855f7, #ec4899); color: white; }
 </style>
 </head>
@@ -872,39 +882,20 @@ function renderStep3() {
     const voiceOptions = state.eleven_voices.map(v => { const key = v.key || v.id || ""; const label = v.label || v.name || key; return `<option value="${key}" ${state.voice_eleven_key === key ? 'selected' : ''}>${escapeHtml(label)}</option>`; }).join("");
     voiceContent = `<div class="space-y-3"><div><label class="text-xs text-slate-500 block mb-1">Voz</label><select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.voice_eleven_key=this.value">${voiceOptions || '<option>Cargando voces…</option>'}</select></div><div><div class="flex items-center justify-between mb-1"><label class="text-xs text-slate-500">Guion (lo que va a decir la voz)</label><span class="text-xs ${currentChars > chars.max ? 'text-red-600 font-bold' : currentChars < chars.min ? 'text-amber-600' : 'text-emerald-600 font-medium'}">${currentChars} / ${chars.ideal} caracteres ideal</span></div><textarea rows="4" maxlength="800" oninput="state.voice_script=this.value; render()" placeholder="Ej: Esta hermosa casa en Las Condes te ofrece 180 metros cuadrados de luminosidad y diseño..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">${escapeHtml(state.voice_script)}</textarea><div class="text-[11px] text-slate-500 mt-1">Recomendado: <strong>${chars.min}–${chars.max} caracteres</strong> (ideal ${chars.ideal}) para que calce con la duración del reel (~${reelDur.toFixed(0)}s)</div></div>${state.voice_audio_file && state.voice_audio_url ? `<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3"><div class="flex items-center justify-between mb-2"><span class="text-sm text-emerald-700">✓ Voz generada</span><button onclick="clearVoice()" class="text-sm text-red-500">Quitar</button></div><audio src="${state.voice_audio_url}" controls class="w-full"></audio></div>` : ''}<button onclick="generateVoiceWithEleven()" ${state.is_generating_voice ? 'disabled' : ''} class="w-full px-4 py-2.5 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50">${state.is_generating_voice ? '⏳ Generando…' : (state.voice_audio_file ? '↻ Regenerar voz' : '✨ Generar voz')}</button><p class="text-xs text-slate-500">💡 Requiere ELEVENLABS_API_KEY en el server. Si falla, mostramos el error.</p></div>`;
   }
-  // Visible solo cuando hay voz seleccionada (no method=none)
-  const hasVoice = state.voice_method !== "none";
-  const duckingNotice = hasVoice ? `
-    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3 text-xs text-amber-900 flex items-start gap-2">
-      <span class="text-base">🔊</span>
-      <div><strong>Ducking automático:</strong> cuando suene tu voz, la música va a bajar al 25% para que se entienda. Sin voz, la música se escucha 100%.</div>
-    </div>` : '';
-  const subtitlesToggle = hasVoice ? `
-    <div class="bg-white border-2 border-slate-200 rounded-2xl p-4 mb-4 flex items-center gap-3">
-      <div class="bg-pink-100 text-pink-700 text-xs px-2 py-1 rounded-full font-bold">🔤</div>
-      <div class="flex-1">
-        <div class="text-sm font-medium text-slate-900">Subtítulos automáticos</div>
-        <div class="text-xs text-slate-500">Transcribe tu voz y los quema sobre el video (~$0.003 por reel)</div>
-      </div>
-      <label class="relative inline-flex items-center cursor-pointer">
-        <input type="checkbox" ${state.auto_subtitles ? 'checked' : ''} onchange="state.auto_subtitles=this.checked" class="sr-only peer">
-        <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-pink-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5"></div>
-      </label>
-    </div>` : '';
-
   return `
     <div class="fade-in max-w-2xl mx-auto">
-      <h1 class="text-2xl font-bold text-slate-900 mb-1">Audio del reel</h1>
-      <p class="text-slate-600 mb-5">Música de fondo y voz opcional.</p>
+      <h1 class="text-2xl font-bold text-slate-900 mb-1">Música del reel</h1>
+      <p class="text-slate-600 mb-5">Elegí la música de fondo. La voz la agregás <strong>después</strong> de ver el reel listo, con duración exacta.</p>
       ${durBanner}${musicBlock}
-      <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
-        <div class="flex items-center mb-3"><span class="text-xl mr-2">🎙️</span><h3 class="font-bold text-slate-900">Voz / narración</h3><span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full ml-2">Opcional</span></div>
-        ${duckingNotice}
-        <div class="flex gap-2 mb-4">${tabsHtml}</div>
-        <div>${voiceContent}</div>
+      <div class="bg-purple-50 border border-purple-200 rounded-xl p-4 text-sm text-purple-900">
+        <div class="flex items-start gap-2">
+          <span class="text-lg">🎙️</span>
+          <div>
+            <strong>¿Voz / narración?</strong> Se agrega <strong>después</strong> del primer render. Vamos a calcular cuántos caracteres exactos tenés que escribir según la duración real del reel.
+          </div>
+        </div>
       </div>
-      ${subtitlesToggle}
-      <div class="text-xs text-slate-500 text-center">Cuando estés lista, continuá al paso final.</div>
+      <div class="text-xs text-slate-500 text-center mt-4">Continuá al paso final →</div>
     </div>`;
 }
 
@@ -916,6 +907,161 @@ function setVoiceMethod(method) {
   if (method === "none") clearVoice();
   state.voice_method = method;
   render();
+}
+
+// ── VOICE POST-PRODUCTION (después de tener el reel listo) ────────
+function renderVoicePostProduction() {
+  // Duración REAL del reel
+  const realDur = state.job_duration || estimateReelDuration();
+  const chars = recommendedChars(realDur);
+  const currentChars = (state.voice_script || "").length;
+
+  const charStatus =
+    currentChars === 0 ? "" :
+    currentChars > chars.max ? `<span class="text-red-600 font-bold">⚠ ${currentChars} chars · Te pasaste por ${currentChars - chars.max} chars (vas a hablar demasiado lento o cortado)</span>` :
+    currentChars < chars.min ? `<span class="text-amber-600 font-medium">${currentChars} chars · Te quedan cortos, faltan ${chars.min - currentChars} (la voz se va a escuchar muy rápida o con silencios)</span>` :
+    `<span class="text-emerald-600 font-medium">✓ ${currentChars} chars · Calza bien con la duración del reel</span>`;
+
+  const tabs = [
+    { key: "none",   icon: "🚫", label: "Sin voz" },
+    { key: "upload", icon: "📤", label: "Subir audio" },
+    { key: "record", icon: "🎤", label: "Grabar acá" },
+    { key: "eleven", icon: "🤖", label: "Generar con IA" },
+  ];
+  const tabsHtml = tabs.map(t => `
+    <button onclick="setVoiceMethod('${t.key}')" class="flex-1 py-2 px-2 rounded-lg text-xs font-medium ${state.voice_method === t.key ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}">${t.icon} ${t.label}</button>
+  `).join("");
+
+  let methodContent = "";
+  if (state.voice_method === "none") {
+    methodContent = `<div class="text-sm text-slate-500 italic text-center py-4">Elegí cómo querés agregar la voz arriba.</div>`;
+  } else if (state.voice_method === "upload") {
+    methodContent = `
+      ${state.voice_audio_file ? `<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3"><div class="flex items-center justify-between mb-2"><span class="text-sm text-emerald-700">📎 ${escapeHtml(state.voice_audio_file.name)}</span><button onclick="clearVoice()" class="text-sm text-red-500">Quitar</button></div><audio src="${state.voice_audio_url || ''}" controls class="w-full"></audio></div>` : ''}
+      <label class="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm rounded-lg cursor-pointer hover:bg-slate-800">📤 ${state.voice_audio_file ? "Cambiar archivo" : "Subir audio (MP3 / WAV)"}<input type="file" accept="audio/*" class="hidden" onchange="handleVoiceUpload(event.target.files[0])"></label>
+    `;
+  } else if (state.voice_method === "record") {
+    methodContent = `
+      ${state.voice_audio_file && state.voice_audio_url ? `<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3"><div class="flex items-center justify-between mb-2"><span class="text-sm text-emerald-700">🎤 Grabación lista</span><button onclick="clearVoice()" class="text-sm text-red-500">Quitar</button></div><audio src="${state.voice_audio_url}" controls class="w-full"></audio></div>` : ''}
+      ${state.is_recording ? `<div class="bg-red-50 border-2 border-red-300 rounded-lg p-4 text-center mb-3"><div class="flex items-center justify-center gap-2 mb-2"><div class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div><span class="text-red-700 font-bold">Grabando…</span></div><button onclick="stopRecording()" class="px-6 py-2 bg-red-600 text-white rounded-lg font-medium">⏹ Detener grabación</button></div>` : `<button onclick="startRecording()" class="w-full px-6 py-3 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800">${state.voice_audio_file ? '🎤 Volver a grabar' : '🎤 Empezar a grabar'}</button>`}
+      <p class="text-xs text-slate-500 mt-3">💡 Leé tu guion completo. La voz idealmente debería durar ~${realDur.toFixed(0)}s.</p>
+    `;
+  } else if (state.voice_method === "eleven") {
+    const voiceOptions = state.eleven_voices.map(v => {
+      const key = v.key || v.id || "";
+      const label = v.label || v.name || key;
+      return `<option value="${key}" ${state.voice_eleven_key === key ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+    }).join("");
+    methodContent = `
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs text-slate-500 block mb-1">Voz</label>
+          <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.voice_eleven_key=this.value">${voiceOptions || '<option>Cargando voces…</option>'}</select>
+        </div>
+        ${state.voice_audio_file && state.voice_audio_url ? `<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3"><div class="flex items-center justify-between mb-2"><span class="text-sm text-emerald-700">✓ Voz generada</span><button onclick="clearVoice()" class="text-sm text-red-500">Quitar</button></div><audio src="${state.voice_audio_url}" controls class="w-full"></audio></div>` : ''}
+        <button onclick="generateVoiceWithEleven()" ${state.is_generating_voice ? 'disabled' : ''} class="w-full px-4 py-2.5 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50">${state.is_generating_voice ? '⏳ Generando…' : (state.voice_audio_file ? '↻ Regenerar voz' : '✨ Generar voz con tu script')}</button>
+        <p class="text-[10px] text-slate-500">El guion lo tomamos de la caja de texto de arriba.</p>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-200 rounded-2xl p-5 mb-4">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-2xl">🎙️</span>
+        <h2 class="font-bold text-slate-900 text-lg">Agregar voz al reel</h2>
+      </div>
+      <p class="text-xs text-slate-600 mb-4">Ahora que sabemos la duración exacta del reel (${realDur.toFixed(1)}s), te calculamos cuántos caracteres exactos tenés que escribir.</p>
+
+      <div class="bg-white rounded-xl p-3 mb-3 text-xs">
+        <div class="flex justify-between mb-1">
+          <span class="text-slate-600">Duración real del reel:</span>
+          <strong>${realDur.toFixed(1)}s</strong>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-600">Caracteres recomendados:</span>
+          <strong>${chars.min}–${chars.max}</strong> (ideal ${chars.ideal})
+        </div>
+      </div>
+
+      <label class="text-xs text-slate-700 font-medium block mb-1">Escribí lo que vas a decir / leer:</label>
+      <textarea rows="4" maxlength="1000"
+                oninput="state.voice_script=this.value; updateCharCounter()"
+                placeholder="Ej: Esta hermosa casa en Las Condes te ofrece 180 metros cuadrados de luminosidad y diseño..."
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mb-1">${escapeHtml(state.voice_script || "")}</textarea>
+      <div id="voice-char-status" class="text-xs mb-3">${charStatus || `<span class="text-slate-500">${currentChars} / ${chars.ideal} caracteres ideal</span>`}</div>
+
+      <div class="flex gap-2 mb-3">${tabsHtml}</div>
+      <div class="mb-3">${methodContent}</div>
+
+      <div class="flex items-center gap-3 bg-white rounded-xl p-3 mb-3 ${state.voice_method === 'none' ? 'opacity-50' : ''}">
+        <div class="bg-pink-100 text-pink-700 text-xs px-2 py-1 rounded-full font-bold">🔤</div>
+        <div class="flex-1">
+          <div class="text-xs font-medium text-slate-900">Subtítulos automáticos</div>
+          <div class="text-[10px] text-slate-500">Transcribe tu voz y los quema sobre el video (~$0.003)</div>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" ${state.auto_subtitles ? 'checked' : ''} ${state.voice_method === 'none' ? 'disabled' : ''} onchange="state.auto_subtitles=this.checked" class="sr-only peer">
+          <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-pink-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5"></div>
+        </label>
+      </div>
+
+      <button onclick="applyVoiceToReel()" ${(!state.voice_audio_file || state.voice_method === 'none') ? 'disabled' : ''} class="w-full px-6 py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed">
+        ✨ Aplicar voz al reel y re-procesar
+      </button>
+      ${(!state.voice_audio_file || state.voice_method === 'none') ? '<div class="text-[10px] text-slate-500 text-center mt-2">Primero cargá una voz (subir / grabar / generar IA)</div>' : ''}
+    </div>
+  `;
+}
+
+function updateCharCounter() {
+  const realDur = state.job_duration || estimateReelDuration();
+  const chars = recommendedChars(realDur);
+  const currentChars = (state.voice_script || "").length;
+  const el = document.getElementById("voice-char-status");
+  if (!el) return;
+  if (currentChars === 0) {
+    el.innerHTML = `<span class="text-slate-500">${currentChars} / ${chars.ideal} caracteres ideal</span>`;
+  } else if (currentChars > chars.max) {
+    el.innerHTML = `<span class="text-red-600 font-bold">⚠ ${currentChars} chars · Te pasaste por ${currentChars - chars.max} chars (va a sonar lento o cortado)</span>`;
+  } else if (currentChars < chars.min) {
+    el.innerHTML = `<span class="text-amber-600 font-medium">${currentChars} chars · Faltan ${chars.min - currentChars} (la voz va a sonar muy rápida o con silencios)</span>`;
+  } else {
+    el.innerHTML = `<span class="text-emerald-600 font-medium">✓ ${currentChars} chars · Calza bien con la duración del reel</span>`;
+  }
+}
+
+async function applyVoiceToReel() {
+  if (!state.voice_audio_file) { alert("Cargá una voz primero"); return; }
+  if (!state.job_id) { alert("No hay reel para aplicarle voz"); return; }
+  if (!confirm("¿Aplicar la voz al reel y re-procesar? Toma 1-2 minutos.")) return;
+
+  // Build sections from current state (no changes to clips)
+  const { sections } = buildPayload();
+  const fd = new FormData();
+  fd.append("sections", JSON.stringify(sections));
+  fd.append("cta_data", JSON.stringify(buildCtaData()));
+  fd.append("music_preset", state.music_preset || "chill");
+  fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+  fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
+  fd.append("voice_audio", state.voice_audio_file);
+
+  state.job_status = "reprocessing";
+  state.is_reprocessing = true;
+  state.job_log = [];
+  state.job_error = null;
+  state.job_download = null;
+  render();
+
+  try {
+    const r = await fetch(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
+    if (!r.ok) { let d = `HTTP ${r.status}`; try { d += ` — ${(await r.text()).slice(0,400)}`; } catch(_) {} throw new Error(d); }
+    pollJobStatus();
+  } catch (e) {
+    state.job_status = "error";
+    state.job_error = e.message || String(e);
+    render();
+  }
 }
 
 function handleVoiceUpload(file) {
@@ -962,6 +1108,9 @@ function renderStep4() {
         </div>
         <div class="bg-black rounded-2xl overflow-hidden mb-4"><video src="${state.job_download}" controls class="w-full" style="max-height: 70vh; background: black;"></video></div>
         <a href="${state.job_download}" download class="block w-full text-center px-6 py-4 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 mb-3">⬇ Descargar MP4</a>
+
+        ${renderVoicePostProduction()}
+
         <button onclick="openManualEditor()" class="block w-full text-center px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 rounded-xl font-medium hover:bg-slate-50 mb-2">🎨 Editor avanzado (ajustar clips, velocidad, recortes visuales)</button>
         <details class="bg-slate-50 rounded-xl px-4 py-3 text-sm">
           <summary class="flex items-center justify-between"><span class="text-slate-600">¿Querés cambiar algo? (volver al wizard)</span><span class="chev text-slate-400">▾</span></summary>
