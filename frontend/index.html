@@ -953,12 +953,15 @@ function renderVoicePostProduction() {
     currentChars < chars.min ? `<span class="text-amber-600 font-medium">${currentChars} chars · Te quedan cortos, faltan ${chars.min - currentChars} (la voz se va a escuchar muy rápida o con silencios)</span>` :
     `<span class="text-emerald-600 font-medium">✓ ${currentChars} chars · Calza bien con la duración del reel</span>`;
 
+  const hasElevenLabs = state.eleven_voices && state.eleven_voices.length > 0;
   const tabs = [
     { key: "none",   icon: "🚫", label: "Sin voz" },
     { key: "upload", icon: "📤", label: "Subir audio" },
     { key: "record", icon: "🎤", label: "Grabar acá" },
-    { key: "eleven", icon: "🤖", label: "Generar con IA" },
   ];
+  if (hasElevenLabs) {
+    tabs.push({ key: "eleven", icon: "🤖", label: "Generar con IA" });
+  }
   const tabsHtml = tabs.map(t => `
     <button onclick="setVoiceMethod('${t.key}')" class="flex-1 py-2 px-2 rounded-lg text-xs font-medium ${state.voice_method === t.key ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}">${t.icon} ${t.label}</button>
   `).join("");
