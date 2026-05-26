@@ -1251,15 +1251,30 @@ async function reprocessFromCurrent() {
 }
 
 let _pollRunning = false;
+let _poll404Count = 0;
 async function pollJobStatus() {
   if (_pollRunning) return;  // evita pollings duplicados
   _pollRunning = true;
+  _poll404Count = 0;
   try {
     while (state.job_id) {
       await new Promise(r => setTimeout(r, 2500));
       if (!state.job_id) break;
       try {
         const r = await fetch(API(`/jobs/${state.job_id}`));
+        if (r.status === 404) {
+          _poll404Count++;
+          // Tolerar hasta 3 404 consecutivos (puede ser deploy en curso),
+          // después asumir que el job se perdió y avisar al usuario
+          if (_poll404Count >= 3) {
+            state.job_status = "error";
+            state.job_error = "El servidor se reinició y se perdió el reel en proceso. Recargá la página (Ctrl+Shift+R) y volvé a procesar — tenés que volver a subir los videos.";
+            render();
+            break;
+          }
+          continue;
+        }
+        _poll404Count = 0;  // reset si volvió a responder OK
         if (!r.ok) {
           console.warn("Poll non-OK:", r.status);
           continue;
