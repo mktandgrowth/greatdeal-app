@@ -346,4 +346,103 @@ Archivos modificados pendientes de push (en `C:\Users\vales\OneDrive\Documents\C
 
 ---
 
-*Última actualización: 2026-05-26 fin de día — bug Render reiniciándose, fix pendiente de push*
+## 16. Sesión 2 — 2026-05-27 — Fixes producción + Runway optimizado + estilo final
+
+### Lo que se logró hoy
+
+- ✅ **Identificamos el bug del Render reiniciándose**: era OOM porque el plan "Starter" de Render es solo **512 MB de RAM** (yo había dicho mal que era 2 GB). FFmpeg + Python necesita más.
+- ✅ **Upgrade a Render Standard ($25/mes, 2 GB RAM, 1 CPU)** — único cambio que resolvió de raíz los crashes.
+- ✅ **Fix Runway duration**: Gen-3 Turbo solo acepta `duration=5` o `duration=10`. Estábamos mandando valores dinámicos (3, 4, 7) que daban HTTP 400.
+- ✅ **Runway optimizado para costo**: siempre genera 5 seg ($0.25 fijo, el mínimo). Si el clip dura menos (ej. 3 seg), backend recorta el output Runway a 3 seg con FFmpeg `-t`. Costo mantenido, duración real respetada.
+- ✅ **Subtítulos estilo TikTok palabra por palabra**: Whisper con `timestamp_granularities=word`. Cada palabra aparece sincronizada con fade rápido de 80ms.
+- ✅ **CTA elegante**: rectángulo del precio más pequeño (320x80 en vez de 420x120), opacidad blanca 92%, fontsize 36 (era 48). Tagline "Vivir distinto" eliminado como default — si está vacío, no aparece.
+- ✅ **Safe zone Instagram**: subtítulos movidos a MarginV 260 (texto base en y≈700, dentro de zona segura). MarginL/R aumentados a 100 para evitar barra derecha de IG.
+- ✅ **Texto centrado verticalmente** en clips (Vale lo pidió hace varias iteraciones).
+- ✅ **Cambio de tipografía a Montserrat** (en lugar de Poppins):
+  - **SemiBold** → títulos clip (38px) y precio CTA
+  - **Regular** → subtítulos clip (24px), info CTA, tagline
+  - **Thin** → subtítulos hablados Whisper (44px, estilo elegante)
+  - Todo blanco con sombra negra fuerte (no más borde)
+- ✅ **Fix bug textarea Runway prompt** que no dejaba escribir (era el mismo bug del render destructivo, resuelto con `updateRunwayPromptCounter()`).
+- ✅ **Endpoint HEAD /** para que Render health checks no devuelvan 405.
+- ✅ **subprocess sin capture_output**: stdout=DEVNULL (anti-OOM por pre-alloc de buffers).
+- ✅ **Detector de jobs perdidos**: si el server reinicia y el job_id devuelve 404, después de 3 intentos avisa al usuario.
+- ✅ **Polling resiliente móvil**: `visibilitychange` listener reanuda polling cuando volvés a la app.
+
+### Tipografías finales en producción
+
+| Elemento | Fuente | Tamaño | Color |
+|---|---|---|---|
+| Título clip | Montserrat SemiBold | 38px | Blanco + sombra negra (3px, 95% opaca) |
+| Subtítulo clip | Montserrat Regular | 24px | Blanco + sombra negra (2px, 90%) |
+| Subtítulos hablados Whisper | Montserrat Thin | 44px | Blanco + sombra fuerte (4px, 50%) |
+| CTA info | Montserrat Regular | 28px | Blanco |
+| CTA precio | Montserrat SemiBold | 36px | Negro sobre rectángulo blanco 92% |
+| CTA tagline | Montserrat Regular | 26px | Gris claro (#cbd5e1) — opcional |
+
+### Costos operativos actualizados
+
+| Item | Costo | Notas |
+|---|---|---|
+| Render **Standard** | **$25/mes** | 2 GB RAM, 1 CPU, always-on (subimos de Starter $7 que era 512 MB insuficiente) |
+| Vercel Hobby | $0 | Frontend estático |
+| OpenAI Whisper | ~$0.003/reel con voz | Cobra solo si activan subtítulos automáticos |
+| Runway Gen-3 Turbo | **$0.25 por toma regenerada** (fijo) | Siempre 5 seg, recortamos al largo real |
+| ElevenLabs | (opcional, no configurado) | Vale aún no agregó ELEVENLABS_API_KEY |
+| **Total fijo mensual** | **$25/mes** | Más uso variable |
+
+### 🟡 PENDIENTE de PUSH al cierre de la sesión
+
+Vale tiene muchos cambios acumulados en disco que NO están en producción. Mañana lo PRIMERO es hacer el push:
+
+**Archivos modificados pendientes** (en `C:\Users\vales\OneDrive\Documents\Claude\GitHub\greatdeal-app\`):
+- `backend/Dockerfile` (Montserrat en lugar de Poppins)
+- `backend/editor.py` (Montserrat fonts, sombras fuertes, sin gradient, CTA rectángulo compacto con opacidad)
+- `backend/main.py` (target_duration en endpoints Runway, HEAD endpoints)
+- `backend/runway_ai.py` (target_duration param, normalize con -t)
+- `backend/subtitles.py` (Montserrat Thin, word-level timestamps, safe zone IG)
+- `frontend/index.html` (Runway dur=5 fijo + targetDur, fix textarea Runway, tagline vacío, preview CTA actualizado)
+- `PROJECT_STATE.md` (este archivo)
+
+**Commit recomendado**: `feat: Montserrat + Runway 5s recorte + subtítulos TikTok + CTA elegante + safe zone IG`
+
+### Primer paso de mañana
+
+1. Vale hace **push** de todo lo acumulado
+2. Esperar Render ~5-7 min (rebuild Docker con Montserrat tarda más)
+3. Validar en `https://greatdeal-api.onrender.com/api/music-presets` que esté Live
+4. Generar reel completo con voz + subtítulos para validar todo lo nuevo:
+   - Tipografía Montserrat
+   - Subtítulos palabra por palabra elegante (Thin)
+   - CTA compacto con opacidad
+   - Todo dentro de safe zone IG
+5. Mandar screenshot del resultado para validar visualmente
+
+### Tareas pendientes priorizadas
+
+🔴 **ALTA**
+- Push pendiente y validar end-to-end
+- Persistencia de jobs (#61) — jobs en memoria se pierden con cada restart de Render. Solución más simple: persistent disk en Render ($1/mes/GB) + JSON file. Profesional: Supabase DB.
+
+🟡 **MEDIA**
+- Sistema de Proyectos (#61) — guardar reels para retomar otro día
+- Bug móvil editor avanzado (#60) — re-validar después de los CSS fixes
+- Bug móvil audio reel (#56) — re-validar
+
+🟢 **BAJA**
+- ElevenLabs (#24) — opcional, Vale no lo configuró
+- Subtítulos karaoke estilo más avanzado (highlight palabra por palabra dentro de la frase)
+
+### Cosas aprendidas hoy
+
+- **Render Starter es 512 MB, NO 2 GB**. El plan con 2 GB es **Standard ($25/mes)**. Yo confundí esto durante varias sesiones — disculpas. Cualquier app que use FFmpeg + Python necesita Standard mínimo.
+- **Runway Gen-3 Turbo SOLO acepta duration=5 o 10**. No valores arbitrarios. Si necesitás otra duración, generás el mínimo y recortás con FFmpeg `-t` después.
+- **El plan workspace de Render (Hobby/Pro/Scale) y el Instance Type del servicio (Free/Starter/Standard/Pro) son cosas DIFERENTES**. Workspace controla features org-level (SSO, audit logs); Instance Type controla la RAM/CPU del servicio.
+- **Whisper API soporta `timestamp_granularities[]`** — clave para subtítulos palabra-por-palabra estilo TikTok. Hay que mandar el parámetro 2 veces si querés ambos (word + segment).
+- **Subprocess con `capture_output=True` puede causar OOM** en containers con poca RAM porque Python pre-aloca buffers para stdout/stderr. Si no necesitás stdout, mandar `stdout=DEVNULL`.
+- **Safe zone Instagram en reels verticales**: y entre 144 y 720 (de 960 total). Lateral: 60-440 (deja 100px a la derecha para botones IG). Cualquier texto fuera de esto se tapa.
+- **ASS subtitle MarginV** = distancia desde el bottom, no desde el top.
+
+---
+
+*Última actualización: 2026-05-27 fin de día — todo listo, falta push y validar mañana*
