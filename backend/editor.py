@@ -8,14 +8,17 @@ import json
 from pathlib import Path
 from typing import Optional
 
-FONT_BOLD = "/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf"
-FONT_REG = "/usr/share/fonts/truetype/google-fonts/Poppins-Regular.ttf"
+FONT_BOLD = "/usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf"
+FONT_REG  = "/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf"
+FONT_THIN = "/usr/share/fonts/truetype/montserrat/Montserrat-Thin.ttf"
 
-# Fallback fonts
+# Fallback fonts (DejaVu si Montserrat no se descargó)
 if not Path(FONT_BOLD).exists():
     FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 if not Path(FONT_REG).exists():
     FONT_REG = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+if not Path(FONT_THIN).exists():
+    FONT_THIN = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 W, H = 540, 960
 
@@ -32,10 +35,25 @@ def _esc(text: str) -> str:
 
 
 def run(cmd: list, label: str = "") -> tuple[bool, str]:
-    print(f"[ffmpeg] {label or cmd[0]}...")
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    """Run FFmpeg/ffprobe subprocess. Uses /dev/null for stdout (FFmpeg encoder output)
+    and PIPE only for stderr (where FFmpeg writes status/errors). Avoids loading large
+    binary output in RAM (which can OOM Render Starter)."""
+    print(f"[ffmpeg] {label or cmd[0]}...", flush=True)
+    try:
+        # stdout to DEVNULL (no necesitamos stdout binario), stderr a PIPE pequeño
+        r = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=600,  # 10 min max por operación
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"timeout after 10min running {label}"
+    except Exception as e:
+        return False, f"subprocess error: {str(e)[:300]}"
     if r.returncode != 0:
-        return False, r.stderr[-1500:]
+        return False, (r.stderr or "")[-1500:]
     return True, ""
 
 
@@ -136,26 +154,21 @@ def add_text_overlay(input_file: str, output_file: str,
 
     fade_out_start = max(0.1, duration - 0.3)
     filters = []
-    # Gradient sutil en el centro vertical (legibilidad sin gastar tanta CPU como borderw)
-    filters.append(
-        "drawbox=x=0:y=(ih/2)-60:w=iw:h=120:color=black@0.30:t=fill"
-    )
     if headline:
-        # Headline centrado vertical (ligeramente sobre el centro)
-        # Sin borderw (consume mucha CPU en Render Starter) — solo sombra fuerte
+        # Headline: Montserrat SemiBold blanco con sombra negra fuerte
         filters.append(
             f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
-            f"fontsize=36:fontcolor=white:"
+            f"fontsize=38:fontcolor=white:"
             f"x=(w-text_w)/2:y=(h-text_h)/2-25:"
-            f"shadowx=3:shadowy=3:shadowcolor=black@0.9"
+            f"shadowx=3:shadowy=3:shadowcolor=black@0.95"
         )
     if subline:
-        # Subline justo abajo del headline (centro + 25)
+        # Subline: Montserrat Regular blanco con sombra negra
         filters.append(
             f"drawtext=fontfile={FONT_REG}:text='{_esc(subline)}':"
-            f"fontsize=22:fontcolor=0xe5e5e5:"
+            f"fontsize=24:fontcolor=white:"
             f"x=(w-text_w)/2:y=(h-text_h)/2+25:"
-            f"shadowx=2:shadowy=2:shadowcolor=black@0.8"
+            f"shadowx=2:shadowy=2:shadowcolor=black@0.9"
         )
     filters.append(f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_out_start}:d=0.3")
     filter_complex = ",".join(filters)
@@ -204,35 +217,35 @@ def build_cta_v2(output_file: str,
     - Tagline (editable, e.g. 'Vivir distinto') below in muted white
     - Subtle vignette + fade in/out
     """
-    # White rectangle dimensions
-    rect_w, rect_h = 420, 120
-    rect_x = (W - rect_w) // 2          # =60
-    rect_y = H // 2 - rect_h // 2       # =420
+    # White rectangle dimensions — más compacto y elegante
+    rect_w, rect_h = 320, 80
+    rect_x = (W - rect_w) // 2          # =110
+    rect_y = H // 2 - rect_h // 2       # =440
 
     filters = ["vignette=PI/4"]
 
     if info_line:
         filters.append(
             f"drawtext=fontfile={FONT_REG}:text='{_esc(info_line)}':"
-            f"fontsize=30:fontcolor=white:"
-            f"x=(w-text_w)/2:y={rect_y - 75}"
+            f"fontsize=28:fontcolor=white:"
+            f"x=(w-text_w)/2:y={rect_y - 60}"
         )
     if precio_line:
-        # White filled rectangle
+        # Rectángulo blanco semi-transparente (más elegante que blanco puro)
         filters.append(
-            f"drawbox=x={rect_x}:y={rect_y}:w={rect_w}:h={rect_h}:color=white:t=fill"
+            f"drawbox=x={rect_x}:y={rect_y}:w={rect_w}:h={rect_h}:color=white@0.92:t=fill"
         )
-        # Black precio text centered over rectangle
+        # Precio en negro centrado sobre el rectángulo
         filters.append(
             f"drawtext=fontfile={FONT_BOLD}:text='{_esc(precio_line)}':"
-            f"fontsize=48:fontcolor=black:"
-            f"x=(w-text_w)/2:y={rect_y + (rect_h - 48) // 2 - 2}"
+            f"fontsize=36:fontcolor=black:"
+            f"x=(w-text_w)/2:y={rect_y + (rect_h - 36) // 2 - 2}"
         )
     if tagline:
         filters.append(
             f"drawtext=fontfile={FONT_REG}:text='{_esc(tagline)}':"
-            f"fontsize=28:fontcolor=0xcbd5e1:"
-            f"x=(w-text_w)/2:y={rect_y + rect_h + 60}"
+            f"fontsize=26:fontcolor=0xcbd5e1:"
+            f"x=(w-text_w)/2:y={rect_y + rect_h + 50}"
         )
 
     filters.append(

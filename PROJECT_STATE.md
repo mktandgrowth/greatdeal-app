@@ -28,7 +28,7 @@ Deploy es **automático en push a `main`**: Render redeploya backend (~3-5 min) 
 
 | Componente | Tech | Hosting | Costo |
 |---|---|---|---|
-| Backend | FastAPI Python | Render **Starter** | $7/mes (always-on, 2GB RAM, 0.5 CPU) |
+| Backend | FastAPI Python | Render **Standard** | $25/mes (always-on, 2 GB RAM, 1 CPU) — Starter NO sirve (solo 512 MB), upgradeamos a Standard porque FFmpeg necesita más |
 | Frontend | HTML + Tailwind CDN + SortableJS | Vercel | Free |
 | Video editing | FFmpeg + ffprobe | dentro de Render container | incluido |
 | Voz IA | ElevenLabs API | externa | ~$22/mes plan Creator |
@@ -271,4 +271,79 @@ Configurar en https://dashboard.render.com/ → `greatdeal-api` → Environment:
 
 ---
 
-*Última actualización: 2026-05-26 — sesión integración Runway video-to-video*
+## 15. Sesión 2026-05-26 — Runway + Whisper + bug Render reiniciándose
+
+### Lo que se logró hoy
+
+- ✅ **Runway video-to-video integrado**: módulo `runway_ai.py` con `requests` (no SDK), endpoint `/api/runway/enhance-clip`, modal en editor avanzado con 5 presets de estilo. RUNWAY_API_KEY configurada en Render con $10 de saldo.
+- ✅ **OpenAI Whisper subtítulos automáticos**: módulo `subtitles.py`, transcripción + ASS file + burn-in con FFmpeg. Toggle 🔤 que aparece cuando hay voz. OPENAI_API_KEY cargada en Render con saldo.
+- ✅ **Voz movida a post-render** (paso 4): textarea con contador dinámico de caracteres basado en duración REAL del reel, 4 opciones (sin voz / subir / grabar / Eleven). Botón "Aplicar voz al reel".
+- ✅ **Backend reprocess acepta voice_audio + music nuevos**: para que aplicar voz post-render reuse los videos ya subidos.
+- ✅ **Texto centrado verticalmente**: en `add_text_overlay`, el título/subtítulo ahora aparece en el centro vertical para dejar espacio abajo a los subtítulos automáticos.
+- ✅ **Fixes UX importantes**:
+  - Bug textarea que no dejaba escribir prompts/guiones (era por `render()` destructivo en oninput) → fix con `updateCharCounter()` y `updateRunwayPromptCounter()` que solo actualizan el span sin re-renderear
+  - Tab "Generar con IA" se oculta si ElevenLabs no está configurada
+  - Polling resiliente: `visibilitychange` listener reanuda polling cuando volvés a la app después de bloquear cel
+  - Detector de 404 silencioso: si Render reinicia y el job se pierde, después de 3 intentos avisa "El servidor se reinició, volvé a procesar"
+- ✅ **CSS móvil mejorado**: thumbs del dual-range de 22px → 32px (touch target adecuado), `touch-action: pan-x`, `-webkit-overflow-scrolling: touch`
+- ✅ **Fix CRÍTICO del deploy**: archivo `main.py` tenía endpoints duplicados (líneas 573-628) residuo de reparación de truncado de sesiones anteriores. Causaba `IndentationError` y `==> Exited with status 1` en Render. Borrados los duplicados.
+- ✅ **Reemplazo de `runwayml==3.6.0`** por `requests` directo a la REST API de Runway (el package del SDK no existía con esa versión y rompía `pip install`).
+
+### 🔴 BUG ACTIVO al cierre de la sesión (pendiente de mañana)
+
+**Síntoma**: Render reinicia solo cada ~2 minutos, exactamente cuando arranca FFmpeg en cualquier job. Los reels nunca se completan.
+
+**Patrón en logs**:
+```
+[ffmpeg] normalize clip_000.mp4...
+POST /api/jobs 200 OK
+==> Instance srv-... restarted    ← Render mata el proceso
+```
+
+**Causa probable**: el cambio que hice al `add_text_overlay` agregando `borderw=3:bordercolor=black@0.85` consumía demasiada CPU. FFmpeg con border renderiza el texto múltiples veces (~8x para un border de 3px). En Render Starter (0.5 vCPU) eso saturaba el CPU y disparaba reinicio.
+
+**Fix aplicado pero NO PUSHEADO al cierre**: quité el `borderw`, lo reemplacé por un drawbox semi-transparente sutil detrás del texto (mucho más liviano) + sombra fuerte. El cambio está en `backend/editor.py` en disco de Vale pero NO en producción.
+
+### Primer paso mañana
+
+1. Vale hace **commit + push** de los cambios pendientes en GitHub Desktop. El archivo crítico es `backend/editor.py` (el fix sin borderw). Probablemente también haya cambios en `frontend/index.html` y `PROJECT_STATE.md`.
+2. Esperar Render ~3 min hasta "Live"
+3. Probar reel simple (sin features) en PC primero → si funciona, está resuelto
+4. Si SIGUE fallando, ir a Render → Logs → buscar líneas justo antes del `==> Instance restarted` para identificar la causa real (OOM, segfault, timeout)
+
+### Tareas pendientes priorizadas (post-fix)
+
+🔴 **ALTA**
+- Validar que el fix del borderw arregla los restarts (push pendiente)
+- Persistencia de jobs (jobs viven en memoria → se pierden con cada restart de Render). Opción más simple: persistent disk en Render ($1/mes/GB) + JSON file. Opción profesional: Supabase DB.
+
+🟡 **MEDIA**
+- Bug móvil del editor avanzado (#60) — probar después del fix actual
+- Sistema de Proyectos (#61) — Vale quiere guardar reels para seguir trabajando otro día
+- Voz con auto-calce (atempo) cuando dura más/menos que el video
+
+🟢 **BAJA**
+- Curar voces ElevenLabs (Vale aún no configuró ELEVENLABS_API_KEY — opcional)
+
+### Cosas aprendidas hoy
+
+- **Nunca pinear versiones de packages externos sin verificar PyPI**. `runwayml==3.6.0` no existía y rompió el deploy. Si una integración tiene API REST simple, mejor usar `requests` directo.
+- **Cuidado con `borderw` en FFmpeg drawtext**: visualmente queda lindo pero multiplica el costo CPU por ~8x. En servers con 0.5 vCPU, puede causar timeouts/restarts.
+- **Runway tiene DOS plataformas separadas**: `app.runwayml.com` (editor visual) y `dev.runwayml.com` (developer API). Las API keys NO son intercambiables. La de developer empieza con `key_...`. Los créditos también son separados.
+- **`render()` destructivo en `oninput` de textareas en JS plano**: si el oninput dispara render completo, la textarea se destruye y se pierde el focus en cada tecla. Fix: actualizar solo el span del contador con DOM manipulation, no llamar render.
+- **JavaScript se pausa en mobile cuando bloqueás la pantalla**. Polling se corta. Solución: `visibilitychange` listener que reanuda cuando volvés.
+
+### Estado del repo al cierre
+
+Archivos modificados pendientes de push (en `C:\Users\vales\OneDrive\Documents\Claude\GitHub\greatdeal-app\`):
+- `backend/editor.py` (fix sin borderw)
+- `backend/main.py` (reprocess con voice/music + endpoints Runway + Whisper integration)
+- `backend/subtitles.py` (nuevo - Whisper)
+- `backend/runway_ai.py` (rewritten con requests)
+- `backend/requirements.txt` (sin runwayml)
+- `frontend/index.html` (texto centrado + polling resiliente + 404 detector + dual-range móvil + Runway modal + voz post-render + textarea fix + visibilitychange)
+- `PROJECT_STATE.md` (este archivo)
+
+---
+
+*Última actualización: 2026-05-26 fin de día — bug Render reiniciándose, fix pendiente de push*

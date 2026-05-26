@@ -95,17 +95,22 @@ def probe_duration(video_path: str) -> float:
 
 
 def normalize_runway_output(input_video: str, output_video: str,
-                             target_w: int = 540, target_h: int = 960) -> tuple[bool, str]:
-    """Normalize Runway output to GreatDeal pipeline format."""
-    cmd = [
-        "ffmpeg", "-y", "-i", input_video,
+                             target_w: int = 540, target_h: int = 960,
+                             max_duration: Optional[float] = None) -> tuple[bool, str]:
+    """Normalize Runway output to GreatDeal pipeline format.
+    If max_duration is given, truncates the video to that duration
+    (Runway always genera 5 o 10 seg, esto recorta al largo real del clip)."""
+    cmd = ["ffmpeg", "-y", "-i", input_video]
+    if max_duration is not None and max_duration > 0:
+        cmd.extend(["-t", f"{max_duration:.2f}"])
+    cmd.extend([
         "-vf", f"scale={target_w}:{target_h}:flags=lanczos:force_original_aspect_ratio=decrease,"
                f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black",
         "-r", "30",
         "-c:v", "libx264", "-preset", "fast", "-crf", "21",
         "-pix_fmt", "yuv420p", "-an",
         output_video,
-    ]
+    ])
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         return False, r.stderr[-500:]
@@ -164,6 +169,7 @@ def enhance_clip_with_runway(
     ratio: str = "768:1280",
     poll_interval: int = 5,
     max_wait_seconds: int = 300,
+    target_duration: Optional[float] = None,
 ) -> tuple[bool, str]:
     """End-to-end: regenera una toma con Runway video-to-video."""
     work = Path(work_dir)
@@ -239,8 +245,11 @@ def enhance_clip_with_runway(
     except Exception as e:
         return False, f"Download failed: {str(e)[:200]}"
 
-    # 9. Normalize
-    ok, err = normalize_runway_output(downloaded, output_video)
+    # 9. Normalize (con trim a target_duration si está)
+    ok, err = normalize_runway_output(
+        downloaded, output_video,
+        max_duration=target_duration,
+    )
     if not ok:
         return False, f"Normalize failed: {err}"
 

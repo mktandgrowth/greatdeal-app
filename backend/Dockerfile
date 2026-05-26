@@ -12,12 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
  && rm -rf /var/lib/apt/lists/*
 
-# Descargar Poppins font desde Github (Google Fonts repo)
-RUN mkdir -p /usr/share/fonts/truetype/poppins \
- && curl -L -o /usr/share/fonts/truetype/poppins/Poppins-Bold.ttf \
-    "https://raw.githubusercontent.com/google/fonts/main/ofl/poppins/Poppins-Bold.ttf" \
- && curl -L -o /usr/share/fonts/truetype/poppins/Poppins-Regular.ttf \
-    "https://raw.githubusercontent.com/google/fonts/main/ofl/poppins/Poppins-Regular.ttf" \
+# Descargar Montserrat font (3 pesos) desde Github (Google Fonts repo)
+RUN mkdir -p /usr/share/fonts/truetype/montserrat \
+ && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf \
+    "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-SemiBold.ttf" \
+ && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf \
+    "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Regular.ttf" \
+ && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-Thin.ttf \
+    "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Thin.ttf" \
  && fc-cache -f
 
 WORKDIR /app

@@ -62,6 +62,23 @@ async def root():
     return JSONResponse({"error": "frontend/index.html not found"}, status_code=404)
 
 
+@app.head("/")
+async def root_head():
+    """Health check HEAD endpoint for Render."""
+    return JSONResponse({})
+
+
+@app.get("/health")
+async def health():
+    """Lightweight health endpoint."""
+    return {"status": "ok"}
+
+
+@app.head("/health")
+async def health_head():
+    return JSONResponse({})
+
+
 @app.get("/api/voices")
 async def voices():
     return {"voices": list_voices()}
@@ -112,6 +129,7 @@ async def runway_enhance_clip(
     prompt: str = Form(...),
     model: str = Form("gen3a_turbo"),
     duration: int = Form(5),
+    target_duration: Optional[float] = Form(None),
 ):
     """Inicia una tarea de regeneración con Runway.
     Devuelve task_id, status, cost_estimate."""
@@ -119,8 +137,9 @@ async def runway_enhance_clip(
         raise HTTPException(503, "RUNWAY_API_KEY no configurada en el server")
     if not prompt.strip():
         raise HTTPException(400, "Prompt vacío")
-    if duration < 2 or duration > 10:
-        raise HTTPException(400, "duration debe estar entre 2 y 10 segundos")
+    # Runway Gen-3 Turbo SOLO acepta 5 o 10 segundos
+    if duration not in (5, 10):
+        duration = 5 if duration <= 7 else 10
 
     task_id = uuid.uuid4().hex[:12]
     upload_dir = UPLOAD_DIR / f"runway_{task_id}"
@@ -142,6 +161,7 @@ async def runway_enhance_clip(
         "prompt": prompt,
         "model": model,
         "duration": duration,
+        "target_duration": target_duration,
         "input_path": str(clip_path),
         "output_path": str(output_path),
         "work_dir": str(work_dir),
@@ -154,7 +174,7 @@ async def runway_enhance_clip(
     threading.Thread(
         target=_runway_process,
         args=(task_id, str(clip_path), prompt, str(output_path),
-              str(work_dir), model, duration),
+              str(work_dir), model, duration, target_duration),
         daemon=True,
     ).start()
 
@@ -167,7 +187,7 @@ async def runway_enhance_clip(
 
 
 def _runway_process(task_id, input_path, prompt, output_path,
-                     work_dir, model, duration):
+                     work_dir, model, duration, target_duration=None):
     set_runway_task(task_id, status="processing")
     try:
         ok, err = enhance_clip_with_runway(
@@ -177,6 +197,7 @@ def _runway_process(task_id, input_path, prompt, output_path,
             work_dir=work_dir,
             model=model,
             duration=duration,
+            target_duration=target_duration,
         )
         if ok:
             set_runway_task(task_id, status="done")

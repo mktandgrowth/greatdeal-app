@@ -29,7 +29,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cinema,{font},28,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,0,2,40,40,140,1
+Style: Cinema,{font},44,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,0,4,2,100,100,260,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -54,11 +54,14 @@ def transcribe_with_whisper(
     try:
         with open(audio_path, "rb") as f:
             files = {"file": (Path(audio_path).name, f, "application/octet-stream")}
-            data = {
-                "model": "whisper-1",
-                "response_format": "verbose_json",
-                "language": language,
-            }
+            # Pedir timestamps por palabra (necesario para karaoke palabra-por-palabra)
+            data = [
+                ("model", "whisper-1"),
+                ("response_format", "verbose_json"),
+                ("language", language),
+                ("timestamp_granularities[]", "word"),
+                ("timestamp_granularities[]", "segment"),
+            ]
             headers = {"Authorization": f"Bearer {api_key}"}
             r = requests.post(WHISPER_URL, headers=headers, files=files,
                               data=data, timeout=120)
@@ -94,27 +97,53 @@ def generate_ass_file(
     output_path: str,
     font: str = "Poppins",
     time_offset: float = 0.0,
+    words: Optional[list[dict]] = None,
 ) -> tuple[bool, str]:
-    """Generate an .ass subtitle file from Whisper segments.
-    Each segment: {start, end, text}.
-    time_offset shifts all timestamps (useful if voice doesn't start at 0).
+    """Generate an .ass subtitle file.
+    Si `words` está disponible (lista de {word, start, end}), genera subtítulos
+    palabra por palabra estilo TikTok. Si no, fallback a segmentos completos.
     """
     try:
         header = ASS_HEADER_TEMPLATE.format(font=font)
         lines = [header]
-        for seg in segments:
-            start = float(seg.get("start", 0)) + time_offset
-            end = float(seg.get("end", start + 2)) + time_offset
-            text = _escape_ass_text((seg.get("text", "") or "").strip())
-            if not text:
-                continue
-            # Fade in/out con tag \fad(150,150)
-            text_with_fade = f"{{\\fad(150,150)}}{text}"
-            dialogue = (
-                f"Dialogue: 0,{_format_ass_time(start)},"
-                f"{_format_ass_time(end)},Cinema,,0,0,0,,{text_with_fade}"
-            )
-            lines.append(dialogue)
+
+        if words and len(words) > 0:
+            # Modo karaoke: cada palabra aparece a medida que la voz la dice
+            for i, w in enumerate(words):
+                start = float(w.get("start", 0)) + time_offset
+                end = float(w.get("end", start + 0.4)) + time_offset
+                # Asegurar mínimo de visibilidad por palabra
+                if end - start < 0.15:
+                    end = start + 0.15
+                # Si la palabra dura demasiado (>1.2s), recortar
+                if end - start > 1.2:
+                    end = start + 1.2
+                word_text = (w.get("word", "") or "").strip()
+                if not word_text:
+                    continue
+                text = _escape_ass_text(word_text)
+                # Fade rápido in/out para que se vea ágil
+                text_with_fade = f"{{\\fad(80,80)}}{text}"
+                dialogue = (
+                    f"Dialogue: 0,{_format_ass_time(start)},"
+                    f"{_format_ass_time(end)},Cinema,,0,0,0,,{text_with_fade}"
+                )
+                lines.append(dialogue)
+        else:
+            # Fallback: segmentos completos (frases) con fade más lento
+            for seg in segments:
+                start = float(seg.get("start", 0)) + time_offset
+                end = float(seg.get("end", start + 2)) + time_offset
+                text = _escape_ass_text((seg.get("text", "") or "").strip())
+                if not text:
+                    continue
+                text_with_fade = f"{{\\fad(150,150)}}{text}"
+                dialogue = (
+                    f"Dialogue: 0,{_format_ass_time(start)},"
+                    f"{_format_ass_time(end)},Cinema,,0,0,0,,{text_with_fade}"
+                )
+                lines.append(dialogue)
+
         Path(output_path).write_text("\n".join(lines), encoding="utf-8")
         return True, ""
     except Exception as e:
@@ -162,15 +191,16 @@ def apply_auto_subtitles(
         return False, f"Transcripción: {result}"
 
     segments = result.get("segments", []) if isinstance(result, dict) else []
-    if not segments:
+    words = result.get("words", []) if isinstance(result, dict) else []
+    if not segments and not words:
         # No hubo audio detectado — copy original video unchanged
         import shutil
         shutil.copy(video_path, output_path)
         return True, "no-segments-detected"
 
-    # 2. Generate ASS file
+    # 2. Generate ASS file (preferimos words si está, para karaoke)
     ass_path = str(work / "subtitles.ass")
-    ok, err = generate_ass_file(segments, ass_path)
+    ok, err = generate_ass_file(segments, ass_path, words=words, font="Montserrat Thin")
     if not ok:
         return False, f"ASS: {err}"
 

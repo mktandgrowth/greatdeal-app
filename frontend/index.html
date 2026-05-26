@@ -163,7 +163,7 @@ let state = {
   is_generating_voice: false,
   logo_file: null,
   logo_dataUrl: null,
-  custom_tagline: "Vivir distinto",
+  custom_tagline: "",
   custom_cta_info: "",
   custom_cta_precio: "",
   job_id: null, job_status: null, job_log: [], job_error: null,
@@ -197,7 +197,7 @@ function resetAll() {
     voice_script: "", voice_eleven_key: "", eleven_voices: voices,
     is_recording: false, media_recorder: null, recorded_chunks: [], is_generating_voice: false,
     logo_file: null, logo_dataUrl: null,
-    custom_tagline: "Vivir distinto", custom_cta_info: "", custom_cta_precio: "",
+    custom_tagline: "", custom_cta_info: "", custom_cta_precio: "",
     job_id: null, job_status: null, job_log: [], job_error: null,
     job_download: null, job_duration: null,
     is_reprocessing: false, has_been_processed: false,
@@ -264,7 +264,8 @@ function openRunwayModal(clipId) {
   state.runway_task_id = null;
   state.runway_task_status = null;
   state.runway_task_error = null;
-  state.runway_cost_estimate = Math.round((c.trim_duration / c.speed) * 0.05 * 100) / 100;
+  // Siempre 5 seg para minimizar costo, recortamos al largo real después
+  state.runway_cost_estimate = 0.25;  // 5 seg × $0.05
   state.runway_modal_open = true;
   render();
 }
@@ -292,8 +293,11 @@ async function runwayGenerate() {
     return;
   }
 
-  // Round duration to integer for Runway (2-10s)
-  const dur = Math.max(2, Math.min(10, Math.round(c.trim_duration / c.speed)));
+  // Runway Gen-3 Turbo SOLO acepta 5 o 10 segundos.
+  // Forzamos siempre 5 (lo mínimo y más barato), después recortamos al largo real.
+  const effDur = c.trim_duration / c.speed;
+  const dur = 5;  // siempre 5 seg para minimizar costo
+  const targetDur = Math.min(effDur, 5);  // el reel final usa el largo real del clip
 
   // Fetch the source clip as a blob (it's already a blob URL or file)
   let clipBlob;
@@ -316,6 +320,7 @@ async function runwayGenerate() {
   fd.append("prompt", state.runway_prompt);
   fd.append("model", "gen3a_turbo");
   fd.append("duration", String(dur));
+  fd.append("target_duration", targetDur.toFixed(2));
 
   state.runway_task_status = "uploading";
   state.runway_task_error = null;
@@ -838,9 +843,9 @@ function renderStep2() {
         <div><label class="text-xs text-slate-500 block mb-1">Precio (UF)</label><input type="text" value="${escapeAttr(p.precio_uf)}" placeholder="1500" oninput="state.property.precio_uf=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
       </div>
       <div class="bg-black rounded-2xl p-6 mb-4 text-center">
-        <div class="text-white text-sm mb-4">${escapeHtml(previewInfo)}</div>
-        <div class="bg-white px-5 py-3 rounded inline-block mb-4"><div class="text-black text-xl font-bold">${escapeHtml(previewPrecio)}</div></div>
-        <div class="text-slate-400 text-xs">${escapeHtml(state.custom_tagline)}</div>
+        <div class="text-white text-sm mb-3">${escapeHtml(previewInfo)}</div>
+        <div class="bg-white/95 px-4 py-2 rounded inline-block mb-3"><div class="text-black text-base font-bold">${escapeHtml(previewPrecio)}</div></div>
+        ${state.custom_tagline ? `<div class="text-slate-400 text-xs">${escapeHtml(state.custom_tagline)}</div>` : ''}
         <div class="text-slate-500 text-[10px] mt-3">↑ Cierre del reel (preview)</div>
       </div>
       <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-sm text-blue-900">🎵 La música y la voz se configuran en el <strong>paso 3 (Audio)</strong>.</div>
@@ -1173,7 +1178,7 @@ function buildCtaData() {
   return {
     info: (state.custom_cta_info || "").trim() || `${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`,
     precio: (state.custom_cta_precio || "").trim() || (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar'),
-    tagline: (state.custom_tagline || "").trim() || "Vivir distinto",
+    tagline: (state.custom_tagline || "").trim(),  // vacío = no aparece la línea
   };
 }
 
