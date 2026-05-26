@@ -419,6 +419,7 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
                music_preset: str = "chill",
                logo_path: Optional[str] = None,
                enhance_ai: bool = False,
+               auto_subtitles: bool = False,
                output_path: str = "reel.mp4") -> dict:
     """
     Main entry. Builds a reel from structured sections.
@@ -531,11 +532,41 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
             return {"success": False, "error": f"music: {err}", "log": log}
         log.append(f"synthesized music ({music_preset})")
 
-    # Mux
-    ok, err = mux_audio(concat_file, music_file, voice_audio_path, output_path)
+    # Mux — primero a un archivo temporal si vamos a quemar subtítulos
+    needs_subtitles = (
+        auto_subtitles
+        and voice_audio_path
+        and Path(voice_audio_path).exists()
+    )
+    pre_subtitles_path = (
+        str(work / "_pre_subs.mp4") if needs_subtitles else output_path
+    )
+    ok, err = mux_audio(concat_file, music_file, voice_audio_path, pre_subtitles_path)
     if not ok:
         return {"success": False, "error": f"mux: {err}", "log": log}
     log.append("final mux complete")
+
+    # Subtítulos automáticos (opcional)
+    if needs_subtitles:
+        log.append("transcribiendo voz con Whisper…")
+        try:
+            from subtitles import apply_auto_subtitles
+            ok, err = apply_auto_subtitles(
+                video_path=pre_subtitles_path,
+                audio_path=voice_audio_path,
+                work_dir=str(work),
+                output_path=output_path,
+                language="es",
+            )
+            if not ok:
+                log.append(f"subtítulos fallaron, video sin subs: {err[:100]}")
+                # Fallback: copy pre_subs as output
+                shutil.copy(pre_subtitles_path, output_path)
+            else:
+                log.append("subtítulos quemados sobre el video")
+        except Exception as e:
+            log.append(f"subtítulos error: {str(e)[:100]}, video sin subs")
+            shutil.copy(pre_subtitles_path, output_path)
 
     return {
         "success": True,

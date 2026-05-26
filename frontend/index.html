@@ -116,6 +116,7 @@ let state = {
   property: { tipo: "Casa", comuna: "", m2: "", dorms: "", banos: "", precio_uf: "" },
   advanced_open: false,
   enhance_ai: false,
+  auto_subtitles: false,
   music_preset: "chill",
   music_file: null,
   music_presets_catalog: [],
@@ -159,7 +160,7 @@ function resetAll() {
   state = {
     step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [],
     property: { tipo: "Casa", comuna: "", m2: "", dorms: "", banos: "", precio_uf: "" },
-    advanced_open: false, enhance_ai: false,
+    advanced_open: false, enhance_ai: false, auto_subtitles: false,
     music_preset: "chill", music_file: null, music_presets_catalog: catalog,
     voice_audio_file: null, voice_audio_url: null, voice_method: "none",
     voice_script: "", voice_eleven_key: "", eleven_voices: voices,
@@ -871,6 +872,26 @@ function renderStep3() {
     const voiceOptions = state.eleven_voices.map(v => { const key = v.key || v.id || ""; const label = v.label || v.name || key; return `<option value="${key}" ${state.voice_eleven_key === key ? 'selected' : ''}>${escapeHtml(label)}</option>`; }).join("");
     voiceContent = `<div class="space-y-3"><div><label class="text-xs text-slate-500 block mb-1">Voz</label><select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.voice_eleven_key=this.value">${voiceOptions || '<option>Cargando voces…</option>'}</select></div><div><div class="flex items-center justify-between mb-1"><label class="text-xs text-slate-500">Guion (lo que va a decir la voz)</label><span class="text-xs ${currentChars > chars.max ? 'text-red-600 font-bold' : currentChars < chars.min ? 'text-amber-600' : 'text-emerald-600 font-medium'}">${currentChars} / ${chars.ideal} caracteres ideal</span></div><textarea rows="4" maxlength="800" oninput="state.voice_script=this.value; render()" placeholder="Ej: Esta hermosa casa en Las Condes te ofrece 180 metros cuadrados de luminosidad y diseño..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">${escapeHtml(state.voice_script)}</textarea><div class="text-[11px] text-slate-500 mt-1">Recomendado: <strong>${chars.min}–${chars.max} caracteres</strong> (ideal ${chars.ideal}) para que calce con la duración del reel (~${reelDur.toFixed(0)}s)</div></div>${state.voice_audio_file && state.voice_audio_url ? `<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3"><div class="flex items-center justify-between mb-2"><span class="text-sm text-emerald-700">✓ Voz generada</span><button onclick="clearVoice()" class="text-sm text-red-500">Quitar</button></div><audio src="${state.voice_audio_url}" controls class="w-full"></audio></div>` : ''}<button onclick="generateVoiceWithEleven()" ${state.is_generating_voice ? 'disabled' : ''} class="w-full px-4 py-2.5 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50">${state.is_generating_voice ? '⏳ Generando…' : (state.voice_audio_file ? '↻ Regenerar voz' : '✨ Generar voz')}</button><p class="text-xs text-slate-500">💡 Requiere ELEVENLABS_API_KEY en el server. Si falla, mostramos el error.</p></div>`;
   }
+  // Visible solo cuando hay voz seleccionada (no method=none)
+  const hasVoice = state.voice_method !== "none";
+  const duckingNotice = hasVoice ? `
+    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3 text-xs text-amber-900 flex items-start gap-2">
+      <span class="text-base">🔊</span>
+      <div><strong>Ducking automático:</strong> cuando suene tu voz, la música va a bajar al 25% para que se entienda. Sin voz, la música se escucha 100%.</div>
+    </div>` : '';
+  const subtitlesToggle = hasVoice ? `
+    <div class="bg-white border-2 border-slate-200 rounded-2xl p-4 mb-4 flex items-center gap-3">
+      <div class="bg-pink-100 text-pink-700 text-xs px-2 py-1 rounded-full font-bold">🔤</div>
+      <div class="flex-1">
+        <div class="text-sm font-medium text-slate-900">Subtítulos automáticos</div>
+        <div class="text-xs text-slate-500">Transcribe tu voz y los quema sobre el video (~$0.003 por reel)</div>
+      </div>
+      <label class="relative inline-flex items-center cursor-pointer">
+        <input type="checkbox" ${state.auto_subtitles ? 'checked' : ''} onchange="state.auto_subtitles=this.checked" class="sr-only peer">
+        <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-pink-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5"></div>
+      </label>
+    </div>` : '';
+
   return `
     <div class="fade-in max-w-2xl mx-auto">
       <h1 class="text-2xl font-bold text-slate-900 mb-1">Audio del reel</h1>
@@ -878,9 +899,11 @@ function renderStep3() {
       ${durBanner}${musicBlock}
       <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
         <div class="flex items-center mb-3"><span class="text-xl mr-2">🎙️</span><h3 class="font-bold text-slate-900">Voz / narración</h3><span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full ml-2">Opcional</span></div>
+        ${duckingNotice}
         <div class="flex gap-2 mb-4">${tabsHtml}</div>
         <div>${voiceContent}</div>
       </div>
+      ${subtitlesToggle}
       <div class="text-xs text-slate-500 text-center">Cuando estés lista, continuá al paso final.</div>
     </div>`;
 }
@@ -998,6 +1021,7 @@ async function processReel() {
   fd.append("cta_data", JSON.stringify(buildCtaData()));
   fd.append("music_preset", state.music_preset || "chill");
   fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+  fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
   files.forEach(f => fd.append("clips", f));
   if (state.music_file) fd.append("music", state.music_file);
   if (state.voice_audio_file) fd.append("voice_audio", state.voice_audio_file);
@@ -1029,6 +1053,7 @@ async function reprocessFromCurrent() {
   fd.append("cta_data", JSON.stringify(buildCtaData()));
   fd.append("music_preset", state.music_preset || "chill");
   fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+  fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
   state.job_status = "reprocessing";
   state.is_reprocessing = true;
   state.job_log = [];
@@ -1273,6 +1298,7 @@ async function applyEditorChanges() {
     fd.append("cta_data", JSON.stringify(buildCtaData()));
     fd.append("music_preset", state.music_preset || "chill");
     fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+  fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
     finalFiles.forEach(f => fd.append("clips", f));
     if (state.music_file) fd.append("music", state.music_file);
     if (state.voice_audio_file) fd.append("voice_audio", state.voice_audio_file);
@@ -1303,6 +1329,7 @@ async function applyEditorChanges() {
     fd.append("cta_data", JSON.stringify(buildCtaData()));
     fd.append("music_preset", state.music_preset || "chill");
     fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+  fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
     state.editor_open = false;
     state.job_status = "reprocessing";
     state.is_reprocessing = true;

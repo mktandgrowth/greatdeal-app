@@ -233,6 +233,7 @@ async def create_job(
     voice_key: Optional[str] = Form(None),
     generate_voice: bool = Form(False),
     enhance_ai: str = Form("false"),
+    auto_subtitles: str = Form("false"),
 ):
     """
     Create a new editing job with section-based structure.
@@ -306,6 +307,7 @@ async def create_job(
     work_dir = WORK_DIR / job_id
 
     enhance_flag = (enhance_ai or "").strip().lower() in ("true", "1", "yes", "on")
+    auto_subs_flag = (auto_subtitles or "").strip().lower() in ("true", "1", "yes", "on")
 
     job = {
         "id": job_id,
@@ -320,6 +322,7 @@ async def create_job(
         "music_path": music_path,
         "music_preset": music_preset,
         "enhance_ai": enhance_flag,
+        "auto_subtitles": auto_subs_flag,
         "output_path": str(output_path),
         "work_dir": str(work_dir),
         "log": [],
@@ -332,7 +335,8 @@ async def create_job(
         target=process_job,
         args=(job_id, resolved_sections, cta, str(work_dir),
               voice_audio_path, music_path, music_preset, logo_path,
-              enhance_flag, str(output_path), voice_key, generate_voice),
+              enhance_flag, auto_subs_flag, str(output_path),
+              voice_key, generate_voice),
         daemon=True,
     ).start()
 
@@ -362,7 +366,8 @@ def _resolve_sections(sections_data, clip_paths):
 
 def process_job(job_id, sections, cta_data, work_dir,
                 voice_audio_path, music_path, music_preset, logo_path,
-                enhance_ai, output_path, voice_key, generate_voice):
+                enhance_ai, auto_subtitles, output_path,
+                voice_key, generate_voice):
     set_job(job_id, status="processing")
 
     # If user wants ElevenLabs voice generation
@@ -392,6 +397,7 @@ def process_job(job_id, sections, cta_data, work_dir,
         music_preset=music_preset,
         logo_path=logo_path,
         enhance_ai=enhance_ai,
+        auto_subtitles=auto_subtitles,
         output_path=output_path,
     )
 
@@ -410,6 +416,7 @@ async def reprocess_job(
     cta_data: str = Form(...),
     music_preset: Optional[str] = Form(None),
     enhance_ai: Optional[str] = Form(None),
+    auto_subtitles: Optional[str] = Form(None),
 ):
     """Re-process an existing job with new sections/cta_data (re-edit feature).
     Reuses the original clips, logo, music, voice. Only re-applies trim/text/CTA.
@@ -439,18 +446,24 @@ async def reprocess_job(
         if enhance_ai is not None
         else bool(job.get("enhance_ai", False))
     )
+    effective_subs = (
+        (auto_subtitles or "").strip().lower() in ("true", "1", "yes", "on")
+        if auto_subtitles is not None
+        else bool(job.get("auto_subtitles", False))
+    )
 
     set_job(job_id, status="processing", sections=resolved, cta_data=cta,
             output_path=str(new_output), work_dir=str(new_work),
             music_preset=effective_preset, enhance_ai=effective_enhance,
-            log=[], error=None)
+            auto_subtitles=effective_subs, log=[], error=None)
 
     threading.Thread(
         target=process_job,
         args=(job_id, resolved, cta, str(new_work),
               job.get("voice_audio_path"), job.get("music_path"),
               effective_preset, job.get("logo_path"),
-              effective_enhance, str(new_output), None, False),
+              effective_enhance, effective_subs,
+              str(new_output), None, False),
         daemon=True,
     ).start()
 

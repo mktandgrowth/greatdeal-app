@@ -65,8 +65,8 @@ Configurar en https://dashboard.render.com/ → `greatdeal-api` → Environment:
 | Variable | Para qué | Estado |
 |---|---|---|
 | `ELEVENLABS_API_KEY` | Generación de voz IA | ✅ configurada |
-| `RUNWAY_API_KEY` | Regenerar tomas con video-to-video | ⏳ en proceso de configurar |
-| `OPENAI_API_KEY` | Whisper para subtítulos automáticos (futuro) | ❌ pendiente |
+| `RUNWAY_API_KEY` | Regenerar tomas con video-to-video | ✅ configurada ($10 cargados) |
+| `OPENAI_API_KEY` | Whisper para subtítulos automáticos | ⏳ pendiente agregar |
 
 ---
 
@@ -188,6 +188,8 @@ Configurar en https://dashboard.render.com/ → `greatdeal-api` → Environment:
 - ✅ Dual-range slider visual para trim (con preview del frame)
 - ✅ Reorder de clips por drag-drop
 - ✅ **Runway video-to-video por toma con prompt + presets**
+- ✅ **Subtítulos automáticos con OpenAI Whisper API** (toggle en paso 3, solo visible con voz)
+- ✅ Ducking de música cuando hay voz (25% mientras habla, 100% sin voz)
 - ✅ Re-edición y re-procesar sin perder uploads
 - ✅ Error handling con detalle del backend visible al usuario
 

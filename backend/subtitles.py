@@ -1,0 +1,182 @@
+"""
+GreatDeal · Subtítulos automáticos con OpenAI Whisper API.
+
+Flujo:
+  1. Transcribir audio (voz) con Whisper → segmentos con timestamps
+  2. Generar archivo .ass (Advanced SubStation Alpha) con estilo cinematográfico
+  3. Quemar subtítulos sobre el video con FFmpeg subtitles filter
+
+Costo: ~$0.006 por minuto de audio (~$0.003 por reel típico).
+Requiere: OPENAI_API_KEY env var.
+"""
+import os
+import subprocess
+import requests
+from pathlib import Path
+from typing import Optional
+
+
+WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions"
+
+# ASS subtitle style — cinematográfico (blanco con borde negro)
+# Sizing for 540x960 vertical
+ASS_HEADER_TEMPLATE = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 540
+PlayResY: 960
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Cinema,{font},28,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,0,2,40,40,140,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+
+def transcribe_with_whisper(
+    audio_path: str,
+    api_key: Optional[str] = None,
+    language: str = "es",
+) -> tuple[bool, dict | str]:
+    """Transcribe audio file using OpenAI Whisper API.
+    Returns (success, result_dict or error_msg).
+    result has keys: text, segments (list of {start, end, text}).
+    """
+    api_key = api_key or os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return False, "OPENAI_API_KEY no configurada en el server"
+    if not Path(audio_path).exists():
+        return False, f"Audio file no existe: {audio_path}"
+
+    try:
+        with open(audio_path, "rb") as f:
+            files = {"file": (Path(audio_path).name, f, "application/octet-stream")}
+            data = {
+                "model": "whisper-1",
+                "response_format": "verbose_json",
+                "language": language,
+            }
+            headers = {"Authorization": f"Bearer {api_key}"}
+            r = requests.post(WHISPER_URL, headers=headers, files=files,
+                              data=data, timeout=120)
+        if r.status_code != 200:
+            return False, f"Whisper HTTP {r.status_code}: {r.text[:300]}"
+        return True, r.json()
+    except requests.RequestException as e:
+        return False, f"Whisper request failed: {str(e)[:300]}"
+    except Exception as e:
+        return False, f"Whisper unexpected: {str(e)[:300]}"
+
+
+def _format_ass_time(seconds: float) -> str:
+    """Convert seconds (float) to ASS time format H:MM:SS.CC."""
+    if seconds < 0:
+        seconds = 0
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+    return f"{h}:{m:02d}:{s:05.2f}"
+
+
+def _escape_ass_text(text: str) -> str:
+    """Escape special chars for ASS dialogue."""
+    return (text.replace("\\", "\\\\")
+                .replace("{", "\\{")
+                .replace("}", "\\}")
+                .replace("\n", "\\N"))
+
+
+def generate_ass_file(
+    segments: list[dict],
+    output_path: str,
+    font: str = "Poppins",
+    time_offset: float = 0.0,
+) -> tuple[bool, str]:
+    """Generate an .ass subtitle file from Whisper segments.
+    Each segment: {start, end, text}.
+    time_offset shifts all timestamps (useful if voice doesn't start at 0).
+    """
+    try:
+        header = ASS_HEADER_TEMPLATE.format(font=font)
+        lines = [header]
+        for seg in segments:
+            start = float(seg.get("start", 0)) + time_offset
+            end = float(seg.get("end", start + 2)) + time_offset
+            text = _escape_ass_text((seg.get("text", "") or "").strip())
+            if not text:
+                continue
+            # Fade in/out con tag \fad(150,150)
+            text_with_fade = f"{{\\fad(150,150)}}{text}"
+            dialogue = (
+                f"Dialogue: 0,{_format_ass_time(start)},"
+                f"{_format_ass_time(end)},Cinema,,0,0,0,,{text_with_fade}"
+            )
+            lines.append(dialogue)
+        Path(output_path).write_text("\n".join(lines), encoding="utf-8")
+        return True, ""
+    except Exception as e:
+        return False, f"ASS generation failed: {str(e)[:300]}"
+
+
+def burn_subtitles(
+    video_path: str,
+    ass_path: str,
+    output_path: str,
+) -> tuple[bool, str]:
+    """Burn .ass subtitles into video using FFmpeg subtitles filter."""
+    # FFmpeg's subtitles filter needs the path properly escaped on Windows-style paths
+    # Best practice: use forward slashes and escape colons
+    ass_escaped = str(ass_path).replace("\\", "/").replace(":", "\\:")
+    cmd = [
+        "ffmpeg", "-y", "-i", video_path,
+        "-vf", f"subtitles='{ass_escaped}'",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
+        "-c:a", "copy",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        output_path,
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        return False, r.stderr[-1500:]
+    return True, ""
+
+
+def apply_auto_subtitles(
+    video_path: str,
+    audio_path: str,
+    work_dir: str,
+    output_path: str,
+    language: str = "es",
+) -> tuple[bool, str]:
+    """End-to-end: transcribe audio + generate ASS + burn into video.
+    Returns (success, error_msg)."""
+    work = Path(work_dir)
+    work.mkdir(parents=True, exist_ok=True)
+
+    # 1. Transcribe
+    ok, result = transcribe_with_whisper(audio_path, language=language)
+    if not ok:
+        return False, f"Transcripción: {result}"
+
+    segments = result.get("segments", []) if isinstance(result, dict) else []
+    if not segments:
+        # No hubo audio detectado — copy original video unchanged
+        import shutil
+        shutil.copy(video_path, output_path)
+        return True, "no-segments-detected"
+
+    # 2. Generate ASS file
+    ass_path = str(work / "subtitles.ass")
+    ok, err = generate_ass_file(segments, ass_path)
+    if not ok:
+        return False, f"ASS: {err}"
+
+    # 3. Burn into video
+    ok, err = burn_subtitles(video_path, ass_path, output_path)
+    if not ok:
+        return False, f"Burn: {err}"
+
+    return True, ""
