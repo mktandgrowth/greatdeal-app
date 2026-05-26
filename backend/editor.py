@@ -136,14 +136,18 @@ def add_text_overlay(input_file: str, output_file: str,
 
     fade_out_start = max(0.1, duration - 0.3)
     filters = []
+    # Gradient sutil en el centro vertical (legibilidad sin gastar tanta CPU como borderw)
+    filters.append(
+        "drawbox=x=0:y=(ih/2)-60:w=iw:h=120:color=black@0.30:t=fill"
+    )
     if headline:
         # Headline centrado vertical (ligeramente sobre el centro)
+        # Sin borderw (consume mucha CPU en Render Starter) — solo sombra fuerte
         filters.append(
             f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
             f"fontsize=36:fontcolor=white:"
             f"x=(w-text_w)/2:y=(h-text_h)/2-25:"
-            f"borderw=3:bordercolor=black@0.85:"
-            f"shadowx=2:shadowy=2:shadowcolor=black@0.7"
+            f"shadowx=3:shadowy=3:shadowcolor=black@0.9"
         )
     if subline:
         # Subline justo abajo del headline (centro + 25)
@@ -151,8 +155,7 @@ def add_text_overlay(input_file: str, output_file: str,
             f"drawtext=fontfile={FONT_REG}:text='{_esc(subline)}':"
             f"fontsize=22:fontcolor=0xe5e5e5:"
             f"x=(w-text_w)/2:y=(h-text_h)/2+25:"
-            f"borderw=2:bordercolor=black@0.8:"
-            f"shadowx=1:shadowy=1:shadowcolor=black@0.6"
+            f"shadowx=2:shadowy=2:shadowcolor=black@0.8"
         )
     filters.append(f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_out_start}:d=0.3")
     filter_complex = ",".join(filters)
