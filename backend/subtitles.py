@@ -199,8 +199,11 @@ def apply_auto_subtitles(
         return True, "no-segments-detected"
 
     # 2. Generate ASS file (preferimos words si está, para karaoke)
+    # OJO: libass busca por font family name, no por face name.
+    # "Montserrat" + Bold=0 deja que fontconfig resuelva al peso adecuado.
+    # Si Thin no se encuentra, cae a Regular (mejor que nada).
     ass_path = str(work / "subtitles.ass")
-    ok, err = generate_ass_file(segments, ass_path, words=words, font="Montserrat Thin")
+    ok, err = generate_ass_file(segments, ass_path, words=words, font="Montserrat")
     if not ok:
         return False, f"ASS: {err}"
 

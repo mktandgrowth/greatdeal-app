@@ -425,6 +425,79 @@ def mux_audio(video_file: str, music_file: str,
     return run(cmd, "mux audio")
 
 
+def process_clip_combined(input_path: str, output_path: str,
+                           trim_start: float, trim_duration: float,
+                           speed: float = 1.0,
+                           headline: str = "", subline: str = "",
+                           enhance_ai: bool = False) -> tuple[bool, str]:
+    """Procesa un clip en UNA SOLA operación FFmpeg combinando:
+    normalize + trim + speed + color correction + text overlay.
+    Reemplaza 3-4 encodes separados → 1 encode. ~3x más rápido por clip.
+    """
+    filters = []
+
+    # 1. Speed (si aplica): setpts=PTS/speed
+    if abs(speed - 1.0) > 0.01:
+        filters.append(f"setpts=PTS/{speed}")
+
+    # 2. Scale + pad a 540x960 vertical
+    if enhance_ai:
+        filters.append(
+            f"scale={W}:{H}:flags=lanczos:force_original_aspect_ratio=decrease"
+        )
+        filters.append(f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black")
+        # Color cinematográfico
+        filters.append("hqdn3d=1.5:1.5:6:6")
+        filters.append("eq=brightness=0.06:contrast=1.20:saturation=1.32:gamma=1.05")
+        filters.append("unsharp=5:5:1.0:5:5:0.0")
+        filters.append("vignette=PI/5")
+        preset, crf = "fast", "21"
+    else:
+        filters.append(
+            f"scale={W}:{H}:flags=bilinear:force_original_aspect_ratio=decrease"
+        )
+        filters.append(f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black")
+        filters.append("eq=brightness=0.03:saturation=1.18:contrast=1.08:gamma=0.97")
+        preset, crf = "ultrafast", "23"
+
+    # 3. Text overlay (si hay texto)
+    effective_duration = trim_duration / speed
+    if headline or subline:
+        fade_out_start = max(0.1, effective_duration - 0.3)
+        if headline:
+            filters.append(
+                f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
+                f"fontsize=38:fontcolor=white:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2-25:"
+                f"shadowx=3:shadowy=3:shadowcolor=black@0.95"
+            )
+        if subline:
+            filters.append(
+                f"drawtext=fontfile={FONT_REG}:text='{_esc(subline)}':"
+                f"fontsize=24:fontcolor=white:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2+25:"
+                f"shadowx=2:shadowy=2:shadowcolor=black@0.9"
+            )
+        filters.append(
+            f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_out_start}:d=0.3"
+        )
+
+    vf = ",".join(filters)
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(trim_start),
+        "-i", input_path,
+        "-t", str(trim_duration),
+        "-vf", vf,
+        "-r", "30",
+        "-c:v", "libx264", "-preset", preset, "-crf", crf,
+        "-pix_fmt", "yuv420p", "-an",
+        output_path,
+    ]
+    return run(cmd, f"process {Path(input_path).name}")
+
+
 def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
                voice_audio_path: Optional[str] = None,
                music_path: Optional[str] = None,
@@ -463,44 +536,29 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
             headline = c.get("headline", "")
             subline = c.get("subline", "")
 
-            # 1. Normalize (with optional AI enhancement)
-            norm_file = str(work / f"norm_{clip_idx}.mp4")
-            ok, err = normalize_clip(input_path, norm_file, enhance=enhance_ai)
+            # Procesar todo en UNA sola operación FFmpeg (normalize+trim+speed+overlay)
+            # ~3x más rápido que hacerlos por separado
+            processed_file = str(work / f"clip_{clip_idx}.mp4")
+            ok, err = process_clip_combined(
+                input_path=input_path,
+                output_path=processed_file,
+                trim_start=trim_start,
+                trim_duration=trim_duration,
+                speed=speed,
+                headline=headline,
+                subline=subline,
+                enhance_ai=enhance_ai,
+            )
             if not ok:
-                return {"success": False, "error": f"normalize clip {clip_idx}: {err}", "log": log}
-            log.append(f"normalized clip {clip_idx} ({section_name}){' +IA' if enhance_ai else ''}")
-
-            # 2. Trim
-            trim_file = str(work / f"trim_{clip_idx}.mp4")
-            ok, err = trim_clip(norm_file, trim_file, trim_start, trim_duration)
-            if not ok:
-                return {"success": False, "error": f"trim clip {clip_idx}: {err}", "log": log}
-            log.append(f"trimmed clip {clip_idx} → {trim_duration}s")
-
-            current_file = trim_file
-            effective_duration = trim_duration
-
-            # 3. Speed (optional)
-            if abs(speed - 1.0) > 0.01:
-                speed_file = str(work / f"speed_{clip_idx}.mp4")
-                ok, err = speedup_clip(trim_file, speed_file, speed)
-                if not ok:
-                    return {"success": False, "error": f"speed clip {clip_idx}: {err}", "log": log}
-                log.append(f"sped clip {clip_idx} {speed}x")
-                current_file = speed_file
-                effective_duration = trim_duration / speed
-
-            # 4. Text overlay (only if headline/subline)
-            if headline or subline:
-                text_file = str(work / f"text_{clip_idx}.mp4")
-                ok, err = add_text_overlay(current_file, text_file,
-                                            headline, subline, effective_duration)
-                if not ok:
-                    return {"success": False, "error": f"overlay clip {clip_idx}: {err}", "log": log}
-                log.append(f"overlay clip {clip_idx}: '{headline}'")
-                current_file = text_file
-
-            segments.append((current_file, effective_duration))
+                return {"success": False, "error": f"process clip {clip_idx}: {err}", "log": log}
+            effective_duration = trim_duration / speed
+            log.append(
+                f"clip {clip_idx} ({section_name}) listo · {effective_duration:.1f}s"
+                f"{f' · 🎬 IA color' if enhance_ai else ''}"
+                f"{f' · ⚡ {speed}x' if abs(speed - 1.0) > 0.01 else ''}"
+                f"{f' · 📝 {headline[:20]}' if headline else ''}"
+            )
+            segments.append((processed_file, effective_duration))
 
     # Logo slide (optional, before CTA)
     if logo_path and Path(logo_path).exists():
