@@ -290,53 +290,89 @@ def concat_clips(clips: list[tuple[str, float]], output_file: str) -> tuple[bool
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  MUSIC PRESETS — synthesized vibes
+#  MUSIC PRESETS — synthesized vibes (10 opciones)
 # ─────────────────────────────────────────────────────────────────────
+# Parámetros disponibles:
+#   freqs: frecuencias base (Hz) — más bajas = grave/dramático, más altas = brillante
+#   volumes: volumen por frecuencia
+#   lowpass: filtro pasabajos (Hz) — más bajo = más oscuro
+#   highpass: filtro pasaaltos (Hz) — saca graves
+#   post_volume: volumen final
+#   echo: aplica aecho (reverb-like)
+#   tremolo: modula volumen creando sensación de ritmo (Hz, ej 4 = pulsación lenta)
+#   vibrato: modula pitch creando sensación expresiva (Hz)
 MUSIC_PRESETS = {
     "chill": {
-        "label": "Chill ambient",
-        "description": "Pad suave y atmosférico — relajado, residencial",
+        "label": "🌿 Chill ambient",
+        "description": "Suave y atmosférico — propiedades residenciales relajadas",
         "freqs": [110, 165, 220],
         "volumes": [0.6, 0.4, 0.3],
-        "lowpass": 2200,
-        "post_volume": 1.5,
-        "echo": False,
+        "lowpass": 2200, "post_volume": 1.5, "echo": False,
     },
     "cinematic": {
-        "label": "Cinematográfico",
-        "description": "Graves profundos con eco — lujo, dramático",
+        "label": "🎬 Cinematográfico",
+        "description": "Graves profundos con eco — propiedades de lujo dramáticas",
         "freqs": [55, 82.5, 110, 165],
         "volumes": [0.7, 0.5, 0.4, 0.3],
-        "lowpass": 1800,
-        "post_volume": 1.6,
-        "echo": True,
+        "lowpass": 1800, "post_volume": 1.6, "echo": True,
     },
     "uplifting": {
-        "label": "Uplifting / luminoso",
-        "description": "Notas altas y abiertas — venta cálida, ligero",
+        "label": "☀️ Uplifting",
+        "description": "Notas altas y abiertas — luminoso, venta cálida",
         "freqs": [220, 330, 440],
         "volumes": [0.5, 0.4, 0.3],
-        "lowpass": 4000,
-        "post_volume": 1.4,
-        "echo": False,
+        "lowpass": 4000, "post_volume": 1.4, "echo": False,
     },
     "melancholic": {
-        "label": "Melancólico",
-        "description": "Acordes menores — emocional, evocativo",
+        "label": "🍂 Melancólico",
+        "description": "Acordes menores — emocional, propiedades con historia",
         "freqs": [110, 130.81, 196],  # A2, C3, G3 (Am-ish)
         "volumes": [0.6, 0.45, 0.35],
-        "lowpass": 2000,
-        "post_volume": 1.5,
-        "echo": True,
+        "lowpass": 2000, "post_volume": 1.5, "echo": True,
     },
     "corporate": {
-        "label": "Corporate clean",
+        "label": "🏢 Corporate clean",
         "description": "Estable y neutro — propiedades de inversión",
         "freqs": [110, 165],
         "volumes": [0.55, 0.4],
-        "lowpass": 2500,
-        "post_volume": 1.4,
-        "echo": False,
+        "lowpass": 2500, "post_volume": 1.4, "echo": False,
+    },
+    "luxury": {
+        "label": "💎 Lujo elegante",
+        "description": "Tonos sofisticados con vibrato — alta gama, mansiones",
+        "freqs": [146.83, 220, 293.66, 369.99],  # D3, A3, D4, F#4 (Dmaj)
+        "volumes": [0.5, 0.45, 0.35, 0.25],
+        "lowpass": 3500, "post_volume": 1.5, "echo": True,
+        "vibrato": 5,  # 5 Hz vibrato sutil
+    },
+    "modern_electronic": {
+        "label": "⚡ Moderno electrónico",
+        "description": "Pulsante con tempo — depto moderno, propiedad joven",
+        "freqs": [82.5, 165, 247.5],
+        "volumes": [0.55, 0.4, 0.3],
+        "lowpass": 3000, "post_volume": 1.5, "echo": False,
+        "tremolo": 2.5,  # pulsación cada 0.4s
+    },
+    "warm_acoustic": {
+        "label": "🌅 Cálido acústico",
+        "description": "Tonos cálidos sin estridencia — casas familiares",
+        "freqs": [130.81, 196, 261.63],  # C3, G3, C4
+        "volumes": [0.5, 0.4, 0.3],
+        "lowpass": 2400, "highpass": 80, "post_volume": 1.45, "echo": False,
+    },
+    "dramatic_dark": {
+        "label": "🌃 Dramático oscuro",
+        "description": "Muy grave y misterioso — premium nocturno",
+        "freqs": [41.2, 55, 73.42],  # E1, A1, D2 — graves muy bajos
+        "volumes": [0.75, 0.55, 0.4],
+        "lowpass": 1200, "post_volume": 1.7, "echo": True,
+    },
+    "bright_morning": {
+        "label": "🌞 Brillante mañana",
+        "description": "Alegre y luminoso — propiedades soleadas con vista",
+        "freqs": [261.63, 392, 523.25, 659.25],  # C4, G4, C5, E5 (C major)
+        "volumes": [0.45, 0.4, 0.35, 0.25],
+        "lowpass": 5000, "highpass": 150, "post_volume": 1.4, "echo": False,
     },
 }
 
@@ -348,8 +384,11 @@ def synth_music_preset(preset_key: str, output_file: str,
     freqs = preset["freqs"]
     vols = preset["volumes"]
     lowpass = preset["lowpass"]
+    highpass = preset.get("highpass", 0)
     post_vol = preset["post_volume"]
     echo = preset["echo"]
+    tremolo = preset.get("tremolo", 0)
+    vibrato = preset.get("vibrato", 0)
 
     fade_out_start = max(2, duration - 2)
 
@@ -368,8 +407,16 @@ def synth_music_preset(preset_key: str, output_file: str,
     inputs = "".join(f"[a{i}]" for i in range(len(freqs)))
     mix = f"{inputs}amix=inputs={len(freqs)}:duration=longest:normalize=0[mix]"
 
-    # Post-processing
+    # Post-processing chain
     post_chain = f"[mix]lowpass=f={lowpass}"
+    if highpass and highpass > 0:
+        post_chain += f",highpass=f={highpass}"
+    if vibrato and vibrato > 0:
+        # vibrato a Hz, sutil (depth bajo)
+        post_chain += f",vibrato=f={vibrato}:d=0.4"
+    if tremolo and tremolo > 0:
+        # tremolo crea sensación de pulso/tempo
+        post_chain += f",tremolo=f={tremolo}:d=0.45"
     if echo:
         post_chain += ",aecho=0.6:0.3:600:0.3"
     post_chain += f",volume={post_vol}[out]"
@@ -477,6 +524,8 @@ def process_clip_combined(input_path: str, output_path: str,
         preset, crf = "ultrafast", "23"
 
     # 3. Text overlay (si hay texto)
+    # Sombra uniforme (no diagonal) usando borderw con color al 70% opaco.
+    # borderw simula una sombra/contorno parejo alrededor de toda la letra.
     effective_duration = trim_duration / speed
     if headline or subline:
         fade_out_start = max(0.1, effective_duration - 0.3)
@@ -485,14 +534,14 @@ def process_clip_combined(input_path: str, output_path: str,
                 f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
                 f"fontsize=38:fontcolor=white:"
                 f"x=(w-text_w)/2:y=(h-text_h)/2-25:"
-                f"shadowx=3:shadowy=3:shadowcolor=black@0.95"
+                f"borderw=2:bordercolor=black@0.7"
             )
         if subline:
             filters.append(
                 f"drawtext=fontfile={FONT_REG}:text='{_esc(subline)}':"
                 f"fontsize=24:fontcolor=white:"
                 f"x=(w-text_w)/2:y=(h-text_h)/2+25:"
-                f"shadowx=2:shadowy=2:shadowcolor=black@0.9"
+                f"borderw=2:bordercolor=black@0.7"
             )
         filters.append(
             f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_out_start}:d=0.3"
