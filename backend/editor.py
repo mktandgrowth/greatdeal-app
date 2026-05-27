@@ -500,10 +500,12 @@ def process_clip_combined(input_path: str, output_path: str,
 
     vf = ",".join(filters)
 
+    # Importante: -ss DESPUÉS de -i = "slow seek" = preciso al frame exacto
+    # (-ss antes de -i sería "fast seek" pero puede saltar a keyframe lejano)
     cmd = [
         "ffmpeg", "-y",
-        "-ss", str(trim_start),
         "-i", input_path,
+        "-ss", str(trim_start),
         "-t", str(trim_duration),
         "-vf", vf,
         "-r", "30",
