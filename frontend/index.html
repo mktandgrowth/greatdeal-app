@@ -1612,10 +1612,126 @@ function render() {
   }
 }
 
+// ── PERSISTENCIA AUTOMÁTICA (localStorage) ────────────────────────
+// Guardamos metadata + configs (NO los videos, son muy pesados).
+// Al volver a abrir la app, se restauran los datos.
+const STORAGE_KEY = "greatdeal_state_v1";
+
+function saveStateToStorage() {
+  try {
+    // Solo guardamos lo "serializable" (sin File objects ni Blobs)
+    const snap = {
+      step: state.step,
+      upload_mode: state.upload_mode,
+      property: state.property,
+      advanced_open: state.advanced_open,
+      enhance_ai: state.enhance_ai,
+      auto_subtitles: state.auto_subtitles,
+      music_preset: state.music_preset,
+      voice_method: state.voice_method,
+      voice_script: state.voice_script,
+      voice_eleven_key: state.voice_eleven_key,
+      custom_tagline: state.custom_tagline,
+      custom_cta_info: state.custom_cta_info,
+      custom_cta_precio: state.custom_cta_precio,
+      has_been_processed: state.has_been_processed,
+      job_id: state.job_id,
+      // Marca cuántos clips había para avisar al usuario
+      _clips_count_sections: SECTION_ORDER.reduce((acc, k) => acc + (state.sections[k]?.clips?.length || 0), 0),
+      _clips_count_simple: state.simple_clips?.length || 0,
+      _saved_at: new Date().toISOString(),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(snap));
+  } catch (e) { /* localStorage full or unavailable, no es crítico */ }
+}
+
+function loadStateFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+
+function restoreStateFromStorage() {
+  const saved = loadStateFromStorage();
+  if (!saved) return false;
+  // Restaurar solo lo seguro
+  Object.assign(state.property, saved.property || {});
+  if (saved.upload_mode) state.upload_mode = saved.upload_mode;
+  if (saved.advanced_open !== undefined) state.advanced_open = saved.advanced_open;
+  if (saved.enhance_ai !== undefined) state.enhance_ai = saved.enhance_ai;
+  if (saved.auto_subtitles !== undefined) state.auto_subtitles = saved.auto_subtitles;
+  if (saved.music_preset) state.music_preset = saved.music_preset;
+  if (saved.voice_method) state.voice_method = saved.voice_method;
+  if (saved.voice_script) state.voice_script = saved.voice_script;
+  if (saved.voice_eleven_key) state.voice_eleven_key = saved.voice_eleven_key;
+  if (saved.custom_tagline !== undefined) state.custom_tagline = saved.custom_tagline;
+  if (saved.custom_cta_info !== undefined) state.custom_cta_info = saved.custom_cta_info;
+  if (saved.custom_cta_precio !== undefined) state.custom_cta_precio = saved.custom_cta_precio;
+  return true;
+}
+
+// Auto-save cada vez que cambia algo importante (debounced para no saturar)
+let _saveTimer = null;
+function scheduleSave() {
+  if (_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(saveStateToStorage, 800);
+}
+
+// Hook al render para auto-guardar
+const _origRender = window.render;
+
+// ── PREVENIR NAVEGACIÓN ACCIDENTAL (back gesture en móvil) ────────
+function hasUnsavedWork() {
+  return totalClipsCount() > 0 ||
+         (state.job_id && !state.has_been_processed) ||
+         state.property.m2 || state.property.dorms;
+}
+
+window.addEventListener("beforeunload", (e) => {
+  if (hasUnsavedWork()) {
+    e.preventDefault();
+    e.returnValue = "Tenés videos cargados o configuración sin procesar. ¿Salir igual?";
+    return e.returnValue;
+  }
+});
+
+// En móvil, atrapar el back gesture con history.pushState
+window.addEventListener("popstate", (e) => {
+  if (hasUnsavedWork()) {
+    const confirmLeave = confirm("⚠️ Tenés videos cargados. ¿Querés salir y perder todo?");
+    if (!confirmLeave) {
+      // Volver a empujar history para mantenerse en la app
+      history.pushState(null, "", window.location.href);
+    }
+  }
+});
+
 document.addEventListener("DOMContentLoaded", async () => {
+  // Empujamos un estado de history para atrapar el primer back
+  history.pushState(null, "", window.location.href);
+
+  // Restaurar datos guardados (si los hay)
+  const restored = restoreStateFromStorage();
+
   render();
   await Promise.all([loadMusicPresets(), loadElevenVoices(), loadRunwayPresets()]);
   render();
+
+  // Si restauramos algo, mostrar un toast amistoso
+  if (restored && (state.property.m2 || state.property.dorms || state.custom_cta_info)) {
+    setTimeout(() => {
+      const banner = document.createElement("div");
+      banner.style.cssText = "position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:white;padding:12px 20px;border-radius:8px;z-index:200;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.2);max-width:90%;text-align:center";
+      banner.textContent = "📂 Recuperamos tus datos guardados (tenés que volver a subir los videos)";
+      document.body.appendChild(banner);
+      setTimeout(() => banner.remove(), 5000);
+    }, 500);
+  }
+
+  // Auto-save cada 3 segundos si hay cambios
+  setInterval(saveStateToStorage, 3000);
 });
 </script>
 </body>
