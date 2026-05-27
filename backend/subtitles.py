@@ -155,21 +155,31 @@ def burn_subtitles(
     ass_path: str,
     output_path: str,
 ) -> tuple[bool, str]:
-    """Burn .ass subtitles into video using FFmpeg subtitles filter."""
-    # FFmpeg's subtitles filter needs the path properly escaped on Windows-style paths
-    # Best practice: use forward slashes and escape colons
+    """Burn .ass subtitles into video using FFmpeg ass filter.
+    Usa ass= (no subtitles=) que es específico para ASS y más confiable.
+    También agrega fontsdir para asegurar que libass encuentre las fuentes Montserrat.
+    """
+    # Path escape para FFmpeg filter
     ass_escaped = str(ass_path).replace("\\", "/").replace(":", "\\:")
+    fontsdir_escaped = "/usr/share/fonts/truetype/montserrat"
+    # Usar 'ass' filter (específico para .ass files, mejor que 'subtitles=')
+    # fontsdir= le dice a libass dónde buscar las fuentes (importante para Montserrat)
+    vf = f"ass='{ass_escaped}':fontsdir={fontsdir_escaped}"
     cmd = [
         "ffmpeg", "-y", "-i", video_path,
-        "-vf", f"subtitles='{ass_escaped}'",
+        "-vf", vf,
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
         "-c:a", "copy",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         output_path,
     ]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    print(f"[ffmpeg] burn subtitles → {Path(output_path).name}", flush=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if r.returncode != 0:
-        return False, r.stderr[-1500:]
+        # Logueamos el error completo de FFmpeg para diagnóstico
+        err_tail = (r.stderr or "")[-2000:]
+        print(f"[ffmpeg] burn subtitles FAILED:\n{err_tail}", flush=True)
+        return False, err_tail
     return True, ""
 
 

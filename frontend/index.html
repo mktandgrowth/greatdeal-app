@@ -686,12 +686,22 @@ function renderSimpleUpload() {
         <div class="text-sm font-medium text-slate-900">${total} video${total !== 1 ? 's' : ''} · <span class="text-slate-500 font-normal">~${Math.round(totalDur)}s de reel + cierre</span></div>
         <div class="text-xs text-slate-400">Arrastrá para reordenar</div>
       </div>
-      <div id="simple-clips-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+      <div id="simple-clips-grid" class="space-y-2">
         ${state.simple_clips.map((c, i) => `
-          <div class="clip-tile relative bg-slate-100 rounded-lg overflow-hidden cursor-grab" data-id="${c.id}">
-            <video src="${c.dataUrl}" muted playsinline preload="metadata" class="w-full aspect-[9/16] object-cover bg-black"></video>
-            <div class="absolute top-1 left-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">${i + 1}</div>
-            <button onclick="removeSimpleClip('${c.id}')" class="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full text-xs hover:bg-red-600">×</button>
+          <div class="clip-tile flex gap-3 items-start bg-slate-50 rounded-lg p-2 cursor-grab" data-id="${c.id}">
+            <div class="relative flex-shrink-0">
+              <video src="${c.dataUrl}" muted playsinline preload="metadata" class="w-16 h-24 object-cover rounded bg-black"></video>
+              <div class="absolute top-1 left-1 bg-black/70 text-white text-[10px] px-1 py-0.5 rounded">${i + 1}</div>
+              <button onclick="removeSimpleClip('${c.id}')" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs hover:bg-red-600">×</button>
+            </div>
+            <div class="flex-1 space-y-1">
+              <input type="text" placeholder="Título (opcional)" value="${escapeAttr(c.headline || '')}" maxlength="40"
+                     oninput="(state.simple_clips.find(x=>x.id==='${c.id}')||{}).headline=this.value"
+                     class="w-full px-2 py-1 border border-slate-200 rounded text-xs">
+              <input type="text" placeholder="Subtítulo (opcional)" value="${escapeAttr(c.subline || '')}" maxlength="50"
+                     oninput="(state.simple_clips.find(x=>x.id==='${c.id}')||{}).subline=this.value"
+                     class="w-full px-2 py-1 border border-slate-200 rounded text-xs">
+            </div>
           </div>
         `).join("")}
       </div>
@@ -707,7 +717,11 @@ function handleSimpleUpload(files) {
   arr.forEach(f => {
     const reader = new FileReader();
     reader.onload = e => {
-      state.simple_clips.push({ id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, file: f, dataUrl: e.target.result, name: f.name });
+      state.simple_clips.push({
+        id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        file: f, dataUrl: e.target.result, name: f.name,
+        headline: "", subline: "",
+      });
       pending--;
       if (pending === 0) { render(); setTimeout(initSimpleSortable, 50); }
     };
@@ -754,11 +768,21 @@ function renderSectionCard(key) {
   const speedTag = cfg.speed !== 1.0 ? `<span class="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full ml-1">×${cfg.speed}</span>` : "";
   const limitTag = `<span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full ml-1">${cfg.maxClips === 1 ? `1 toma · ${cfg.defaultDuration}s` : `máx ${cfg.maxClips} · ${cfg.defaultDuration}s c/u`}</span>`;
   const clipsHtml = sec.clips.length === 0 ? "" : `
-    <div class="flex flex-wrap gap-2 mb-3">
+    <div class="space-y-2 mb-3">
       ${sec.clips.map((c, i) => `
-        <div class="relative">
-          <video src="${c.dataUrl}" class="w-20 h-28 object-cover rounded-lg bg-black" muted playsinline preload="metadata"></video>
-          <button onclick="removeSectionClip('${key}', ${i})" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs hover:bg-red-600">×</button>
+        <div class="flex gap-3 items-start bg-slate-50 rounded-lg p-2">
+          <div class="relative flex-shrink-0">
+            <video src="${c.dataUrl}" class="w-16 h-24 object-cover rounded bg-black" muted playsinline preload="metadata"></video>
+            <button onclick="removeSectionClip('${key}', ${i})" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs hover:bg-red-600">×</button>
+          </div>
+          <div class="flex-1 space-y-1">
+            <input type="text" placeholder="Título (opcional)" value="${escapeAttr(c.headline || '')}" maxlength="40"
+                   oninput="state.sections['${key}'].clips[${i}].headline=this.value"
+                   class="w-full px-2 py-1 border border-slate-200 rounded text-xs">
+            <input type="text" placeholder="Subtítulo (opcional)" value="${escapeAttr(c.subline || '')}" maxlength="50"
+                   oninput="state.sections['${key}'].clips[${i}].subline=this.value"
+                   class="w-full px-2 py-1 border border-slate-200 rounded text-xs">
+          </div>
         </div>
       `).join("")}
     </div>
@@ -803,7 +827,11 @@ function handleSectionUpload(key, files) {
   arr.forEach(f => {
     const reader = new FileReader();
     reader.onload = e => {
-      sec.clips.push({ id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, file: f, dataUrl: e.target.result, name: f.name });
+      sec.clips.push({
+        id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        file: f, dataUrl: e.target.result, name: f.name,
+        headline: "", subline: "",
+      });
       pending--;
       if (pending === 0) render();
     };
@@ -1189,7 +1217,17 @@ function buildPayload() {
   if (state.upload_mode === "simple") {
     const dur = calcAutoDuration(state.simple_clips.length);
     const files = state.simple_clips.map(c => c.file);
-    const sections = [{ name: "default", clips: state.simple_clips.map((_, i) => ({ file_index: i, trim_start: 0, trim_duration: dur, speed: 1.0, headline: "", subline: "" })) }];
+    const sections = [{
+      name: "default",
+      clips: state.simple_clips.map((c, i) => ({
+        file_index: i,
+        trim_start: 0,
+        trim_duration: dur,
+        speed: 1.0,
+        headline: (c.headline || "").trim(),
+        subline: (c.subline || "").trim(),
+      }))
+    }];
     return { files, sections };
   }
   const files = [];
@@ -1198,7 +1236,21 @@ function buildPayload() {
     const cfg = SECTION_CONFIG[key];
     const sec = state.sections[key];
     if (sec.clips.length === 0) continue;
-    const clips = sec.clips.map((c, i) => { const fi = files.length; files.push(c.file); return { file_index: fi, trim_start: 0, trim_duration: cfg.defaultDuration, speed: cfg.speed, headline: i === 0 ? ((sec.headline || "").trim()) : "", subline: "" }; });
+    const clips = sec.clips.map((c, i) => {
+      const fi = files.length;
+      files.push(c.file);
+      // Por clip individual; fallback al headline default de la sección en el primero
+      const headline = (c.headline || "").trim() || (i === 0 ? (sec.headline || "").trim() : "");
+      const subline = (c.subline || "").trim();
+      return {
+        file_index: fi,
+        trim_start: 0,
+        trim_duration: cfg.defaultDuration,
+        speed: cfg.speed,
+        headline,
+        subline,
+      };
+    });
     sections.push({ name: key, clips });
   }
   return { files, sections };
