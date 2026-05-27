@@ -147,7 +147,7 @@ let state = {
   property: { tipo: "Casa", comuna: "", m2: "", dorms: "", banos: "", precio_uf: "" },
   advanced_open: false,
   enhance_ai: false,
-  auto_subtitles: false,
+  auto_subtitles: true,  // por default ON: si hay voz, los subtítulos se quieren siempre
   music_preset: "chill",
   music_file: null,
   music_presets_catalog: [],
@@ -191,7 +191,7 @@ function resetAll() {
   state = {
     step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [],
     property: { tipo: "Casa", comuna: "", m2: "", dorms: "", banos: "", precio_uf: "" },
-    advanced_open: false, enhance_ai: false, auto_subtitles: false,
+    advanced_open: false, enhance_ai: false, auto_subtitles: true,
     music_preset: "chill", music_file: null, music_presets_catalog: catalog,
     voice_audio_file: null, voice_audio_url: null, voice_method: "none",
     voice_script: "", voice_eleven_key: "", eleven_voices: voices,

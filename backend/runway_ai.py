@@ -24,27 +24,84 @@ RUNWAY_API_BASE = "https://api.dev.runwayml.com/v1"
 RUNWAY_VERSION = "2024-11-06"
 
 
-# Presets de estilo rápidos para el usuario
+# Presets de Runway para real estate — los 4 casos de uso reales de Vale.
+# Prompts ultra-detallados estilo director de fotografía profesional.
 STYLE_PRESETS = {
-    "luz_natural": {
-        "label": "💡 Más luz natural",
-        "prompt": "Same scene but with abundant natural daylight pouring through windows, bright airy atmosphere, soft warm lighting, professional real estate photography style",
+    "iluminacion_perfecta": {
+        "label": "💡 Iluminación natural perfecta",
+        "description": "Como si lo grabara un fotógrafo profesional a las 12 del día",
+        "prompt": (
+            "Same exact scene completely preserved with all furniture and objects in identical positions, "
+            "but bathed in PERFECT natural midday sunlight as if photographed at exactly 12 noon on a clear sunny day "
+            "by a professional architectural photographer for Architectural Digest magazine. "
+            "Beautiful bright ambient daylight pouring evenly through every window, "
+            "soft diffused fill light reaching every corner of the room, no harsh shadows anywhere, "
+            "perfectly balanced exposure with detail in both highlights and shadows, "
+            "clean white walls glowing softly, every surface clearly visible and beautifully lit, "
+            "color temperature 5600K daylight balanced, slight warm boost in midtones, "
+            "subtle volumetric light rays visible in the air, fresh airy bright atmosphere, "
+            "shot on Phase One IQ4 medium format camera with 35mm Schneider Kreuznach lens at f/5.6, "
+            "tack sharp across entire frame, museum-quality real estate photography, "
+            "extremely slow smooth gimbal dolly forward movement, professional cinematography, "
+            "ultra-realistic, photorealistic, 4K cinematic quality, no text overlays, no people, no animals"
+        ),
     },
-    "cinematografico": {
-        "label": "🎬 Cinematográfico",
-        "prompt": "Same scene with cinematic color grading, warm golden hour lighting, shallow depth of field, professional film look, smooth camera movement",
+    "orden_limpieza": {
+        "label": "🧹 Orden y limpieza",
+        "description": "Saca cosas de encima, ordena, estira la cama (mejor si la toma ya está semi-ordenada)",
+        "prompt": (
+            "Same scene transformed to PERFECTLY tidy magazine-quality immaculate state. "
+            "Remove ALL clutter, personal items, papers, cups, glasses, cables, remotes, "
+            "clothing, toys, books out of place, and any visual mess. "
+            "Bed must be PERFECTLY made hotel-style with crisp white linens, "
+            "fluffed decorative pillows arranged geometrically, throw blanket folded precisely. "
+            "All surfaces completely clear and spotless—countertops empty and gleaming, "
+            "tables clear of any objects, no items on floors. "
+            "Cushions on sofas arranged in perfect symmetric pattern. "
+            "Curtains perfectly draped, floor pristine and shining, every surface polished. "
+            "Look like a luxury hotel suite ready for inspection. "
+            "Same lighting and camera angle preserved, just impeccable order everywhere. "
+            "Shot on Sony Venice with 35mm Master Prime lens, professional real estate cinematography, "
+            "smooth slow camera movement, ultra-realistic, photorealistic, 4K, no text, no people"
+        ),
     },
-    "verano_calido": {
-        "label": "☀️ Verano cálido",
-        "prompt": "Same scene bathed in warm summer afternoon sunlight, golden tones, vibrant colors, inviting atmosphere, professional real estate showcase",
+    "estabilizar_pro": {
+        "label": "🎬 Estabilizar y profesionalizar",
+        "description": "Rescata tomas movidas, borrosas o mal grabadas",
+        "prompt": (
+            "Same scene completely re-imagined as a perfectly executed professional cinematography shot. "
+            "Replace any camera shake, wobble or handheld instability with ULTRA-SMOOTH gimbal-stabilized "
+            "cinematic movement, perfectly steady and deliberate. "
+            "If original is blurry, restore tack-sharp focus throughout entire frame. "
+            "If original is poorly composed, recompose to optimal real estate framing showing the space "
+            "professionally with leading lines and balanced architectural composition. "
+            "Slow, intentional, controlled camera motion—either a smooth dolly forward, "
+            "gentle pan left to right, or graceful slow reveal of the space. "
+            "Perfect exposure, balanced color grading, crystal clear image quality. "
+            "Shot on ARRI Alexa Mini LF with 35mm Master Anamorphic lens, "
+            "f/2.8 shallow depth of field with creamy bokeh, "
+            "professional architectural cinematography for high-end real estate listing, "
+            "ultra-realistic, photorealistic, 4K cinematic quality, no text, no people"
+        ),
     },
-    "profesional_clean": {
-        "label": "✨ Profesional limpio",
-        "prompt": "Same scene with bright even professional lighting, crisp clean look, modern luxury real estate aesthetic, neutral color palette",
-    },
-    "nocturno_lujo": {
-        "label": "🌃 Lujo nocturno",
-        "prompt": "Same scene at twilight with warm interior lights on, luxury ambiance, high-end real estate, dramatic but inviting lighting",
+    "agregar_personas": {
+        "label": "👥 Personas viviendo el lugar",
+        "description": "Una pareja tomando café, gente disfrutando el espacio",
+        "prompt": (
+            "Same scene preserved, now with a young attractive happy couple in their 30s naturally "
+            "living and enjoying the space. They appear casually—one of them sipping coffee from a mug, "
+            "the other reading or smiling, both relaxed and comfortable. "
+            "They wear elegant casual clothing in neutral tones (white shirts, light jeans). "
+            "Their presence feels authentic and aspirational, like a lifestyle magazine cover. "
+            "They are NOT the focus—the property remains the star—they just inhabit the space gracefully. "
+            "Natural body language, soft smiles, intimate but discrete interaction. "
+            "Beautiful warm natural daylight floods the scene, golden hour lighting through windows, "
+            "shot on Sony FX6 with 35mm f/1.8 lens, shallow depth of field with creamy bokeh, "
+            "they're slightly out of focus while the architecture stays sharp, "
+            "smooth slow gimbal dolly movement, lifestyle real estate cinematography, "
+            "aspirational vibe like a luxury home commercial, "
+            "ultra-realistic, photorealistic, 4K cinematic quality, no text overlays"
+        ),
     },
 }
 
