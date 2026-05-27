@@ -984,20 +984,44 @@ function renderStep3() {
     const voiceOptions = state.eleven_voices.map(v => { const key = v.key || v.id || ""; const label = v.label || v.name || key; return `<option value="${key}" ${state.voice_eleven_key === key ? 'selected' : ''}>${escapeHtml(label)}</option>`; }).join("");
     voiceContent = `<div class="space-y-3"><div><label class="text-xs text-slate-500 block mb-1">Voz</label><select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.voice_eleven_key=this.value">${voiceOptions || '<option>Cargando voces…</option>'}</select></div><div><div class="flex items-center justify-between mb-1"><label class="text-xs text-slate-500">Guion (lo que va a decir la voz)</label><span class="text-xs ${currentChars > chars.max ? 'text-red-600 font-bold' : currentChars < chars.min ? 'text-amber-600' : 'text-emerald-600 font-medium'}">${currentChars} / ${chars.ideal} caracteres ideal</span></div><textarea rows="4" maxlength="800" oninput="state.voice_script=this.value; render()" placeholder="Ej: Esta hermosa casa en Las Condes te ofrece 180 metros cuadrados de luminosidad y diseño..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">${escapeHtml(state.voice_script)}</textarea><div class="text-[11px] text-slate-500 mt-1">Recomendado: <strong>${chars.min}–${chars.max} caracteres</strong> (ideal ${chars.ideal}) para que calce con la duración del reel (~${reelDur.toFixed(0)}s)</div></div>${state.voice_audio_file && state.voice_audio_url ? `<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3"><div class="flex items-center justify-between mb-2"><span class="text-sm text-emerald-700">✓ Voz generada</span><button onclick="clearVoice()" class="text-sm text-red-500">Quitar</button></div><audio src="${state.voice_audio_url}" controls class="w-full"></audio></div>` : ''}<button onclick="generateVoiceWithEleven()" ${state.is_generating_voice ? 'disabled' : ''} class="w-full px-4 py-2.5 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50">${state.is_generating_voice ? '⏳ Generando…' : (state.voice_audio_file ? '↻ Regenerar voz' : '✨ Generar voz')}</button><p class="text-xs text-slate-500">💡 Requiere ELEVENLABS_API_KEY en el server. Si falla, mostramos el error.</p></div>`;
   }
+  // Toggle subtítulos solo si hay voz cargada o método activo
+  const hasVoiceContent = state.voice_method !== "none";
+  const subsToggle = hasVoiceContent ? `
+    <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4 flex items-center gap-3">
+      <div class="bg-pink-100 text-pink-700 text-xs px-2 py-1 rounded-full font-bold">🔤</div>
+      <div class="flex-1">
+        <div class="text-sm font-medium text-slate-900">Subtítulos automáticos</div>
+        <div class="text-xs text-slate-500">Whisper transcribe tu voz y los quema sobre el video (~$0.003)</div>
+      </div>
+      <label class="relative inline-flex items-center cursor-pointer">
+        <input type="checkbox" ${state.auto_subtitles ? 'checked' : ''} onchange="state.auto_subtitles=this.checked" class="sr-only peer">
+        <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-pink-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5"></div>
+      </label>
+    </div>` : '';
+
+  const duckingNotice = hasVoiceContent ? `
+    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3 text-xs text-amber-900 flex items-start gap-2">
+      <span class="text-base">🔊</span>
+      <div><strong>Ducking automático:</strong> cuando suene tu voz, la música baja al 25% para que se entienda.</div>
+    </div>` : '';
+
   return `
     <div class="fade-in max-w-2xl mx-auto">
-      <h1 class="text-2xl font-bold text-slate-900 mb-1">Música del reel</h1>
-      <p class="text-slate-600 mb-5">Elegí la música de fondo. La voz la agregás <strong>después</strong> de ver el reel listo, con duración exacta.</p>
+      <h1 class="text-2xl font-bold text-slate-900 mb-1">Audio del reel</h1>
+      <p class="text-slate-600 mb-5">Música, voz y subtítulos — todo se procesa de una sola vez.</p>
       ${durBanner}${musicBlock}
-      <div class="bg-purple-50 border border-purple-200 rounded-xl p-4 text-sm text-purple-900">
-        <div class="flex items-start gap-2">
-          <span class="text-lg">🎙️</span>
-          <div>
-            <strong>¿Voz / narración?</strong> Se agrega <strong>después</strong> del primer render. Vamos a calcular cuántos caracteres exactos tenés que escribir según la duración real del reel.
-          </div>
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+        <div class="flex items-center mb-3">
+          <span class="text-xl mr-2">🎙️</span>
+          <h3 class="font-bold text-slate-900">Voz / narración</h3>
+          <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full ml-2">Opcional</span>
         </div>
+        ${duckingNotice}
+        <div class="flex gap-2 mb-4">${tabsHtml}</div>
+        <div>${voiceContent}</div>
       </div>
-      <div class="text-xs text-slate-500 text-center mt-4">Continuá al paso final →</div>
+      ${subsToggle}
+      <div class="text-xs text-slate-500 text-center mt-4">Cuando estés lista, continuá → "Generar mi reel"</div>
     </div>`;
 }
 
@@ -1214,9 +1238,7 @@ function renderStep4() {
         <div class="bg-black rounded-2xl overflow-hidden mb-4"><video src="${state.job_download}" controls class="w-full" style="max-height: 70vh; background: black;"></video></div>
         <a href="${state.job_download}" download class="block w-full text-center px-6 py-4 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 mb-3">⬇ Descargar MP4</a>
 
-        ${renderVoicePostProduction()}
-
-        <button onclick="openManualEditor()" class="block w-full text-center px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 rounded-xl font-medium hover:bg-slate-50 mb-2">🎨 Editor avanzado (ajustar clips, velocidad, recortes visuales)</button>
+        <button onclick="openManualEditor()" class="block w-full text-center px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 rounded-xl font-medium hover:bg-slate-50 mb-2">🎨 Editor avanzado (ajustar clips, velocidad, recortes, Runway)</button>
         <details class="bg-slate-50 rounded-xl px-4 py-3 text-sm">
           <summary class="flex items-center justify-between"><span class="text-slate-600">¿Querés cambiar algo? (volver al wizard)</span><span class="chev text-slate-400">▾</span></summary>
           <div class="border-t border-slate-200 pt-3 mt-3 flex flex-wrap gap-2">
