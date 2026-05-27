@@ -395,13 +395,23 @@ def synth_ambient_music(output_file: str, duration: float) -> tuple[bool, str]:
 
 def mux_audio(video_file: str, music_file: str,
               voice_file: Optional[str], output_file: str) -> tuple[bool, str]:
-    """Mux video with music (and optional voice)."""
+    """Mux video with music (and optional voice).
+    El VIDEO siempre dicta la duración final. Si la voz es más corta que el reel,
+    se mezcla con silencio padded al resto. Música baja a 25% durante toda la voz.
+    """
+    # Probe video duration (lo usamos para padear/trimear el audio al video)
+    video_dur = probe_duration(video_file)
+    if video_dur <= 0:
+        return False, "No pude obtener duración del video"
+
     if voice_file and Path(voice_file).exists():
+        # Música 25% + voz 100%, ambas padeadas/trimeadas al largo del video
+        # apad = agrega silencio al final, atrim = corta al largo exacto del video
         filter_complex = (
-            f"[1:a]volume=0.25[music_raw];"
-            f"[2:a]volume=1.0[voice_raw];"
-            f"[music_raw][voice_raw]amix=inputs=2:duration=longest:normalize=0[mix];"
-            f"[mix]volume=1.2[out]"
+            f"[1:a]volume=0.25,apad[music_padded];"
+            f"[2:a]volume=1.0,apad[voice_padded];"
+            f"[music_padded][voice_padded]amix=inputs=2:duration=longest:normalize=0[mix];"
+            f"[mix]volume=1.2,atrim=0:{video_dur:.2f},asetpts=PTS-STARTPTS[out]"
         )
         cmd = [
             "ffmpeg", "-y",
@@ -411,15 +421,21 @@ def mux_audio(video_file: str, music_file: str,
             "-filter_complex", filter_complex,
             "-map", "0:v", "-map", "[out]",
             "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
-            "-shortest", "-movflags", "+faststart",
+            "-movflags", "+faststart",
             output_file
         ]
     else:
+        # Solo música — padear y trimear al video también
+        filter_complex = (
+            f"[1:a]apad,atrim=0:{video_dur:.2f},asetpts=PTS-STARTPTS[out]"
+        )
         cmd = [
             "ffmpeg", "-y",
             "-i", video_file, "-i", music_file,
+            "-filter_complex", filter_complex,
+            "-map", "0:v", "-map", "[out]",
             "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
-            "-shortest", "-movflags", "+faststart",
+            "-movflags", "+faststart",
             output_file
         ]
     return run(cmd, "mux audio")
