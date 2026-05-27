@@ -616,9 +616,14 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
         return {"success": False, "error": f"mux: {err}", "log": log}
     log.append("final mux complete")
 
-    # Subtítulos automáticos (opcional)
+    # Subtítulos automáticos (opcional) — logging explícito para diagnóstico
+    log.append(
+        f"subs check: auto_subtitles={auto_subtitles}, "
+        f"voice={'sí' if voice_audio_path else 'no'}, "
+        f"voice_exists={Path(voice_audio_path).exists() if voice_audio_path else False}"
+    )
     if needs_subtitles:
-        log.append("transcribiendo voz con Whisper…")
+        log.append("🎤 transcribiendo voz con Whisper…")
         try:
             from subtitles import apply_auto_subtitles
             ok, err = apply_auto_subtitles(
@@ -629,14 +634,16 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
                 language="es",
             )
             if not ok:
-                log.append(f"subtítulos fallaron, video sin subs: {err[:100]}")
+                log.append(f"❌ subtítulos fallaron: {err[:200]}")
                 # Fallback: copy pre_subs as output
                 shutil.copy(pre_subtitles_path, output_path)
             else:
-                log.append("subtítulos quemados sobre el video")
+                log.append("✅ subtítulos quemados sobre el video")
         except Exception as e:
-            log.append(f"subtítulos error: {str(e)[:100]}, video sin subs")
+            log.append(f"❌ subtítulos error: {str(e)[:200]}")
             shutil.copy(pre_subtitles_path, output_path)
+    else:
+        log.append(f"⏭️ saltando subtítulos (necesita: voz cargada + toggle ON)")
 
     return {
         "success": True,

@@ -101,10 +101,17 @@ async def music_presets():
 
 @app.get("/api/runway/presets")
 async def runway_presets():
-    """Lista de presets de estilo rápido para Runway."""
+    """Lista de presets de estilo rápido para Runway.
+    Devuelve el prompt CORTO en español (lo que se muestra al usuario).
+    El prompt LARGO en inglés se mantiene server-side y se usa al llamar a Runway."""
     return {
         "presets": [
-            {"key": k, "label": v["label"], "prompt": v["prompt"]}
+            {
+                "key": k,
+                "label": v["label"],
+                "description": v.get("description", ""),
+                "prompt": v.get("prompt_es") or v.get("prompt", ""),
+            }
             for k, v in RUNWAY_PRESETS.items()
         ],
         "available": bool(os.environ.get("RUNWAY_API_KEY", "").strip()),
@@ -130,8 +137,12 @@ async def runway_enhance_clip(
     model: str = Form("gen3a_turbo"),
     duration: int = Form(5),
     target_duration: Optional[float] = Form(None),
+    preset_key: Optional[str] = Form(None),
 ):
     """Inicia una tarea de regeneración con Runway.
+    Si preset_key viene y el prompt coincide con el prompt_es del preset (usuario no editó),
+    expande al prompt_full en inglés (Runway entiende mejor inglés detallado).
+    Si el usuario editó el prompt, se manda tal cual.
     Devuelve task_id, status, cost_estimate."""
     if not os.environ.get("RUNWAY_API_KEY", "").strip():
         raise HTTPException(503, "RUNWAY_API_KEY no configurada en el server")
@@ -140,6 +151,19 @@ async def runway_enhance_clip(
     # Runway Gen-3 Turbo SOLO acepta 5 o 10 segundos
     if duration not in (5, 10):
         duration = 5 if duration <= 7 else 10
+
+    # Si el usuario eligió un preset y NO editó el prompt corto en español,
+    # usar el prompt LARGO en inglés (mejores resultados de Runway)
+    effective_prompt = prompt
+    if preset_key and preset_key in RUNWAY_PRESETS:
+        preset = RUNWAY_PRESETS[preset_key]
+        prompt_es = (preset.get("prompt_es") or "").strip()
+        prompt_full = (preset.get("prompt_full") or preset.get("prompt") or "").strip()
+        # Comparar normalizado (sin saltos de línea ni espacios extra)
+        norm_user = " ".join(prompt.split())
+        norm_preset_es = " ".join(prompt_es.split())
+        if norm_user == norm_preset_es and prompt_full:
+            effective_prompt = prompt_full
 
     task_id = uuid.uuid4().hex[:12]
     upload_dir = UPLOAD_DIR / f"runway_{task_id}"
@@ -159,6 +183,8 @@ async def runway_enhance_clip(
         "status": "pending",
         "created": datetime.utcnow().isoformat(),
         "prompt": prompt,
+        "effective_prompt": effective_prompt,  # lo que realmente se manda a Runway
+        "preset_key": preset_key,
         "model": model,
         "duration": duration,
         "target_duration": target_duration,
@@ -173,7 +199,7 @@ async def runway_enhance_clip(
 
     threading.Thread(
         target=_runway_process,
-        args=(task_id, str(clip_path), prompt, str(output_path),
+        args=(task_id, str(clip_path), effective_prompt, str(output_path),
               str(work_dir), model, duration, target_duration),
         daemon=True,
     ).start()

@@ -24,13 +24,21 @@ RUNWAY_API_BASE = "https://api.dev.runwayml.com/v1"
 RUNWAY_VERSION = "2024-11-06"
 
 
-# Presets de Runway para real estate — los 4 casos de uso reales de Vale.
-# Prompts ultra-detallados estilo director de fotografía profesional.
+# Presets de Runway para real estate — 4 casos de uso reales.
+# Cada preset tiene:
+# - prompt_es: instrucción CORTA en español (lo que se muestra al usuario, editable)
+# - prompt_full: prompt LARGO en inglés con todos los detalles cinematográficos
+#   (lo que se manda a Runway si el usuario no modifica el prompt corto)
 STYLE_PRESETS = {
     "iluminacion_perfecta": {
         "label": "💡 Iluminación natural perfecta",
         "description": "Como si lo grabara un fotógrafo profesional a las 12 del día",
-        "prompt": (
+        "prompt_es": (
+            "Misma escena con iluminación natural perfecta de mediodía, como si la grabara un fotógrafo "
+            "arquitectónico profesional a las 12 del día. Luz brillante y uniforme en todo el espacio, "
+            "sin sombras duras, exposición perfectamente balanceada, atmósfera fresca y aireada."
+        ),
+        "prompt_full": (
             "Same exact scene completely preserved with all furniture and objects in identical positions, "
             "but bathed in PERFECT natural midday sunlight as if photographed at exactly 12 noon on a clear sunny day "
             "by a professional architectural photographer for Architectural Digest magazine. "
@@ -48,8 +56,14 @@ STYLE_PRESETS = {
     },
     "orden_limpieza": {
         "label": "🧹 Orden y limpieza",
-        "description": "Saca cosas de encima, ordena, estira la cama (mejor si la toma ya está semi-ordenada)",
-        "prompt": (
+        "description": "Saca cosas de encima, ordena, estira la cama",
+        "prompt_es": (
+            "Misma escena pero perfectamente ordenada y limpia, calidad revista. Sin objetos personales, "
+            "cables, papeles o desorden. Cama tendida estilo hotel con sábanas blancas y almohadas "
+            "arregladas. Mesones y mesas completamente despejados. Cojines simétricos en sofás. "
+            "Todo impecable como una suite de lujo."
+        ),
+        "prompt_full": (
             "Same scene transformed to PERFECTLY tidy magazine-quality immaculate state. "
             "Remove ALL clutter, personal items, papers, cups, glasses, cables, remotes, "
             "clothing, toys, books out of place, and any visual mess. "
@@ -68,7 +82,12 @@ STYLE_PRESETS = {
     "estabilizar_pro": {
         "label": "🎬 Estabilizar y profesionalizar",
         "description": "Rescata tomas movidas, borrosas o mal grabadas",
-        "prompt": (
+        "prompt_es": (
+            "Misma escena pero como toma de cinematografía profesional. Movimiento de cámara "
+            "ultra-suave estabilizado con gimbal, enfoque perfectamente nítido, composición arquitectónica "
+            "balanceada. Como una toma de listado inmobiliario de alta gama."
+        ),
+        "prompt_full": (
             "Same scene completely re-imagined as a perfectly executed professional cinematography shot. "
             "Replace any camera shake, wobble or handheld instability with ULTRA-SMOOTH gimbal-stabilized "
             "cinematic movement, perfectly steady and deliberate. "
@@ -87,7 +106,12 @@ STYLE_PRESETS = {
     "agregar_personas": {
         "label": "👥 Personas viviendo el lugar",
         "description": "Una pareja tomando café, gente disfrutando el espacio",
-        "prompt": (
+        "prompt_es": (
+            "Misma escena con una pareja joven y feliz viviendo el espacio naturalmente. "
+            "Uno tomando café, el otro relajado leyendo. Ropa casual elegante en tonos neutros. "
+            "Ellos no son el foco, la propiedad sigue siendo la estrella. Vibe aspiracional de lifestyle."
+        ),
+        "prompt_full": (
             "Same scene preserved, now with a young attractive happy couple in their 30s naturally "
             "living and enjoying the space. They appear casually—one of them sipping coffee from a mug, "
             "the other reading or smiling, both relaxed and comfortable. "

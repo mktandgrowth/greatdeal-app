@@ -321,6 +321,9 @@ async function runwayGenerate() {
   fd.append("model", "gen3a_turbo");
   fd.append("duration", String(dur));
   fd.append("target_duration", targetDur.toFixed(2));
+  // Si el usuario eligió un preset, mandar el key para que el backend pueda
+  // expandir el prompt al inglés detallado (mejores resultados Runway)
+  if (state.runway_preset_key) fd.append("preset_key", state.runway_preset_key);
 
   state.runway_task_status = "uploading";
   state.runway_task_error = null;
