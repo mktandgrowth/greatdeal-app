@@ -174,7 +174,8 @@ let state = {
   runway_modal_open: false,
   runway_active_clip_id: null,
   runway_prompt: "",
-  runway_preset_key: "luz_natural",
+  runway_preset_key: null,            // último preset clickeado (single)
+  runway_preset_keys: [],             // multi-selección activa
   runway_presets: [],
   runway_available: false,
   runway_task_id: null,
@@ -260,12 +261,14 @@ function openRunwayModal(clipId) {
   if (!c) return;
   state.runway_active_clip_id = clipId;
   state.runway_prompt = "";
-  state.runway_preset_key = state.runway_presets[0]?.key || "luz_natural";
+  state.runway_preset_key = null;
+  state.runway_preset_keys = [];
   state.runway_task_id = null;
   state.runway_task_status = null;
   state.runway_task_error = null;
-  // Siempre 5 seg para minimizar costo, recortamos al largo real después
-  state.runway_cost_estimate = 0.25;  // 5 seg × $0.05
+  // Siempre 5 seg para minimizar costo. Multi-selección no aumenta el costo
+  // (Runway cobra por segundos, no por complejidad del prompt)
+  state.runway_cost_estimate = 0.25;
   state.runway_modal_open = true;
   render();
 }
@@ -276,11 +279,30 @@ function closeRunwayModal() {
   render();
 }
 
+// Multi-toggle: agregar o quitar un preset del set activo
 function selectRunwayPreset(key) {
   const p = state.runway_presets.find(x => x.key === key);
   if (!p) return;
-  state.runway_preset_key = key;
-  state.runway_prompt = p.prompt;
+  const i = state.runway_preset_keys.indexOf(key);
+  if (i >= 0) {
+    state.runway_preset_keys.splice(i, 1);  // quitar si ya estaba
+  } else {
+    state.runway_preset_keys.push(key);     // agregar
+  }
+  state.runway_preset_key = state.runway_preset_keys[state.runway_preset_keys.length - 1] || null;
+  // Llenar el textarea con los prompts en español de los activos
+  if (state.runway_preset_keys.length === 0) {
+    state.runway_prompt = "";
+  } else if (state.runway_preset_keys.length === 1) {
+    const single = state.runway_presets.find(x => x.key === state.runway_preset_keys[0]);
+    state.runway_prompt = single ? single.prompt : "";
+  } else {
+    const parts = state.runway_preset_keys.map(k => {
+      const pr = state.runway_presets.find(x => x.key === k);
+      return pr ? pr.prompt : "";
+    }).filter(Boolean);
+    state.runway_prompt = "Aplicar a la misma escena:\n\n• " + parts.join("\n\n• ");
+  }
   render();
 }
 
@@ -321,9 +343,14 @@ async function runwayGenerate() {
   fd.append("model", "gen3a_turbo");
   fd.append("duration", String(dur));
   fd.append("target_duration", targetDur.toFixed(2));
-  // Si el usuario eligió un preset, mandar el key para que el backend pueda
-  // expandir el prompt al inglés detallado (mejores resultados Runway)
-  if (state.runway_preset_key) fd.append("preset_key", state.runway_preset_key);
+  // Multi-presets: mandar CSV con todos los activos para que backend combine prompts
+  if (state.runway_preset_keys && state.runway_preset_keys.length > 0) {
+    fd.append("preset_keys", state.runway_preset_keys.join(","));
+    // Compat: también mandamos el primer key como preset_key single
+    fd.append("preset_key", state.runway_preset_keys[0]);
+  } else if (state.runway_preset_key) {
+    fd.append("preset_key", state.runway_preset_key);
+  }
 
   state.runway_task_status = "uploading";
   state.runway_task_error = null;
@@ -415,11 +442,18 @@ function revertRunwayClip(clipId) {
 function renderRunwayModal() {
   const c = state.editor_clips.find(x => x.id === state.runway_active_clip_id);
   if (!c) return "";
-  const presetsHtml = state.runway_presets.map(p => `
-    <button onclick="selectRunwayPreset('${p.key}')" class="text-left p-2 rounded ${state.runway_preset_key === p.key ? 'bg-purple-600 text-white' : 'bg-slate-700 text-slate-200 hover:bg-slate-600'} text-xs">
-      ${escapeHtml(p.label)}
-    </button>
-  `).join("");
+  const presetsHtml = state.runway_presets.map(p => {
+    const active = state.runway_preset_keys.includes(p.key);
+    return `
+      <button onclick="selectRunwayPreset('${p.key}')"
+              class="text-left p-2 rounded ${active ? 'bg-purple-600 text-white ring-2 ring-purple-400' : 'bg-slate-700 text-slate-200 hover:bg-slate-600'} text-xs transition-all">
+        ${active ? '✓ ' : ''}${escapeHtml(p.label)}
+      </button>
+    `;
+  }).join("");
+  const multiHint = state.runway_preset_keys.length > 1
+    ? `<div class="text-[10px] text-purple-300 mb-1">✨ Combinando ${state.runway_preset_keys.length} efectos en una sola generación ($0.25)</div>`
+    : '';
 
   const isProcessing = state.runway_task_status && state.runway_task_status !== "done" && state.runway_task_status !== "error";
   const isError = state.runway_task_status === "error";
@@ -466,7 +500,8 @@ function renderRunwayModal() {
           <video src="${c.dataUrl}" muted playsinline controls class="w-full rounded-lg bg-black mb-4" style="max-height: 240px;"></video>
 
           <div class="mb-3">
-            <label class="text-xs text-slate-400 block mb-2">Estilos rápidos:</label>
+            <label class="text-xs text-slate-400 block mb-1">Estilos rápidos (podés combinar varios):</label>
+            ${multiHint}
             <div class="grid grid-cols-2 gap-2">${presetsHtml || '<div class="text-xs text-slate-500">Sin presets</div>'}</div>
           </div>
 

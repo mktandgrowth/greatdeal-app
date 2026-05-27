@@ -38,6 +38,13 @@ STYLE_PRESETS = {
             "arquitectónico profesional a las 12 del día. Luz brillante y uniforme en todo el espacio, "
             "sin sombras duras, exposición perfectamente balanceada, atmósfera fresca y aireada."
         ),
+        # Core: el concepto principal sin la cinematografía detallada (se agrega al combinar)
+        "prompt_core": (
+            "PERFECT natural midday sunlight as if photographed at 12 noon by an architectural photographer "
+            "for Architectural Digest, bright ambient daylight evenly distributed through windows, "
+            "no harsh shadows, perfectly balanced exposure, 5600K daylight color temperature, "
+            "bright airy fresh atmosphere, clean white walls glowing softly"
+        ),
         "prompt_full": (
             "Same exact scene completely preserved with all furniture and objects in identical positions, "
             "but bathed in PERFECT natural midday sunlight as if photographed at exactly 12 noon on a clear sunny day "
@@ -63,6 +70,12 @@ STYLE_PRESETS = {
             "arregladas. Mesones y mesas completamente despejados. Cojines simétricos en sofás. "
             "Todo impecable como una suite de lujo."
         ),
+        "prompt_core": (
+            "PERFECTLY tidy magazine-quality immaculate state, ALL clutter and personal items removed "
+            "(no papers, cables, cups, clothes, remotes), bed made hotel-style with crisp white linens "
+            "and pillows arranged geometrically, all surfaces clear and spotless, "
+            "cushions on sofas arranged symmetrically, luxury hotel suite quality"
+        ),
         "prompt_full": (
             "Same scene transformed to PERFECTLY tidy magazine-quality immaculate state. "
             "Remove ALL clutter, personal items, papers, cups, glasses, cables, remotes, "
@@ -86,6 +99,11 @@ STYLE_PRESETS = {
             "Misma escena pero como toma de cinematografía profesional. Movimiento de cámara "
             "ultra-suave estabilizado con gimbal, enfoque perfectamente nítido, composición arquitectónica "
             "balanceada. Como una toma de listado inmobiliario de alta gama."
+        ),
+        "prompt_core": (
+            "ULTRA-SMOOTH gimbal-stabilized cinematic camera movement (NO shake or wobble), "
+            "tack-sharp focus throughout entire frame, perfectly balanced architectural composition "
+            "with leading lines, slow intentional deliberate motion (smooth dolly or gentle pan)"
         ),
         "prompt_full": (
             "Same scene completely re-imagined as a perfectly executed professional cinematography shot. "
@@ -111,6 +129,12 @@ STYLE_PRESETS = {
             "Uno tomando café, el otro relajado leyendo. Ropa casual elegante en tonos neutros. "
             "Ellos no son el foco, la propiedad sigue siendo la estrella. Vibe aspiracional de lifestyle."
         ),
+        "prompt_core": (
+            "young attractive happy couple in their 30s naturally living and enjoying the space "
+            "(one sipping coffee, the other relaxed reading or smiling), elegant casual clothing in "
+            "neutral tones (white shirts light jeans), they are NOT the focus the property remains the star, "
+            "slightly out of focus while architecture stays sharp, lifestyle aspirational vibe"
+        ),
         "prompt_full": (
             "Same scene preserved, now with a young attractive happy couple in their 30s naturally "
             "living and enjoying the space. They appear casually—one of them sipping coffee from a mug, "
@@ -128,6 +152,34 @@ STYLE_PRESETS = {
         ),
     },
 }
+
+
+def combine_preset_prompts(preset_keys: list[str]) -> str:
+    """Combina múltiples presets en UN prompt unificado para Runway.
+    Toma el `prompt_core` de cada preset y los une con el footer cinematográfico común.
+    """
+    cores = []
+    for key in preset_keys:
+        preset = STYLE_PRESETS.get(key)
+        if not preset:
+            continue
+        core = preset.get("prompt_core") or preset.get("prompt_full", "")
+        if core:
+            cores.append(core)
+    if not cores:
+        return ""
+    footer = (
+        "Shot on professional cinema camera with high-end lens, "
+        "smooth slow gimbal dolly movement, "
+        "professional real estate cinematography, "
+        "ultra-realistic, photorealistic, 4K cinematic quality, no text overlays"
+    )
+    combined = (
+        "Same scene preserved, transformed simultaneously with the following improvements: "
+        + ". Also, ".join(cores)
+        + ". " + footer
+    )
+    return combined
 
 
 def _get_api_key() -> str:

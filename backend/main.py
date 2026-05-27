@@ -26,7 +26,7 @@ from editor import build_reel, MUSIC_PRESETS
 from voice import list_voices, generate_voiceover, build_voiceover_script
 from runway_ai import (
     enhance_clip_with_runway, STYLE_PRESETS as RUNWAY_PRESETS,
-    estimate_cost_usd,
+    estimate_cost_usd, combine_preset_prompts,
 )
 
 # Paths
@@ -138,12 +138,13 @@ async def runway_enhance_clip(
     duration: int = Form(5),
     target_duration: Optional[float] = Form(None),
     preset_key: Optional[str] = Form(None),
+    preset_keys: Optional[str] = Form(None),  # CSV de múltiples presets
 ):
     """Inicia una tarea de regeneración con Runway.
-    Si preset_key viene y el prompt coincide con el prompt_es del preset (usuario no editó),
-    expande al prompt_full en inglés (Runway entiende mejor inglés detallado).
-    Si el usuario editó el prompt, se manda tal cual.
-    Devuelve task_id, status, cost_estimate."""
+    - preset_keys (CSV): si vienen varios presets, COMBINA sus prompt_core en uno.
+    - preset_key (single): si solo viene uno y el prompt no fue editado, expande a prompt_full.
+    - Si el usuario editó el prompt, se manda tal cual.
+    """
     if not os.environ.get("RUNWAY_API_KEY", "").strip():
         raise HTTPException(503, "RUNWAY_API_KEY no configurada en el server")
     if not prompt.strip():
@@ -152,18 +153,29 @@ async def runway_enhance_clip(
     if duration not in (5, 10):
         duration = 5 if duration <= 7 else 10
 
-    # Si el usuario eligió un preset y NO editó el prompt corto en español,
-    # usar el prompt LARGO en inglés (mejores resultados de Runway)
+    # Parse multiple preset keys (CSV → list)
+    keys_list = []
+    if preset_keys:
+        keys_list = [k.strip() for k in preset_keys.split(",") if k.strip() in RUNWAY_PRESETS]
+    elif preset_key and preset_key in RUNWAY_PRESETS:
+        keys_list = [preset_key]
+
     effective_prompt = prompt
-    if preset_key and preset_key in RUNWAY_PRESETS:
-        preset = RUNWAY_PRESETS[preset_key]
-        prompt_es = (preset.get("prompt_es") or "").strip()
-        prompt_full = (preset.get("prompt_full") or preset.get("prompt") or "").strip()
-        # Comparar normalizado (sin saltos de línea ni espacios extra)
-        norm_user = " ".join(prompt.split())
-        norm_preset_es = " ".join(prompt_es.split())
-        if norm_user == norm_preset_es and prompt_full:
-            effective_prompt = prompt_full
+    if keys_list:
+        # Si hay 2+ presets activos: combinar sus prompt_core
+        if len(keys_list) >= 2:
+            combined = combine_preset_prompts(keys_list)
+            if combined:
+                effective_prompt = combined
+        else:
+            # Solo un preset: si el usuario no editó el prompt_es, expandir a prompt_full
+            preset = RUNWAY_PRESETS[keys_list[0]]
+            prompt_es = (preset.get("prompt_es") or "").strip()
+            prompt_full = (preset.get("prompt_full") or preset.get("prompt") or "").strip()
+            norm_user = " ".join(prompt.split())
+            norm_preset_es = " ".join(prompt_es.split())
+            if norm_user == norm_preset_es and prompt_full:
+                effective_prompt = prompt_full
 
     task_id = uuid.uuid4().hex[:12]
     upload_dir = UPLOAD_DIR / f"runway_{task_id}"
