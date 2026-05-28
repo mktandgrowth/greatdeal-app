@@ -97,19 +97,24 @@ async def music_presets():
 
 @app.get("/api/music-preview/{preset_key}")
 async def music_preview(preset_key: str):
-    """Genera (y cachea) un sample de 8 seg del preset para que Vale lo preescuche."""
+    """Genera (y cachea) un sample de 8 seg del preset."""
     from editor import synth_music_preset, MUSIC_PRESETS as _MP
     if preset_key not in _MP:
-        raise HTTPException(404, "Preset no encontrado")
+        raise HTTPException(404, f"Preset '{preset_key}' no encontrado")
     preview_dir = OUTPUT_DIR / "music_previews"
     preview_dir.mkdir(exist_ok=True)
     preview_path = preview_dir / f"{preset_key}.aac"
-    if not preview_path.exists():
+    if not preview_path.exists() or preview_path.stat().st_size < 100:
+        # Eliminar archivo vacío si existe (de un intento fallido anterior)
+        if preview_path.exists():
+            preview_path.unlink()
         ok, err = synth_music_preset(preset_key, str(preview_path), 8.0)
-        if not ok:
-            raise HTTPException(500, f"Error generando preview: {err[:200]}")
+        if not ok or not preview_path.exists():
+            print(f"[music-preview] FAIL para {preset_key}: {err}", flush=True)
+            raise HTTPException(500, f"Error generando preview '{preset_key}': {err[:300]}")
     return FileResponse(str(preview_path), media_type="audio/aac",
-                        headers={"Cache-Control": "public, max-age=3600"})
+                        headers={"Cache-Control": "public, max-age=3600",
+                                 "Access-Control-Allow-Origin": "*"})
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -606,6 +611,27 @@ async def download(job_id: str):
         raise HTTPException(500, "Output file missing")
     return FileResponse(path, media_type="video/mp4",
                         filename=f"greatdeal_reel_{job_id}.mp4")
+
+
+@app.post("/api/transcribe-audio")
+async def transcribe_audio(audio: UploadFile = File(...)):
+    """Transcribe un audio con Whisper y devuelve el texto.
+    Usado para que Vale grabe una descripción de la propiedad."""
+    from subtitles import transcribe_with_whisper
+    upload_dir = UPLOAD_DIR / "transcribes"
+    upload_dir.mkdir(exist_ok=True)
+    ext = Path(audio.filename or "").suffix or ".webm"
+    tmp_path = upload_dir / f"desc_{uuid.uuid4().hex[:8]}{ext}"
+    with open(tmp_path, "wb") as f:
+        shutil.copyfileobj(audio.file, f)
+    ok, result = transcribe_with_whisper(str(tmp_path), language="es")
+    try:
+        tmp_path.unlink()
+    except Exception:
+        pass
+    if not ok:
+        raise HTTPException(500, f"Transcribe failed: {result}")
+    return {"text": result.get("text", "") if isinstance(result, dict) else ""}
 
 
 @app.post("/api/generate-voice")

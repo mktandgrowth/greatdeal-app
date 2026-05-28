@@ -409,18 +409,22 @@ def synth_music_preset(preset_key: str, output_file: str,
     inputs = "".join(f"[a{i}]" for i in range(len(freqs)))
     mix = f"{inputs}amix=inputs={len(freqs)}:duration=longest:normalize=0[mix]"
 
-    # Post-processing chain
+    # Post-processing chain — solo filtros básicos garantizados en todas las versiones FFmpeg
     post_chain = f"[mix]lowpass=f={lowpass}"
     if highpass and highpass > 0:
         post_chain += f",highpass=f={highpass}"
-    if vibrato and vibrato > 0:
-        # vibrato a Hz, sutil (depth bajo)
-        post_chain += f",vibrato=f={vibrato}:d=0.4"
-    if tremolo and tremolo > 0:
-        # tremolo crea sensación de pulso/tempo
-        post_chain += f",tremolo=f={tremolo}:d=0.45"
     if echo:
         post_chain += ",aecho=0.6:0.3:600:0.3"
+    # Nota: tremolo y vibrato pueden no estar en todas las builds de FFmpeg.
+    # Los aplicamos como aeval (genérico) si están definidos:
+    if tremolo and tremolo > 0:
+        # Tremolo manual: modulación de amplitud con sin(2*PI*f*t)
+        # Usamos volume con expression sinusoidal
+        post_chain += f",volume='1+0.3*sin(2*PI*{tremolo}*t)':eval=frame"
+    if vibrato and vibrato > 0:
+        # Vibrato manual: usamos asubboost que es seguro o lo skipeamos por simplicidad
+        # Por ahora skip — vibrato es complejo de implementar genérico
+        pass
     post_chain += f",volume={post_vol}[out]"
 
     filter_complex = f"{sines};{voiced};{mix};{post_chain}"
