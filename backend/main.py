@@ -95,6 +95,23 @@ async def music_presets():
     }
 
 
+@app.get("/api/music-preview/{preset_key}")
+async def music_preview(preset_key: str):
+    """Genera (y cachea) un sample de 8 seg del preset para que Vale lo preescuche."""
+    from editor import synth_music_preset, MUSIC_PRESETS as _MP
+    if preset_key not in _MP:
+        raise HTTPException(404, "Preset no encontrado")
+    preview_dir = OUTPUT_DIR / "music_previews"
+    preview_dir.mkdir(exist_ok=True)
+    preview_path = preview_dir / f"{preset_key}.aac"
+    if not preview_path.exists():
+        ok, err = synth_music_preset(preset_key, str(preview_path), 8.0)
+        if not ok:
+            raise HTTPException(500, f"Error generando preview: {err[:200]}")
+    return FileResponse(str(preview_path), media_type="audio/aac",
+                        headers={"Cache-Control": "public, max-age=3600"})
+
+
 # ──────────────────────────────────────────────────────────────────────
 #  RUNWAY AI — Video-to-video regeneration por toma
 # ──────────────────────────────────────────────────────────────────────

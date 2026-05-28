@@ -235,6 +235,39 @@ async function loadMusicPresets() {
   } catch (e) { console.warn("Music presets:", e); }
 }
 
+// Preescuchar un preset de música (genera/cachea sample de 8s en backend)
+let _previewAudio = null;
+function previewMusic(presetKey) {
+  if (_previewAudio) {
+    _previewAudio.pause();
+    _previewAudio.currentTime = 0;
+    _previewAudio = null;
+    state._music_playing = false;
+    render();
+    return;
+  }
+  state._music_playing = true;
+  render();
+  _previewAudio = new Audio(`${API_BASE}/api/music-preview/${presetKey}`);
+  _previewAudio.addEventListener("ended", () => {
+    _previewAudio = null;
+    state._music_playing = false;
+    render();
+  });
+  _previewAudio.addEventListener("error", () => {
+    alert("No pude cargar el preview. Intentá de nuevo en unos segundos (primera vez tarda en generar).");
+    _previewAudio = null;
+    state._music_playing = false;
+    render();
+  });
+  _previewAudio.play().catch(e => {
+    console.warn("Preview play failed:", e);
+    state._music_playing = false;
+    _previewAudio = null;
+    render();
+  });
+}
+
 async function loadElevenVoices() {
   try {
     const r = await fetch(API("/voices"));
@@ -993,7 +1026,14 @@ function renderStep3() {
       <div class="flex items-center mb-3"><span class="text-xl mr-2">🎵</span><h3 class="font-bold text-slate-900">Música de fondo</h3></div>
       ${state.music_file ? `<div class="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3"><span class="text-sm text-emerald-700">📎 ${escapeHtml(state.music_file.name)} (en uso)</span><button onclick="state.music_file=null; render()" class="text-sm text-red-500">Usar preset</button></div>` : ''}
       <label class="text-xs text-slate-500 block mb-1">Elegí un preset:</label>
-      <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mb-3" onchange="state.music_preset=this.value; state.music_file=null; render()" ${state.music_file ? 'disabled' : ''}>${presetOptions || '<option>Cargando…</option>'}</select>
+      <div class="flex gap-2 mb-3">
+        <select class="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.music_preset=this.value; state.music_file=null; render()" ${state.music_file ? 'disabled' : ''}>${presetOptions || '<option>Cargando…</option>'}</select>
+        <button onclick="previewMusic(state.music_preset)" ${state.music_file ? 'disabled' : ''}
+                class="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm hover:bg-amber-600 disabled:opacity-50 whitespace-nowrap"
+                title="Escuchar el preset elegido">
+          ${state._music_playing ? '⏹ Stop' : '▶️ Escuchar'}
+        </button>
+      </div>
       <div class="flex items-center text-xs text-slate-400 my-2"><div class="flex-1 h-px bg-slate-200"></div><span class="px-3">o</span><div class="flex-1 h-px bg-slate-200"></div></div>
       <label class="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-lg cursor-pointer">📤 ${state.music_file ? "Cambiar MP3" : "Subir tu MP3"}<input type="file" accept="audio/mp3,audio/mpeg,audio/wav" class="hidden" onchange="state.music_file=event.target.files[0]; render()"></label>
     </div>`;

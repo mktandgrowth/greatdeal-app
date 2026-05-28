@@ -8,13 +8,15 @@ import json
 from pathlib import Path
 from typing import Optional
 
-FONT_BOLD = "/usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf"
+FONT_BOLD = "/usr/share/fonts/truetype/montserrat/Montserrat-Black.ttf"  # peso 900 (más bold)
 FONT_REG  = "/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf"
 FONT_THIN = "/usr/share/fonts/truetype/montserrat/Montserrat-Thin.ttf"
 
 # Fallback fonts (DejaVu si Montserrat no se descargó)
 if not Path(FONT_BOLD).exists():
-    FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    # Si no hay Black, intentar SemiBold; si no, DejaVu
+    sb = "/usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf"
+    FONT_BOLD = sb if Path(sb).exists() else "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 if not Path(FONT_REG).exists():
     FONT_REG = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 if not Path(FONT_THIN).exists():
