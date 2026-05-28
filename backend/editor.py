@@ -303,147 +303,130 @@ def concat_clips(clips: list[tuple[str, float]], output_file: str) -> tuple[bool
 #   echo: aplica aecho (reverb-like)
 #   tremolo: modula volumen creando sensación de ritmo (Hz, ej 4 = pulsación lenta)
 #   vibrato: modula pitch creando sensación expresiva (Hz)
+# ============================================================================
+# MÚSICA REAL — pistas libres de derechos de Mixkit (free for commercial use,
+# sin atribución requerida). Se descargan a /app/music_cache/ on-demand
+# la primera vez que se usan; luego se sirven desde cache.
+# ============================================================================
+MUSIC_CACHE_DIR = Path("/app/music_cache")
+
 MUSIC_PRESETS = {
-    "chill": {
-        "label": "🌿 Chill ambient",
-        "description": "Suave y atmosférico — propiedades residenciales relajadas",
-        "freqs": [110, 165, 220],
-        "volumes": [0.6, 0.4, 0.3],
-        "lowpass": 2200, "post_volume": 1.5, "echo": False,
+    "cinematic_view": {
+        "label": "🎬 Cinematográfico — vista",
+        "description": "Strings cinemáticos suaves — propiedades de lujo, vistas, panorámicas",
+        "url": "https://assets.mixkit.co/music/preview/mixkit-serene-view-443.mp3",
     },
-    "cinematic": {
-        "label": "🎬 Cinematográfico",
-        "description": "Graves profundos con eco — propiedades de lujo dramáticas",
-        "freqs": [55, 82.5, 110, 165],
-        "volumes": [0.7, 0.5, 0.4, 0.3],
-        "lowpass": 1800, "post_volume": 1.6, "echo": True,
-    },
-    "uplifting": {
-        "label": "☀️ Uplifting",
-        "description": "Notas altas y abiertas — luminoso, venta cálida",
-        "freqs": [220, 330, 440],
-        "volumes": [0.5, 0.4, 0.3],
-        "lowpass": 4000, "post_volume": 1.4, "echo": False,
-    },
-    "melancholic": {
-        "label": "🍂 Melancólico",
-        "description": "Acordes menores — emocional, propiedades con historia",
-        "freqs": [110, 130.81, 196],  # A2, C3, G3 (Am-ish)
-        "volumes": [0.6, 0.45, 0.35],
-        "lowpass": 2000, "post_volume": 1.5, "echo": True,
-    },
-    "corporate": {
-        "label": "🏢 Corporate clean",
-        "description": "Estable y neutro — propiedades de inversión",
-        "freqs": [110, 165],
-        "volumes": [0.55, 0.4],
-        "lowpass": 2500, "post_volume": 1.4, "echo": False,
-    },
-    "luxury": {
-        "label": "💎 Lujo elegante",
-        "description": "Tonos sofisticados con vibrato — alta gama, mansiones",
-        "freqs": [146.83, 220, 293.66, 369.99],  # D3, A3, D4, F#4 (Dmaj)
-        "volumes": [0.5, 0.45, 0.35, 0.25],
-        "lowpass": 3500, "post_volume": 1.5, "echo": True,
-        "vibrato": 5,  # 5 Hz vibrato sutil
-    },
-    "modern_electronic": {
-        "label": "⚡ Moderno electrónico",
-        "description": "Pulsante con tempo — depto moderno, propiedad joven",
-        "freqs": [82.5, 165, 247.5],
-        "volumes": [0.55, 0.4, 0.3],
-        "lowpass": 3000, "post_volume": 1.5, "echo": False,
-        "tremolo": 2.5,  # pulsación cada 0.4s
+    "elegant_piano": {
+        "label": "🎹 Piano elegante",
+        "description": "Piano refinado — propiedades premium, casas con historia",
+        "url": "https://assets.mixkit.co/music/preview/mixkit-piano-horizon-637.mp3",
     },
     "warm_acoustic": {
         "label": "🌅 Cálido acústico",
-        "description": "Tonos cálidos sin estridencia — casas familiares",
-        "freqs": [130.81, 196, 261.63],  # C3, G3, C4
-        "volumes": [0.5, 0.4, 0.3],
-        "lowpass": 2400, "highpass": 80, "post_volume": 1.45, "echo": False,
+        "description": "Piano cálido y luminoso — casas familiares, hogareño",
+        "url": "https://assets.mixkit.co/music/preview/mixkit-warm-piano-of-joy-3015.mp3",
     },
-    "dramatic_dark": {
-        "label": "🌃 Dramático oscuro",
-        "description": "Muy grave y misterioso — premium nocturno",
-        "freqs": [41.2, 55, 73.42],  # E1, A1, D2 — graves muy bajos
-        "volumes": [0.75, 0.55, 0.4],
-        "lowpass": 1200, "post_volume": 1.7, "echo": True,
+    "happy_summer": {
+        "label": "☀️ Verano alegre",
+        "description": "Ukulele alegre — casas de playa, propiedades luminosas",
+        "url": "https://assets.mixkit.co/music/preview/mixkit-summer-fun-13.mp3",
     },
-    "bright_morning": {
-        "label": "🌞 Brillante mañana",
-        "description": "Alegre y luminoso — propiedades soleadas con vista",
-        "freqs": [261.63, 392, 523.25, 659.25],  # C4, G4, C5, E5 (C major)
-        "volumes": [0.45, 0.4, 0.35, 0.25],
-        "lowpass": 5000, "highpass": 150, "post_volume": 1.4, "echo": False,
+    "corporate_inspiring": {
+        "label": "💼 Corporate inspiracional",
+        "description": "Inspiracional motivacional — comercial, inversión, oficinas",
+        "url": "https://assets.mixkit.co/music/preview/mixkit-driving-ambition-32.mp3",
+    },
+    "dreaming_big": {
+        "label": "✨ Sueños grandes",
+        "description": "Inspiracional emotivo — primera casa, sueño cumplido",
+        "url": "https://assets.mixkit.co/music/preview/mixkit-dreaming-big-31.mp3",
+    },
+    "lofi_chill": {
+        "label": "🌙 Lo-fi chill",
+        "description": "Lo-fi relajado — vibe joven, scroll-friendly, moderno",
+        "url": "https://assets.mixkit.co/music/preview/mixkit-relaxing-in-paradise-533.mp3",
+    },
+    "tech_house": {
+        "label": "⚡ Tech house",
+        "description": "Beat moderno — deptos urbanos, propiedades jóvenes",
+        "url": "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3",
+    },
+    "urban_hiphop": {
+        "label": "🏙️ Urban hip-hop",
+        "description": "Beat hip-hop suave — lofts, deptos modernos, ciudad",
+        "url": "https://assets.mixkit.co/music/preview/mixkit-deep-urban-623.mp3",
+    },
+    "chill_hiphop": {
+        "label": "🎧 Chill hip-hop",
+        "description": "Hip-hop relajado — vibes modernas, casual",
+        "url": "https://assets.mixkit.co/music/preview/mixkit-hip-hop-02-738.mp3",
     },
 }
 
 
+def download_music_track(preset_key: str) -> tuple[bool, str]:
+    """Descarga la pista mp3 desde su URL al cache local.
+    Retorna (success, local_path_or_error)."""
+    preset = MUSIC_PRESETS.get(preset_key)
+    if not preset:
+        return False, f"preset desconocido: {preset_key}"
+
+    MUSIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = MUSIC_CACHE_DIR / f"{preset_key}.mp3"
+
+    # Si ya está cacheado y tiene contenido razonable, usar el cached
+    if cache_path.exists() and cache_path.stat().st_size > 50_000:
+        return True, str(cache_path)
+
+    url = preset["url"]
+    print(f"[music] descargando {preset_key} desde {url}", flush=True)
+
+    try:
+        import requests
+        r = requests.get(url, timeout=60, stream=True)
+        if r.status_code != 200:
+            return False, f"HTTP {r.status_code} al descargar {url}"
+        with open(cache_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        if cache_path.stat().st_size < 10_000:
+            return False, f"download too small ({cache_path.stat().st_size} bytes)"
+        return True, str(cache_path)
+    except Exception as e:
+        return False, f"download failed: {str(e)[:200]}"
+
+
 def synth_music_preset(preset_key: str, output_file: str,
                         duration: float) -> tuple[bool, str]:
-    """Synthesize background music from a preset. Falls back to 'chill' if unknown."""
-    preset = MUSIC_PRESETS.get(preset_key, MUSIC_PRESETS["chill"])
-    freqs = preset["freqs"]
-    vols = preset["volumes"]
-    lowpass = preset["lowpass"]
-    highpass = preset.get("highpass", 0)
-    post_vol = preset["post_volume"]
-    echo = preset["echo"]
-    tremolo = preset.get("tremolo", 0)
-    vibrato = preset.get("vibrato", 0)
+    """Toma la pista real del preset, la loopea si hace falta, recorta a duración,
+    aplica fade-out y la convierte a AAC. Nombre mantenido por compat."""
+    # Fallback al primer preset si vienen claves viejas/inválidas
+    if preset_key not in MUSIC_PRESETS:
+        preset_key = "cinematic_view"
 
-    fade_out_start = max(2, duration - 2)
+    ok, mp3_path = download_music_track(preset_key)
+    if not ok:
+        return False, mp3_path  # error message
 
-    # Build sine generators
-    sines = ";".join(
-        f"sine=f={f}:duration={duration}[s{i}]" for i, f in enumerate(freqs)
-    )
-    # Apply per-sine volume + fades
-    voiced = ";".join(
-        f"[s{i}]volume={vols[i]},"
-        f"afade=t=in:st=0:d={2 + i * 0.3},"
-        f"afade=t=out:st={fade_out_start}:d=2[a{i}]"
-        for i in range(len(freqs))
-    )
-    # Mix
-    inputs = "".join(f"[a{i}]" for i in range(len(freqs)))
-    mix = f"{inputs}amix=inputs={len(freqs)}:duration=longest:normalize=0[mix]"
-
-    # Post-processing chain — solo filtros básicos garantizados en todas las versiones FFmpeg
-    post_chain = f"[mix]lowpass=f={lowpass}"
-    if highpass and highpass > 0:
-        post_chain += f",highpass=f={highpass}"
-    if echo:
-        post_chain += ",aecho=0.6:0.3:600:0.3"
-    # Nota: tremolo y vibrato pueden no estar en todas las builds de FFmpeg.
-    # Los aplicamos como aeval (genérico) si están definidos:
-    if tremolo and tremolo > 0:
-        # Tremolo manual: modulación de amplitud con sin(2*PI*f*t)
-        # Usamos volume con expression sinusoidal
-        post_chain += f",volume='1+0.3*sin(2*PI*{tremolo}*t)':eval=frame"
-    if vibrato and vibrato > 0:
-        # Vibrato manual: usamos asubboost que es seguro o lo skipeamos por simplicidad
-        # Por ahora skip — vibrato es complejo de implementar genérico
-        pass
-    post_chain += f",volume={post_vol}[out]"
-
-    filter_complex = f"{sines};{voiced};{mix};{post_chain}"
-
+    fade_out_start = max(0.5, duration - 1.5)
+    # -stream_loop -1 loopea infinitamente la entrada hasta que -t corte.
+    # afade out al final para que no se corte brusco.
     cmd = [
         "ffmpeg", "-y",
-        "-filter_complex", filter_complex,
-        "-map", "[out]",
+        "-stream_loop", "-1", "-i", mp3_path,
+        "-t", f"{duration:.2f}",
+        "-af", f"afade=t=out:st={fade_out_start:.2f}:d=1.5,volume=1.0",
         "-ac", "2", "-ar", "44100",
-        "-c:a", "aac", "-b:a", "128k",
-        "-t", str(duration),
+        "-c:a", "aac", "-b:a", "160k",
         output_file
     ]
-    return run(cmd, f"synth {preset_key}")
+    return run(cmd, f"music {preset_key}")
 
 
 # Backward-compatible alias
 def synth_ambient_music(output_file: str, duration: float) -> tuple[bool, str]:
-    return synth_music_preset("chill", output_file, duration)
+    return synth_music_preset("cinematic_view", output_file, duration)
 
 
 def mux_audio(video_file: str, music_file: str,
@@ -582,7 +565,7 @@ def process_clip_combined(input_path: str, output_path: str,
 def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
                voice_audio_path: Optional[str] = None,
                music_path: Optional[str] = None,
-               music_preset: str = "chill",
+               music_preset: str = "cinematic_view",
                logo_path: Optional[str] = None,
                enhance_ai: bool = False,
                auto_subtitles: bool = False,

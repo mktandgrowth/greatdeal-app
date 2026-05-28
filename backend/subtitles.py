@@ -29,7 +29,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cinema,{font},36,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,3,12,0,2,100,100,240,1
+Style: Cinema,{font},34,&H00FFFFFF,&H000000FF,&H00000000,&HCC000000,0,0,0,0,100,100,0,0,3,10,0,2,100,100,240,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -191,7 +191,10 @@ def apply_auto_subtitles(
     language: str = "es",
 ) -> tuple[bool, str]:
     """End-to-end: transcribe audio + generate ASS + burn into video.
+    También guarda los segments transcritos en `subs_segments.json` dentro de
+    work_dir, para que después se puedan editar y re-quemar.
     Returns (success, error_msg)."""
+    import json
     work = Path(work_dir)
     work.mkdir(parents=True, exist_ok=True)
 
@@ -202,6 +205,25 @@ def apply_auto_subtitles(
 
     segments = result.get("segments", []) if isinstance(result, dict) else []
     words = result.get("words", []) if isinstance(result, dict) else []
+
+    # Guardar segments raw para edición posterior (solo campos relevantes)
+    try:
+        clean_segments = [
+            {
+                "id": i,
+                "start": float(s.get("start", 0)),
+                "end": float(s.get("end", 0)),
+                "text": (s.get("text", "") or "").strip(),
+            }
+            for i, s in enumerate(segments)
+        ]
+        (work / "subs_segments.json").write_text(
+            json.dumps(clean_segments, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"[subs] no pude guardar segments json: {e}", flush=True)
+
     if not segments and not words:
         # No hubo audio detectado — copy original video unchanged
         import shutil
@@ -221,4 +243,61 @@ def apply_auto_subtitles(
     if not ok:
         return False, f"Burn: {err}"
 
+    return True, ""
+
+
+def reapply_edited_subtitles(
+    pre_subs_video: str,
+    edited_segments: list[dict],
+    work_dir: str,
+    output_path: str,
+) -> tuple[bool, str]:
+    """Re-aplica subtítulos con el texto editado por el usuario.
+    edited_segments: lista de {start, end, text}.
+    Regenera el ASS y re-quema sobre el video pre-subs (sin re-procesar todo).
+    """
+    import json
+    work = Path(work_dir)
+    work.mkdir(parents=True, exist_ok=True)
+
+    # Validar/normalizar segments
+    safe_segments = []
+    for s in edited_segments:
+        try:
+            start = float(s.get("start", 0))
+            end = float(s.get("end", start + 1.5))
+            text = (s.get("text", "") or "").strip()
+            if not text:
+                continue
+            if end <= start:
+                end = start + 1.5
+            safe_segments.append({"start": start, "end": end, "text": text})
+        except (TypeError, ValueError):
+            continue
+
+    if not safe_segments:
+        return False, "No quedaron segments válidos después de la edición"
+
+    # Persistir los segments editados (sobrescribe los originales)
+    try:
+        (work / "subs_segments.json").write_text(
+            json.dumps(
+                [{"id": i, **s} for i, s in enumerate(safe_segments)],
+                ensure_ascii=False, indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+    # Regenerar ASS
+    ass_path = str(work / "subtitles_edited.ass")
+    ok, err = generate_ass_file(safe_segments, ass_path, words=None, font="Montserrat")
+    if not ok:
+        return False, f"ASS: {err}"
+
+    # Re-quemar
+    ok, err = burn_subtitles(pre_subs_video, ass_path, output_path)
+    if not ok:
+        return False, f"Burn: {err}"
     return True, ""

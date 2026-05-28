@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -97,23 +97,18 @@ async def music_presets():
 
 @app.get("/api/music-preview/{preset_key}")
 async def music_preview(preset_key: str):
-    """Genera (y cachea) un sample de 8 seg del preset."""
-    from editor import synth_music_preset, MUSIC_PRESETS as _MP
+    """Sirve el mp3 real del preset (descarga y cachea on-demand).
+    Mucho más rápido y simple que generar un AAC: servimos el mp3 original."""
+    from editor import download_music_track, MUSIC_PRESETS as _MP
     if preset_key not in _MP:
         raise HTTPException(404, f"Preset '{preset_key}' no encontrado")
-    preview_dir = OUTPUT_DIR / "music_previews"
-    preview_dir.mkdir(exist_ok=True)
-    preview_path = preview_dir / f"{preset_key}.aac"
-    if not preview_path.exists() or preview_path.stat().st_size < 100:
-        # Eliminar archivo vacío si existe (de un intento fallido anterior)
-        if preview_path.exists():
-            preview_path.unlink()
-        ok, err = synth_music_preset(preset_key, str(preview_path), 8.0)
-        if not ok or not preview_path.exists():
-            print(f"[music-preview] FAIL para {preset_key}: {err}", flush=True)
-            raise HTTPException(500, f"Error generando preview '{preset_key}': {err[:300]}")
-    return FileResponse(str(preview_path), media_type="audio/aac",
-                        headers={"Cache-Control": "public, max-age=3600",
+    ok, result = download_music_track(preset_key)
+    if not ok:
+        print(f"[music-preview] FAIL {preset_key}: {result}", flush=True)
+        raise HTTPException(500, f"No pude obtener música '{preset_key}': {result[:300]}")
+    # result es el path al mp3 cacheado
+    return FileResponse(result, media_type="audio/mpeg",
+                        headers={"Cache-Control": "public, max-age=86400",
                                  "Access-Control-Allow-Origin": "*"})
 
 
@@ -309,7 +304,7 @@ async def create_job(
     clips: list[UploadFile] = File(...),
     logo: Optional[UploadFile] = File(None),
     music: Optional[UploadFile] = File(None),
-    music_preset: str = Form("chill"),
+    music_preset: str = Form("cinematic_view"),
     voice_audio: Optional[UploadFile] = File(None),
     voice_key: Optional[str] = Form(None),
     generate_voice: bool = Form(False),
@@ -523,7 +518,7 @@ async def reprocess_job(
     new_work = WORK_DIR / f"{job_id}_v{uuid.uuid4().hex[:4]}"
     new_output = OUTPUT_DIR / f"reel_{job_id}_{new_work.name.split('_v')[-1]}.mp4"
 
-    effective_preset = music_preset or job.get("music_preset", "chill")
+    effective_preset = music_preset or job.get("music_preset", "cinematic_view")
     effective_enhance = (
         (enhance_ai or "").strip().lower() in ("true", "1", "yes", "on")
         if enhance_ai is not None
@@ -611,6 +606,64 @@ async def download(job_id: str):
         raise HTTPException(500, "Output file missing")
     return FileResponse(path, media_type="video/mp4",
                         filename=f"greatdeal_reel_{job_id}.mp4")
+
+
+@app.get("/api/jobs/{job_id}/subtitles")
+async def get_job_subtitles(job_id: str):
+    """Devuelve los segments transcritos por Whisper para edición."""
+    import json as _json
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job no encontrado")
+    work_dir = Path(job.get("work_dir", ""))
+    segs_path = work_dir / "subs_segments.json"
+    if not segs_path.exists():
+        return {"segments": [], "available": False, "reason": "no-segments-file"}
+    try:
+        segments = _json.loads(segs_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(500, f"No pude leer subs: {e}")
+    return {"segments": segments, "available": True}
+
+
+@app.post("/api/jobs/{job_id}/subtitles")
+async def reapply_job_subtitles(job_id: str, payload: dict = Body(...)):
+    """Re-aplica subtítulos con el texto editado.
+    payload: {"segments": [{"start": float, "end": float, "text": str}, ...]}
+    Usa el video pre-subs guardado en work_dir y reescribe el output del job.
+    """
+    from subtitles import reapply_edited_subtitles
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job no encontrado")
+    segments = payload.get("segments") or []
+    if not isinstance(segments, list) or not segments:
+        raise HTTPException(400, "Falta lista de segments")
+
+    work_dir = Path(job.get("work_dir", ""))
+    output_path = Path(job.get("output_path", ""))
+    pre_subs = work_dir / "_pre_subs.mp4"
+    if not pre_subs.exists():
+        raise HTTPException(
+            409,
+            "El video pre-subs no está disponible (regenerá el reel primero)."
+        )
+    if not output_path:
+        raise HTTPException(500, "Falta output_path en el job")
+
+    ok, err = reapply_edited_subtitles(
+        pre_subs_video=str(pre_subs),
+        edited_segments=segments,
+        work_dir=str(work_dir),
+        output_path=str(output_path),
+    )
+    if not ok:
+        raise HTTPException(500, f"Re-aplicar subs falló: {err[:300]}")
+
+    return {
+        "ok": True,
+        "download_url": f"/api/jobs/{job_id}/download?v={uuid.uuid4().hex[:6]}",
+    }
 
 
 @app.post("/api/transcribe-audio")

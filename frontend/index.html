@@ -148,7 +148,7 @@ let state = {
   advanced_open: false,
   enhance_ai: false,
   auto_subtitles: true,  // por default ON: si hay voz, los subtítulos se quieren siempre
-  music_preset: "chill",
+  music_preset: "cinematic_view",
   music_file: null,
   music_presets_catalog: [],
   voice_audio_file: null,
@@ -193,7 +193,7 @@ function resetAll() {
     step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [],
     property: { tipo: "Casa", comuna: "", m2: "", dorms: "", banos: "", precio_uf: "", descripcion: "" },
     advanced_open: false, enhance_ai: false, auto_subtitles: true,
-    music_preset: "chill", music_file: null, music_presets_catalog: catalog,
+    music_preset: "cinematic_view", music_file: null, music_presets_catalog: catalog,
     voice_audio_file: null, voice_audio_url: null, voice_method: "none",
     voice_script: "", voice_eleven_key: "", eleven_voices: voices,
     is_recording: false, media_recorder: null, recorded_chunks: [], is_generating_voice: false,
@@ -1200,13 +1200,35 @@ function renderStep3() {
   const musicBlock = `
     <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
       <div class="flex items-center mb-3"><span class="text-xl mr-2">🎵</span><h3 class="font-bold text-slate-900">Música de fondo</h3></div>
-      ${state.music_file ? `<div class="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3"><span class="text-sm text-emerald-700">📎 ${escapeHtml(state.music_file.name)} (en uso)</span><button onclick="state.music_file=null; render()" class="text-sm text-red-500">Usar preset</button></div>` : ''}
-      <label class="text-xs text-slate-500 block mb-2">Elegí un preset (tocá ▶ para escucharlo):</label>
-      <div class="space-y-1.5 mb-3 max-h-72 overflow-y-auto">
-        ${presetCards || '<div class="text-xs text-slate-500">Cargando presets…</div>'}
+
+      <!-- SUBIR TU MP3 PROPIO (PROMINENTE ARRIBA) -->
+      <div class="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4 mb-4">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">📤</span>
+            <div>
+              <div class="font-medium text-slate-900 text-sm">Tu música</div>
+              <div class="text-xs text-slate-600">Subí cualquier MP3 / WAV / M4A</div>
+            </div>
+          </div>
+          ${state.music_file
+            ? `<button onclick="state.music_file=null; render()" class="text-xs text-red-500 hover:text-red-700">Quitar</button>`
+            : ''}
+        </div>
+        ${state.music_file
+          ? `<div class="bg-white rounded-lg p-2 text-xs text-emerald-700 flex items-center gap-2">✓ <span class="truncate">${escapeHtml(state.music_file.name)}</span></div>`
+          : `<label class="block w-full px-4 py-3 bg-emerald-600 text-white text-center text-sm font-medium rounded-lg cursor-pointer hover:bg-emerald-700">
+              📁 Elegir archivo de música
+              <input type="file" accept="audio/*" class="hidden" onchange="state.music_file=event.target.files[0]; render()">
+            </label>`}
       </div>
-      <div class="flex items-center text-xs text-slate-400 my-2"><div class="flex-1 h-px bg-slate-200"></div><span class="px-3">o</span><div class="flex-1 h-px bg-slate-200"></div></div>
-      <label class="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-lg cursor-pointer">📤 ${state.music_file ? "Cambiar MP3" : "Subir tu MP3"}<input type="file" accept="audio/mp3,audio/mpeg,audio/wav" class="hidden" onchange="state.music_file=event.target.files[0]; render()"></label>
+
+      ${!state.music_file ? `
+        <div class="flex items-center text-xs text-slate-400 my-3"><div class="flex-1 h-px bg-slate-200"></div><span class="px-3">o usá un preset gratis</span><div class="flex-1 h-px bg-slate-200"></div></div>
+        <label class="text-xs text-slate-500 block mb-2">Presets (tocá ▶ para escuchar):</label>
+        <div class="space-y-1.5 max-h-72 overflow-y-auto">
+          ${presetCards || '<div class="text-xs text-slate-500">Cargando presets…</div>'}
+        </div>` : ''}
     </div>`;
   const tabs = [{key:"none",icon:"🚫",label:"Sin voz"},{key:"upload",icon:"📤",label:"Subir audio"},{key:"record",icon:"🎤",label:"Grabar acá"},{key:"eleven",icon:"🤖",label:"Generar con IA"}];
   const tabsHtml = tabs.map(t => `<button onclick="setVoiceMethod('${t.key}')" class="flex-1 py-2 px-2 rounded-lg text-xs font-medium ${state.voice_method === t.key ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}">${t.icon} ${t.label}</button>`).join("");
@@ -1427,7 +1449,7 @@ async function applyVoiceToReel() {
   const fd = new FormData();
   fd.append("sections", JSON.stringify(sections));
   fd.append("cta_data", JSON.stringify(buildCtaData()));
-  fd.append("music_preset", state.music_preset || "chill");
+  fd.append("music_preset", state.music_preset || "cinematic_view");
   fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
   fd.append("voice_audio", state.voice_audio_file);
@@ -1485,6 +1507,7 @@ function renderStep4() {
       </div>`;
   }
   if (isDone && state.job_download) {
+    const hasVoice = !!(state.voice_audio_url || state.voice_audio_file);
     return `
       <div class="fade-in max-w-2xl mx-auto">
         <div class="text-center mb-4">
@@ -1493,17 +1516,53 @@ function renderStep4() {
           <p class="text-slate-600 text-sm">Duración: ${state.job_duration ? state.job_duration.toFixed(1) : '?'}s · Listo para Instagram / TikTok</p>
         </div>
         <div class="bg-black rounded-2xl overflow-hidden mb-4"><video src="${state.job_download}" controls class="w-full" style="max-height: 70vh; background: black;"></video></div>
-        <a href="${state.job_download}" download class="block w-full text-center px-6 py-4 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 mb-3">⬇ Descargar MP4</a>
+        <a href="${state.job_download}" download class="block w-full text-center px-6 py-4 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 mb-4">⬇ Descargar MP4</a>
 
-        <button onclick="openManualEditor()" class="block w-full text-center px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 rounded-xl font-medium hover:bg-slate-50 mb-2">🎨 Editor avanzado (ajustar clips, velocidad, recortes, Runway)</button>
+        <!-- EDITAR — siempre visible, no escondido en accordion -->
+        <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-3">
+          <div class="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-3 px-1">✏️ Editar el reel</div>
+          <div class="grid grid-cols-1 gap-2">
+            <button onclick="openManualEditor()" class="flex items-center gap-3 px-4 py-3 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 text-left">
+              <span class="text-2xl">🎬</span>
+              <div class="flex-1">
+                <div class="font-semibold">Editor avanzado</div>
+                <div class="text-xs opacity-75 font-normal">Ajustar clips, velocidad, recortes, orden, Runway IA</div>
+              </div>
+              <span class="text-xl opacity-50">›</span>
+            </button>
+            ${hasVoice ? `
+            <button onclick="openSubtitleEditor()" class="flex items-center gap-3 px-4 py-3 bg-white border-2 border-purple-300 text-purple-900 rounded-xl font-medium hover:bg-purple-50 text-left">
+              <span class="text-2xl">✍️</span>
+              <div class="flex-1">
+                <div class="font-semibold">Editar subtítulos</div>
+                <div class="text-xs opacity-75 font-normal">Corregir errores de transcripción (Whisper)</div>
+              </div>
+              <span class="text-xl opacity-50">›</span>
+            </button>` : ''}
+            <button onclick="state.step=3; render()" class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl font-medium hover:bg-slate-50 text-left">
+              <span class="text-2xl">🎵</span>
+              <div class="flex-1">
+                <div class="font-semibold">Cambiar música o voz</div>
+                <div class="text-xs opacity-75 font-normal">Música de fondo, voz, subtítulos automáticos</div>
+              </div>
+              <span class="text-xl opacity-50">›</span>
+            </button>
+            <button onclick="state.step=2; render()" class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl font-medium hover:bg-slate-50 text-left">
+              <span class="text-2xl">📝</span>
+              <div class="flex-1">
+                <div class="font-semibold">Cambiar datos o títulos</div>
+                <div class="text-xs opacity-75 font-normal">Textos de cada toma, comuna, m², CTA, logo</div>
+              </div>
+              <span class="text-xl opacity-50">›</span>
+            </button>
+          </div>
+          <button onclick="reprocessFromCurrent()" class="mt-3 block w-full text-center px-6 py-3 bg-amber-500 text-white rounded-xl font-semibold hover:bg-amber-600">↻ Re-generar reel con cambios</button>
+        </div>
+
         <details class="bg-slate-50 rounded-xl px-4 py-3 text-sm">
-          <summary class="flex items-center justify-between"><span class="text-slate-600">¿Querés cambiar algo? (volver al wizard)</span><span class="chev text-slate-400">▾</span></summary>
-          <div class="border-t border-slate-200 pt-3 mt-3 flex flex-wrap gap-2">
-            <button onclick="state.step=1; render()" class="px-3 py-1.5 bg-white border border-slate-300 rounded text-xs">📹 Cambiar videos</button>
-            <button onclick="state.step=2; render()" class="px-3 py-1.5 bg-white border border-slate-300 rounded text-xs">📝 Cambiar datos</button>
-            <button onclick="state.step=3; render()" class="px-3 py-1.5 bg-white border border-slate-300 rounded text-xs">🎵 Cambiar audio</button>
-            <button onclick="state.step=2; state.advanced_open=true; render()" class="px-3 py-1.5 bg-white border border-slate-300 rounded text-xs">🏷️ Logo / CTA</button>
-            <button onclick="reprocessFromCurrent()" class="px-3 py-1.5 bg-amber-500 text-white rounded text-xs font-medium">↻ Re-procesar</button>
+          <summary class="flex items-center justify-between cursor-pointer"><span class="text-slate-600">¿Querés empezar de cero?</span><span class="chev text-slate-400">▾</span></summary>
+          <div class="border-t border-slate-200 pt-3 mt-3">
+            <button onclick="if(confirm('¿Descartar este reel y empezar de cero?')) { resetAll(); state.step=1; render(); }" class="px-4 py-2 bg-white border border-slate-300 rounded text-xs">↩ Empezar otro reel</button>
           </div>
         </details>
       </div>`;
@@ -1576,7 +1635,7 @@ async function processReel() {
   const fd = new FormData();
   fd.append("sections", JSON.stringify(sections));
   fd.append("cta_data", JSON.stringify(buildCtaData()));
-  fd.append("music_preset", state.music_preset || "chill");
+  fd.append("music_preset", state.music_preset || "cinematic_view");
   fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
   files.forEach(f => fd.append("clips", f));
@@ -1608,7 +1667,7 @@ async function reprocessFromCurrent() {
   const fd = new FormData();
   fd.append("sections", JSON.stringify(sections));
   fd.append("cta_data", JSON.stringify(buildCtaData()));
-  fd.append("music_preset", state.music_preset || "chill");
+  fd.append("music_preset", state.music_preset || "cinematic_view");
   fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
   state.job_status = "reprocessing";
@@ -1681,6 +1740,99 @@ document.addEventListener("visibilitychange", () => {
     pollJobStatus();
   }
 });
+
+// ── EDITOR DE SUBTÍTULOS (post-Whisper) ───────────────────────────
+async function openSubtitleEditor() {
+  if (!state.job_id) { alert("No hay reel cargado"); return; }
+  // Loading overlay
+  const ov = document.createElement("div");
+  ov.id = "subEditOverlay";
+  ov.className = "fixed inset-0 bg-black/60 flex items-center justify-center z-50";
+  ov.innerHTML = `<div class="bg-white rounded-2xl p-6 text-center">
+    <div class="spinner w-8 h-8 border-4 border-slate-200 border-t-slate-900 rounded-full mx-auto mb-3"></div>
+    <div class="text-sm text-slate-700">Cargando subtítulos…</div></div>`;
+  document.body.appendChild(ov);
+  try {
+    const r = await fetch(API(`/jobs/${state.job_id}/subtitles`));
+    const j = await r.json();
+    ov.remove();
+    if (!j.available || !j.segments || j.segments.length === 0) {
+      alert("No hay subtítulos transcritos para este reel. Asegurate de tener una voz cargada con subtítulos activados.");
+      return;
+    }
+    state._sub_segments = JSON.parse(JSON.stringify(j.segments));  // copia
+    renderSubtitleEditorModal();
+  } catch (e) {
+    ov.remove();
+    alert("Error cargando subtítulos: " + e.message);
+  }
+}
+
+function renderSubtitleEditorModal() {
+  const segs = state._sub_segments || [];
+  const rows = segs.map((s, i) => {
+    const dur = (s.end - s.start).toFixed(1);
+    const tStart = s.start.toFixed(1);
+    return `
+      <div class="flex gap-2 items-start bg-slate-50 border border-slate-200 rounded-lg p-2 mb-2">
+        <div class="text-[10px] text-slate-500 w-14 pt-2 font-mono">${tStart}s · ${dur}s</div>
+        <textarea
+          oninput="state._sub_segments[${i}].text = this.value"
+          class="flex-1 px-2 py-1.5 border border-slate-300 rounded text-sm focus:outline-none focus:border-purple-500 resize-none"
+          rows="2">${escapeHtml(s.text)}</textarea>
+        <button onclick="state._sub_segments.splice(${i},1); renderSubtitleEditorModal()" class="text-slate-400 hover:text-red-500 text-lg pt-1" title="Quitar línea">✕</button>
+      </div>`;
+  }).join("");
+  let modal = document.getElementById("subEditModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "subEditModal";
+    modal.className = "fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3";
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div class="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div>
+          <div class="font-bold text-slate-900">✍️ Editar subtítulos</div>
+          <div class="text-xs text-slate-500">Corregí errores de transcripción</div>
+        </div>
+        <button onclick="document.getElementById('subEditModal').remove()" class="text-slate-400 hover:text-slate-700 text-xl">✕</button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-4">${rows || '<div class="text-center text-sm text-slate-500 py-8">No hay líneas</div>'}</div>
+      <div class="px-5 py-4 border-t border-slate-200 flex gap-2">
+        <button onclick="document.getElementById('subEditModal').remove()" class="flex-1 px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm">Cancelar</button>
+        <button onclick="saveEditedSubtitles()" class="flex-1 px-4 py-2.5 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700">💾 Guardar y re-aplicar</button>
+      </div>
+    </div>`;
+}
+
+async function saveEditedSubtitles() {
+  const modal = document.getElementById("subEditModal");
+  if (modal) {
+    modal.innerHTML = `<div class="bg-white rounded-2xl p-6 text-center mx-auto" style="max-width:300px">
+      <div class="spinner w-8 h-8 border-4 border-slate-200 border-t-purple-600 rounded-full mx-auto mb-3"></div>
+      <div class="text-sm text-slate-700">Re-aplicando subtítulos…</div>
+      <div class="text-xs text-slate-400 mt-1">~30 segundos</div></div>`;
+  }
+  try {
+    const segs = (state._sub_segments || []).filter(s => s.text && s.text.trim());
+    const r = await fetch(API(`/jobs/${state.job_id}/subtitles`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segments: segs }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || "Error");
+    // Refrescar URL del video con cache-buster
+    state.job_download = (j.download_url ? `${API_BASE}${j.download_url}` : state.job_download + `?v=${Date.now()}`);
+    if (modal) modal.remove();
+    render();
+  } catch (e) {
+    if (modal) modal.remove();
+    alert("No pude re-aplicar los subtítulos: " + e.message);
+  }
+}
 
 // ── MANUAL EDITOR (CapCut-style with visual trim) ──────────────────
 function openManualEditor() {
@@ -1894,7 +2046,7 @@ async function applyEditorChanges() {
     const fd = new FormData();
     fd.append("sections", JSON.stringify(sections));
     fd.append("cta_data", JSON.stringify(buildCtaData()));
-    fd.append("music_preset", state.music_preset || "chill");
+    fd.append("music_preset", state.music_preset || "cinematic_view");
     fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
     finalFiles.forEach(f => fd.append("clips", f));
@@ -1925,7 +2077,7 @@ async function applyEditorChanges() {
     const fd = new FormData();
     fd.append("sections", JSON.stringify(sections));
     fd.append("cta_data", JSON.stringify(buildCtaData()));
-    fd.append("music_preset", state.music_preset || "chill");
+    fd.append("music_preset", state.music_preset || "cinematic_view");
     fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
     state.editor_open = false;
