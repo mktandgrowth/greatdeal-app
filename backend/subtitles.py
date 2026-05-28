@@ -29,7 +29,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cinema,{font},44,&H00FFFFFF,&H000000FF,&H4D000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,100,100,260,1
+Style: Cinema,{font},36,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,100,100,240,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -208,12 +208,11 @@ def apply_auto_subtitles(
         shutil.copy(video_path, output_path)
         return True, "no-segments-detected"
 
-    # 2. Generate ASS file (preferimos words si está, para karaoke)
-    # OJO: libass busca por font family name, no por face name.
-    # "Montserrat" + Bold=0 deja que fontconfig resuelva al peso adecuado.
-    # Si Thin no se encuentra, cae a Regular (mejor que nada).
+    # 2. Generate ASS file
+    # Usamos SEGMENTOS (frases agrupadas) — estilo limpio tipo CapCut.
+    # Pasar words=None fuerza el fallback a segments naturales.
     ass_path = str(work / "subtitles.ass")
-    ok, err = generate_ass_file(segments, ass_path, words=words, font="Montserrat")
+    ok, err = generate_ass_file(segments, ass_path, words=None, font="Montserrat")
     if not ok:
         return False, f"ASS: {err}"
 

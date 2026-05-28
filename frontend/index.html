@@ -852,6 +852,25 @@ function renderSectionCard(key) {
   `;
 }
 
+// Genera un título pre-llenado editable según la sección y la posición del clip
+function suggestHeadline(sectionKey, indexInSection) {
+  const n = indexInSection + 1;
+  switch (sectionKey) {
+    case "exterior": return "";  // vacío por default
+    case "entrada":  return "";
+    case "dormitorios":
+      return n === 1 ? "Dormitorio principal" : `Dormitorio ${n}`;
+    case "banos":
+      return n === 1 ? "Baño principal" : `Baño ${n}`;
+    case "areas":
+      // Sugerencias para áreas comunes (primero living, después varía)
+      const sugerencias = ["Living", "Cocina", "Comedor", "Terraza", "Espacio común"];
+      return sugerencias[indexInSection] || "";
+    case "vista": return "";
+    default: return "";
+  }
+}
+
 function handleSectionUpload(key, files) {
   const cfg = SECTION_CONFIG[key];
   const sec = state.sections[key];
@@ -862,10 +881,12 @@ function handleSectionUpload(key, files) {
   arr.forEach(f => {
     const reader = new FileReader();
     reader.onload = e => {
+      // Pre-llenar headline editable según sección (Vale puede borrarlo o cambiarlo)
+      const suggestedTitle = suggestHeadline(key, sec.clips.length);
       sec.clips.push({
         id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         file: f, dataUrl: e.target.result, name: f.name,
-        headline: "", subline: "",
+        headline: suggestedTitle, subline: "",
       });
       pending--;
       if (pending === 0) render();
@@ -1312,8 +1333,8 @@ function buildPayload() {
     const clips = sec.clips.map((c, i) => {
       const fi = files.length;
       files.push(c.file);
-      // Por clip individual; fallback al headline default de la sección en el primero
-      const headline = (c.headline || "").trim() || (i === 0 ? (sec.headline || "").trim() : "");
+      // Solo usamos el headline del clip individual. Si está vacío, NO se renderiza texto.
+      const headline = (c.headline || "").trim();
       const subline = (c.subline || "").trim();
       return {
         file_index: fi,

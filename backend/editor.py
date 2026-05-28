@@ -443,22 +443,32 @@ def synth_ambient_music(output_file: str, duration: float) -> tuple[bool, str]:
 def mux_audio(video_file: str, music_file: str,
               voice_file: Optional[str], output_file: str) -> tuple[bool, str]:
     """Mux video with music (and optional voice).
-    El VIDEO siempre dicta la duración final. Si la voz es más corta que el reel,
-    se mezcla con silencio padded al resto. Música baja a 25% durante toda la voz.
+    El VIDEO siempre dicta la duración final.
+    Con voz: sidechain ducking REAL — música a volumen alto cuando NO hay voz,
+    baja automáticamente cuando suena la voz.
+    Sin voz: música a volumen normal alto.
     """
-    # Probe video duration (lo usamos para padear/trimear el audio al video)
     video_dur = probe_duration(video_file)
     if video_dur <= 0:
         return False, "No pude obtener duración del video"
 
     if voice_file and Path(voice_file).exists():
-        # Música 25% + voz 100%, ambas padeadas/trimeadas al largo del video
-        # apad = agrega silencio al final, atrim = corta al largo exacto del video
+        # Ducking dinámico real con sidechaincompress:
+        # - Música a 80% base (audible cuando no hay voz)
+        # - Voz a 100%
+        # - sidechaincompress comprime la música SOLO cuando detecta voz
+        # - Resultado: música alta cuando no habla, baja cuando habla
         filter_complex = (
-            f"[1:a]volume=0.25,apad[music_padded];"
-            f"[2:a]volume=1.0,apad[voice_padded];"
-            f"[music_padded][voice_padded]amix=inputs=2:duration=longest:normalize=0[mix];"
-            f"[mix]volume=1.2,atrim=0:{video_dur:.2f},asetpts=PTS-STARTPTS[out]"
+            f"[1:a]volume=0.8,apad[music_base];"
+            f"[2:a]volume=1.0,apad[voice_base];"
+            # Split voice para usar uno como sidechain key y otro en mix
+            f"[voice_base]asplit=2[voice_for_mix][voice_for_sc];"
+            # Sidechain compress: música ducks cuando voz suena
+            f"[music_base][voice_for_sc]sidechaincompress="
+            f"threshold=0.05:ratio=10:attack=20:release=500:makeup=2[music_ducked];"
+            # Mix de música ducked + voz
+            f"[music_ducked][voice_for_mix]amix=inputs=2:duration=longest:normalize=0[mix];"
+            f"[mix]volume=1.5,atrim=0:{video_dur:.2f},asetpts=PTS-STARTPTS[out]"
         )
         cmd = [
             "ffmpeg", "-y",
@@ -472,9 +482,9 @@ def mux_audio(video_file: str, music_file: str,
             output_file
         ]
     else:
-        # Solo música — padear y trimear al video también
+        # Solo música — VOLUME boost para que se escuche bien
         filter_complex = (
-            f"[1:a]apad,atrim=0:{video_dur:.2f},asetpts=PTS-STARTPTS[out]"
+            f"[1:a]volume=1.5,apad,atrim=0:{video_dur:.2f},asetpts=PTS-STARTPTS[out]"
         )
         cmd = [
             "ffmpeg", "-y",
@@ -524,24 +534,22 @@ def process_clip_combined(input_path: str, output_path: str,
         preset, crf = "ultrafast", "23"
 
     # 3. Text overlay (si hay texto)
-    # Sombra uniforme (no diagonal) usando borderw con color al 70% opaco.
-    # borderw simula una sombra/contorno parejo alrededor de toda la letra.
+    # Estilo CapCut: letras blancas limpias, sin borde, sin sombra.
+    # El contraste con el fondo del clip es suficiente para legibilidad.
     effective_duration = trim_duration / speed
     if headline or subline:
         fade_out_start = max(0.1, effective_duration - 0.3)
         if headline:
             filters.append(
                 f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
-                f"fontsize=38:fontcolor=white:"
-                f"x=(w-text_w)/2:y=(h-text_h)/2-25:"
-                f"borderw=2:bordercolor=black@0.7"
+                f"fontsize=42:fontcolor=white:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2-28"
             )
         if subline:
             filters.append(
                 f"drawtext=fontfile={FONT_REG}:text='{_esc(subline)}':"
-                f"fontsize=24:fontcolor=white:"
-                f"x=(w-text_w)/2:y=(h-text_h)/2+25:"
-                f"borderw=2:bordercolor=black@0.7"
+                f"fontsize=26:fontcolor=white:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2+28"
             )
         filters.append(
             f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_out_start}:d=0.3"
