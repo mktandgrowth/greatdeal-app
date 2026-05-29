@@ -539,7 +539,7 @@ def mux_audio(video_file: str, music_file: str,
             f"[2:a]"
             f"highpass=f=100,"           # corta rumble bajo (AC, manos, golpes)
             f"afftdn=nr=20:nf=-30:tn=1," # denoiser FFT fuerte, track noise
-            f"anlmdn=s=0.0002:p=0.002:r=0.0006,"  # denoiser NLM residual
+            f"anlmdn=s=0.8:p=0.002:r=0.006,"  # denoiser NLM (params válidos para voz)
             f"acompressor=threshold=0.089:ratio=9:attack=10:release=150:makeup=2,"
             f"loudnorm=I=-14:LRA=9:TP=-1.5,"  # normalize a -14 LUFS (más alto que -16)
             f"apad[voice_clean];"
