@@ -547,7 +547,22 @@ function revertRunwayClip(clipId) {
 }
 
 function renderRunwayModal() {
-  const c = state.editor_clips.find(x => x.id === state.runway_active_clip_id);
+  // El clip activo puede venir de 3 lugares según el source:
+  //  - "editor": state.editor_clips (modal post-render)
+  //  - "guided": state.sections[key].clips (paso 1, modo guiado)
+  //  - "simple": state.simple_clips (paso 1, modo simple)
+  // Usamos los datos pre-guardados en state.runway_active_* para evitar
+  // depender de qué array contenga el clip.
+  let c = null;
+  if (state.runway_active_dataUrl) {
+    c = {
+      id: state.runway_active_clip_id,
+      dataUrl: state.runway_active_dataUrl,
+      fileName: state.runway_active_fileName || "clip",
+    };
+  } else if (state.editor_clips) {
+    c = state.editor_clips.find(x => x.id === state.runway_active_clip_id);
+  }
   if (!c) return "";
   const presetsHtml = state.runway_presets.map(p => {
     const active = state.runway_preset_keys.includes(p.key);
@@ -599,7 +614,7 @@ function renderRunwayModal() {
           <div class="flex items-center justify-between mb-4">
             <div>
               <div class="text-white font-bold text-lg">✨ Rehacer con IA</div>
-              <div class="text-xs text-slate-400">Clip: ${escapeHtml(c.fileName)} · ~${(c.trim_duration / c.speed).toFixed(1)}s</div>
+              <div class="text-xs text-slate-400">Clip: ${escapeHtml(c.fileName)}${(c.trim_duration && c.speed) ? ` · ~${(c.trim_duration / c.speed).toFixed(1)}s` : ''}</div>
             </div>
             <button onclick="closeRunwayModal()" class="text-slate-300 hover:text-white text-2xl leading-none">×</button>
           </div>

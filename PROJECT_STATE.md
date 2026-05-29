@@ -446,3 +446,85 @@ Vale tiene muchos cambios acumulados en disco que NO están en producción. Mañ
 ---
 
 *Última actualización: 2026-05-27 fin de día — todo listo, falta push y validar mañana*
+
+---
+
+## 17. Sesión 3 — 2026-05-28 — Música real Pixabay + Editar subtítulos + Fix Runway modal + UX post-render
+
+### Lo que se logró hoy
+
+- **Música real precargada (#86)**: reemplazado el sintetizador (que sonaba como sinusoides/vibraciones) por sistema de **archivos mp3 reales bundleados al repo en `backend/music/`**. Orden de prioridad en `download_music_track()`: (1) archivo en `backend/music/{preset_key}.mp3`, (2) cache en `/app/music_cache/`, (3) descarga desde URL del preset (Mixkit con headers de navegador), (4) fallback al sintetizador.
+- **5 tracks de Pixabay agregados** (Vale los descargó, todos cinematográficos/strings): asignados a `cinematic_view`, `elegant_piano`, `warm_acoustic`, `dreaming_big`, `corporate_inspiring`. Los 5 restantes (lofi, tech_house, happy_summer, urban_hiphop, chill_hiphop) caen al sintetizado hasta que Vale baje música de otros géneros.
+- **Mixkit no funciona desde Render** (HTTP 403 hotlinking). Probamos con User-Agent + Referer + Origin headers — sigue bloqueando IPs de datacenter. Por eso vamos por el approach de mp3 bundleados al repo.
+- **Editor de subtítulos post-Whisper (#88)**: nuevo modal "✍️ Editar subtítulos" que aparece en la pantalla del reel cuando hay voz. Backend guarda `subs_segments.json` después de Whisper; endpoint `GET /api/jobs/{id}/subtitles` devuelve los segments; `POST /api/jobs/{id}/subtitles` recibe edits y re-quema sobre `_pre_subs.mp4` (sin reprocesar todo, ~30s).
+- **Opacidad fondo subtítulos (#87)**: bajada de `&H80` (50% opaco) a `&HCC` (20% opaco). Tamaño reducido a 34px, padding (Outline) a 10.
+- **UX post-render rediseñado (#89)**: la pantalla "Tu reel está listo" ahora tiene una grilla visible de 4 botones grandes (Editor avanzado / Editar subtítulos / Cambiar música o voz / Cambiar datos o títulos) en vez de estar todo enterrado en un `<details>` accordion. Botón "↻ Re-generar reel" amarillo prominente. "Empezar otro reel" con confirmación en accordion al fondo.
+- **🔴 Fix bug Runway modal vacío**: `renderRunwayModal()` solo buscaba el clip en `state.editor_clips`. Cuando se abría desde paso 1 (guided o simple), el clip estaba en `state.sections[].clips` o `state.simple_clips` → find retornaba undefined → modal renderizaba `""` → "no pasa nada" al apretar el botón. Fix: usar `state.runway_active_dataUrl/fileName` que ya se pre-guarda al abrir el modal.
+
+### 🟡 PENDIENTE DE PUSH al cierre — IMPORTANTE
+
+Vale tiene TODO el código modificado + 5 mp3 sin renombrar en disco. Mañana lo primero es renombrar y pushear.
+
+**Archivos modificados (sin pushear):**
+- `backend/editor.py` — MUSIC_PRESETS con URLs Mixkit, `download_music_track()` con prioridad a `backend/music/`, `_synth_fallback_track()`, default cambiado a `cinematic_view`
+- `backend/main.py` — `/api/music-preview` con fallback a synth, endpoints GET/POST `/api/jobs/{id}/subtitles`, `Body` import, default cambiado a `cinematic_view`
+- `backend/subtitles.py` — ASS BackColour más transparente (`&HCC`), `apply_auto_subtitles` guarda segments JSON, nueva función `reapply_edited_subtitles()`
+- `frontend/index.html` — Paso 4 rediseñado con grilla de acciones, `openSubtitleEditor()` + `renderSubtitleEditorModal()` + `saveEditedSubtitles()`, fix `renderRunwayModal()` para los 3 sources, default `music_preset: "cinematic_view"`
+- `backend/music/README.md` — instrucciones para subir mp3
+- `backend/music/*.mp3` — 7 archivos descargados de Pixabay (con nombres originales largos, falta renombrar)
+
+### Primer paso de mañana — BLOQUE PARA PEGAR EN POWERSHELL
+
+Vale debe pegar este bloque completo en PowerShell. Renombra los 5 mp3, borra los 2 sobrantes (duplicados cinemáticos), commit y push:
+
+```powershell
+cd C:\Users\vales\OneDrive\Documents\Claude\GitHub\greatdeal-app\backend\music
+Rename-Item "petrushkasound-strings-cinematic-461974.mp3" "cinematic_view.mp3"
+Rename-Item "marry077-romantic-cinematic-strings-453922.mp3" "elegant_piano.mp3"
+Rename-Item "farran_ez-string-violin-cello-loop-456150.mp3" "warm_acoustic.mp3"
+Rename-Item "nastelbom-cinematic-music-495885.mp3" "dreaming_big.mp3"
+Rename-Item "nastelbom-epic-cinematic-2-507930.mp3" "corporate_inspiring.mp3"
+Remove-Item "sutton-cinematic-dramatic-cinematic-journey-529854.mp3"
+Remove-Item "grand_project-deep-epic-cinematic-when-time-collapses_medium-501530.mp3"
+cd C:\Users\vales\OneDrive\Documents\Claude\GitHub\greatdeal-app
+git add -A
+git commit -m "musica real Pixabay + fix runway modal + editar subs + UX post-render"
+git push
+```
+
+Después esperar ~3-5 min el redeploy de Render y validar end-to-end.
+
+### Pendientes priorizados para mañana
+
+🔴 **ALTA**
+1. **Push del bloque de arriba** — sin esto nada de hoy llega a producción
+2. **Validar end-to-end**: generar un reel con voz para probar los 5 nuevos tracks reales, el editor de subtítulos, el modal Runway desde paso 1, y el nuevo UX post-render
+3. **Vale baja 5 mp3 más** (lofi, tech house, ukulele, hip hop, chill hop) para cubrir los 5 presets restantes — opcional, no urgente
+
+🟡 **MEDIA**
+- Bug móvil #60 — re-validar el editor avanzado en celular (ahora que cambiamos UX)
+- Persistencia de jobs (#61) — los jobs se pierden con cada restart de Render; el editor de subtítulos necesita que el job esté vivo
+
+🟢 **BAJA**
+- ElevenLabs (#24)
+- Sistema de Proyectos (#61)
+
+### Cosas aprendidas hoy
+
+- **Mixkit bloquea hotlinking desde IPs de datacenter** aunque mandes User-Agent de Chrome. La solución es bundlear los mp3 con el repo (`backend/music/`) o usar Pixabay (que sí permite hotlinking explícitamente).
+- **`COPY . .` en el Dockerfile** copia automáticamente `backend/music/*.mp3` al container. Sin cambios al Dockerfile.
+- **Path real del repo de Vale**: `C:\Users\vales\OneDrive\Documents\Claude\GitHub\greatdeal-app\` (con `Claude\` en el medio). La carpeta `C:\Users\vales\OneDrive\Documents\GitHub\greatdeal-app\` está vacía — fue confusión mía en una sesión anterior. **Siempre usar el path con `Claude\`**.
+- **Bug clásico de render selectivo**: cuando una función de render espera datos de un solo lugar pero el state puede venir de varios (múltiples sources), `find().return ""` causa "nothing happens" sin errores en consola. Solución: render desde datos pre-guardados en state genérico, no buscando en arrays específicos.
+- **El sintetizador FFmpeg con sinusoides puede sonar como vibraciones**, no como música. Para una app que devuelve "calidad pro" no es aceptable como output principal — solo como fallback de emergencia.
+
+### Estado del repo al cierre
+
+- 7 mp3 en `backend/music/` con nombres originales de Pixabay (sin renombrar)
+- 5 archivos `.py` y 1 `.html` modificados (sin commit)
+- 1 archivo nuevo: `backend/music/README.md`
+- 0 commits/pushes hechos esta sesión
+- Producción sigue en el estado de la sesión 2 (sin las mejoras de hoy)
+
+---
+
+*Última actualización: 2026-05-28 fin de día — todo listo en disco, push pendiente, retomar mañana con el bloque PowerShell*

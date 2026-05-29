@@ -365,16 +365,24 @@ MUSIC_PRESETS = {
 
 
 def download_music_track(preset_key: str) -> tuple[bool, str]:
-    """Descarga la pista mp3 desde su URL al cache local.
+    """Resuelve la pista mp3 del preset. Orden de prioridad:
+      1. backend/music/{preset_key}.mp3 (commiteado al repo — MEJOR)
+      2. /app/music_cache/{preset_key}.mp3 (descargado previamente)
+      3. Descargar desde la URL del preset (Mixkit con headers de navegador)
     Retorna (success, local_path_or_error)."""
     preset = MUSIC_PRESETS.get(preset_key)
     if not preset:
         return False, f"preset desconocido: {preset_key}"
 
+    # 1) Archivo en el repo (bundled con el deploy) — la opción más confiable
+    bundled = Path(__file__).parent / "music" / f"{preset_key}.mp3"
+    if bundled.exists() and bundled.stat().st_size > 10_000:
+        return True, str(bundled)
+
     MUSIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cache_path = MUSIC_CACHE_DIR / f"{preset_key}.mp3"
 
-    # Si ya está cacheado y tiene contenido razonable, usar el cached
+    # 2) Cache de descargas previas
     if cache_path.exists() and cache_path.stat().st_size > 50_000:
         return True, str(cache_path)
 
