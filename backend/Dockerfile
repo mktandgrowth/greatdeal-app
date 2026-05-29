@@ -12,10 +12,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
  && rm -rf /var/lib/apt/lists/*
 
-# Descargar Montserrat font (4 pesos) desde Github (Google Fonts repo)
+# Descargar Montserrat font (5 pesos) desde Github (Google Fonts repo)
 RUN mkdir -p /usr/share/fonts/truetype/montserrat \
  && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-Black.ttf \
     "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Black.ttf" \
+ && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-ExtraBold.ttf \
+    "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-ExtraBold.ttf" \
  && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf \
     "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-SemiBold.ttf" \
  && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf \

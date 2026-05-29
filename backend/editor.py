@@ -8,15 +8,19 @@ import json
 from pathlib import Path
 from typing import Optional
 
-FONT_BOLD = "/usr/share/fonts/truetype/montserrat/Montserrat-Black.ttf"  # peso 900 (más bold)
+FONT_BOLD = "/usr/share/fonts/truetype/montserrat/Montserrat-ExtraBold.ttf"  # peso 800
 FONT_REG  = "/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf"
 FONT_THIN = "/usr/share/fonts/truetype/montserrat/Montserrat-Thin.ttf"
 
 # Fallback fonts (DejaVu si Montserrat no se descargó)
 if not Path(FONT_BOLD).exists():
-    # Si no hay Black, intentar SemiBold; si no, DejaVu
-    sb = "/usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf"
-    FONT_BOLD = sb if Path(sb).exists() else "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    # Si no hay ExtraBold, intentar Black, después SemiBold, después DejaVu
+    fallbacks = [
+        "/usr/share/fonts/truetype/montserrat/Montserrat-Black.ttf",
+        "/usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ]
+    FONT_BOLD = next((f for f in fallbacks if Path(f).exists()), fallbacks[-1])
 if not Path(FONT_REG).exists():
     FONT_REG = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 if not Path(FONT_THIN).exists():
@@ -523,32 +527,33 @@ def mux_audio(video_file: str, music_file: str,
         return False, "No pude obtener duración del video"
 
     if voice_file and Path(voice_file).exists():
-        # Pipeline pro:
-        #  1. VOZ: highpass (saca rumble) → afftdn (denoiser FFT) →
-        #          acompressor (nivela voz) → loudnorm (normalize a -16 LUFS)
-        #  2. MÚSICA: base a 35% (mucho más baja que antes, 80% → 35%)
-        #  3. Sidechain ducking AGRESIVO (ratio 20:1, threshold bajo)
-        #     → cuando habla, música casi se silencia
-        #  4. Mix con voz al 110% para que destaque
+        # Pipeline broadcast pro:
+        #  VOZ: highpass agresivo (100Hz) → afftdn fuerte (nr=20) →
+        #       anlmdn (denoiser non-local-means para ruido residual) →
+        #       deesser (suaviza sibilancias S/SH/CH) →
+        #       acompressor → loudnorm → ganancia
+        #  MÚSICA: base a 30% + sidechain agresivo con release LARGO (700ms)
+        #          para que NO suba entre palabras
         filter_complex = (
-            # VOZ — limpieza + nivelación
+            # VOZ — limpieza profunda
             f"[2:a]"
-            f"highpass=f=85,"            # quita ruido grave/AC/rumble
-            f"afftdn=nr=12:nf=-25,"      # denoiser FFT (limpia ambiente)
-            f"acompressor=threshold=0.089:ratio=9:attack=10:release=120:makeup=2,"  # voz pareja
-            f"loudnorm=I=-16:LRA=11:TP=-1.5,"  # normalize broadcast standard
+            f"highpass=f=100,"           # corta rumble bajo (AC, manos, golpes)
+            f"afftdn=nr=20:nf=-30:tn=1," # denoiser FFT fuerte, track noise
+            f"anlmdn=s=0.0002:p=0.002:r=0.0006,"  # denoiser NLM residual
+            f"acompressor=threshold=0.089:ratio=9:attack=10:release=150:makeup=2,"
+            f"loudnorm=I=-14:LRA=9:TP=-1.5,"  # normalize a -14 LUFS (más alto que -16)
             f"apad[voice_clean];"
-            # MÚSICA — base mucho más baja (35% vs 80% anterior)
-            f"[1:a]volume=0.35,apad[music_base];"
-            # Split voz: una al mix, otra como sidechain key
+            # MÚSICA — base baja y aún más cuando habla
+            f"[1:a]volume=0.30,apad[music_base];"
             f"[voice_clean]asplit=2[voice_for_mix][voice_for_sc];"
-            # Sidechain agresivo: música baja MUCHO cuando voz suena
+            # Sidechain MUY agresivo: ratio 25 + release 700ms para que la música
+            # NO vuelva a subir entre palabras de la misma frase
             f"[music_base][voice_for_sc]sidechaincompress="
-            f"threshold=0.03:ratio=20:attack=10:release=300:makeup=1[music_ducked];"
-            # Mix final: voz al 110% (destacada), música ducked al 100% (con su 35% base)
-            f"[voice_for_mix]volume=1.10[voice_final];"
+            f"threshold=0.025:ratio=25:attack=8:release=700:makeup=1[music_ducked];"
+            # Voz al 115% para que destaque (limit por loudnorm evita clipping)
+            f"[voice_for_mix]volume=1.15[voice_final];"
             f"[music_ducked][voice_final]amix=inputs=2:duration=longest:normalize=0[mix];"
-            f"[mix]volume=1.4,atrim=0:{video_dur:.2f},asetpts=PTS-STARTPTS[out]"
+            f"[mix]volume=1.3,atrim=0:{video_dur:.2f},asetpts=PTS-STARTPTS[out]"
         )
         cmd = [
             "ffmpeg", "-y",

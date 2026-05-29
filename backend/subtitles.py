@@ -29,11 +29,23 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cinema,{font},26,&H00FFFFFF,&H000000FF,&H00000000,&HE0000000,0,0,0,0,100,100,0,0,3,6,2,2,100,100,240,1
+Style: Cinema,{font},26,&H00FFFFFF,&H000000FF,&H00000000,&HF0000000,0,0,0,0,100,100,0,0,3,6,2,2,100,100,360,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+
+
+# Prompt con vocabulario inmobiliario chileno — fuerza a Whisper a usar
+# estos términos y reduce traducciones/errores. Se pasa como `prompt`.
+WHISPER_PROMPT_CHILE = (
+    "Esta es una descripción de una propiedad inmobiliaria en Chile, en español "
+    "chileno. Palabras comunes: comuna, dormitorio, baño, living, comedor, "
+    "cocina, terraza, jardín, estacionamiento, bodega, ascensor, conserjería, "
+    "metros cuadrados, m², UF, pesos, departamento, casa, parcela, oficina, "
+    "Las Condes, Vitacura, Providencia, Ñuñoa, La Reina, Lo Barnechea, Maipú, "
+    "Santiago, Concepción, Viña del Mar. La narración es natural y conversacional."
+)
 
 
 def transcribe_with_whisper(
@@ -42,6 +54,8 @@ def transcribe_with_whisper(
     language: str = "es",
 ) -> tuple[bool, dict | str]:
     """Transcribe audio file using OpenAI Whisper API.
+    Forzamos español + prompt con vocabulario chileno inmobiliario + temperature=0
+    para reducir traducciones espurias y errores de interpretación.
     Returns (success, result_dict or error_msg).
     result has keys: text, segments (list of {start, end, text}).
     """
@@ -54,11 +68,15 @@ def transcribe_with_whisper(
     try:
         with open(audio_path, "rb") as f:
             files = {"file": (Path(audio_path).name, f, "application/octet-stream")}
-            # Pedir timestamps por palabra (necesario para karaoke palabra-por-palabra)
+            # Pedir timestamps por palabra + segmento para flexibilidad
             data = [
                 ("model", "whisper-1"),
                 ("response_format", "verbose_json"),
                 ("language", language),
+                # Forzar transcripción (no traducción) y dar contexto del dominio
+                ("prompt", WHISPER_PROMPT_CHILE),
+                # temperature=0 → más determinista, menos alucinaciones
+                ("temperature", "0"),
                 ("timestamp_granularities[]", "word"),
                 ("timestamp_granularities[]", "segment"),
             ]
