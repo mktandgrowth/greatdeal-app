@@ -625,15 +625,20 @@ async def download(job_id: str):
 
 @app.get("/api/jobs/{job_id}/subtitles")
 async def get_job_subtitles(job_id: str):
-    """Devuelve los segments transcritos por Whisper para edición."""
+    """Devuelve los segments transcritos por Whisper para edición.
+    Si el job no está en memoria (restart de Render), buscamos por path en disk."""
     import json as _json
     job = jobs.get(job_id)
-    if not job:
-        raise HTTPException(404, "Job no encontrado")
-    work_dir = Path(job.get("work_dir", ""))
+    if job:
+        work_dir = Path(job.get("work_dir", ""))
+    else:
+        # Fallback: buscar work_dir por convención
+        work_dir = WORK_DIR / job_id
     segs_path = work_dir / "subs_segments.json"
     if not segs_path.exists():
-        return {"segments": [], "available": False, "reason": "no-segments-file"}
+        return {"segments": [], "available": False,
+                "reason": "no-segments-file",
+                "hint": "Regenerá el reel con voz para tener subs editables"}
     try:
         segments = _json.loads(segs_path.read_text(encoding="utf-8"))
     except Exception as e:
@@ -649,14 +654,17 @@ async def reapply_job_subtitles(job_id: str, payload: dict = Body(...)):
     """
     from subtitles import reapply_edited_subtitles
     job = jobs.get(job_id)
-    if not job:
-        raise HTTPException(404, "Job no encontrado")
     segments = payload.get("segments") or []
     if not isinstance(segments, list) or not segments:
         raise HTTPException(400, "Falta lista de segments")
 
-    work_dir = Path(job.get("work_dir", ""))
-    output_path = Path(job.get("output_path", ""))
+    if job:
+        work_dir = Path(job.get("work_dir", ""))
+        output_path = Path(job.get("output_path", ""))
+    else:
+        # Fallback por convención (mismo path que process_job)
+        work_dir = WORK_DIR / job_id
+        output_path = OUTPUT_DIR / f"reel_{job_id}.mp4"
     pre_subs = work_dir / "_pre_subs.mp4"
     if not pre_subs.exists():
         raise HTTPException(

@@ -1768,18 +1768,39 @@ async function openSubtitleEditor() {
     <div class="text-sm text-slate-700">Cargando subtítulos…</div></div>`;
   document.body.appendChild(ov);
   try {
-    const r = await fetch(API(`/jobs/${state.job_id}/subtitles`));
-    const j = await r.json();
+    const url = API(`/jobs/${state.job_id}/subtitles`);
+    let r;
+    try {
+      r = await fetch(url, { method: "GET", cache: "no-store" });
+    } catch (netErr) {
+      throw new Error(
+        "No pude contactar al servidor. Verificá tu conexión y que el reel " +
+        "siga disponible (Render puede haber reiniciado). Si el problema sigue, " +
+        "tocá '↻ Re-generar reel con cambios' y probá de nuevo."
+      );
+    }
     ov.remove();
+    if (!r.ok) {
+      if (r.status === 404) {
+        alert("Este reel ya no está disponible en el servidor (probablemente Render reinició). Tocá '↻ Re-generar reel con cambios' para crear uno nuevo y poder editar los subtítulos.");
+        return;
+      }
+      let detail = `HTTP ${r.status}`;
+      try { const tx = await r.text(); detail += ` — ${tx.slice(0, 200)}`; } catch (_) {}
+      alert("El servidor respondió con error: " + detail);
+      return;
+    }
+    const j = await r.json();
     if (!j.available || !j.segments || j.segments.length === 0) {
-      alert("No hay subtítulos transcritos para este reel. Asegurate de tener una voz cargada con subtítulos activados.");
+      alert((j.hint || "No hay subtítulos transcritos para este reel.") +
+            "\n\nAsegurate de tener voz cargada con subtítulos activados, regenerá el reel, y volvé a intentar.");
       return;
     }
     state._sub_segments = JSON.parse(JSON.stringify(j.segments));  // copia
     renderSubtitleEditorModal();
   } catch (e) {
-    ov.remove();
-    alert("Error cargando subtítulos: " + e.message);
+    if (document.getElementById("subEditOverlay")) ov.remove();
+    alert(e.message || String(e));
   }
 }
 

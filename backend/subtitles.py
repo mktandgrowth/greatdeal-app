@@ -29,7 +29,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cinema,{font},34,&H00FFFFFF,&H000000FF,&H00000000,&HCC000000,0,0,0,0,100,100,0,0,3,10,0,2,100,100,240,1
+Style: Cinema,{font},26,&H00FFFFFF,&H000000FF,&H00000000,&HE0000000,0,0,0,0,100,100,0,0,3,6,2,2,100,100,240,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -98,51 +98,78 @@ def generate_ass_file(
     font: str = "Poppins",
     time_offset: float = 0.0,
     words: Optional[list[dict]] = None,
+    chunk_words: int = 3,
 ) -> tuple[bool, str]:
     """Generate an .ass subtitle file.
-    Si `words` está disponible (lista de {word, start, end}), genera subtítulos
-    palabra por palabra estilo TikTok. Si no, fallback a segmentos completos.
+    Si `words` está disponible (lista de {word, start, end}), agrupa en chunks
+    cortos de `chunk_words` palabras (estilo TikTok/Reels). Si no, divide los
+    segments largos en chunks usando estimación de timing.
     """
     try:
         header = ASS_HEADER_TEMPLATE.format(font=font)
         lines = [header]
 
+        # MODO 1: tenemos words con timestamps individuales (mejor)
         if words and len(words) > 0:
-            # Modo karaoke: cada palabra aparece a medida que la voz la dice
-            for i, w in enumerate(words):
-                start = float(w.get("start", 0)) + time_offset
-                end = float(w.get("end", start + 0.4)) + time_offset
-                # Asegurar mínimo de visibilidad por palabra
-                if end - start < 0.15:
-                    end = start + 0.15
-                # Si la palabra dura demasiado (>1.2s), recortar
-                if end - start > 1.2:
-                    end = start + 1.2
+            chunks = []
+            buf = []
+            for w in words:
                 word_text = (w.get("word", "") or "").strip()
                 if not word_text:
                     continue
-                text = _escape_ass_text(word_text)
-                # Fade rápido in/out para que se vea ágil
-                text_with_fade = f"{{\\fad(80,80)}}{text}"
+                buf.append({
+                    "word": word_text,
+                    "start": float(w.get("start", 0)),
+                    "end": float(w.get("end", 0)),
+                })
+                if len(buf) >= chunk_words:
+                    chunks.append(buf)
+                    buf = []
+            if buf:
+                chunks.append(buf)
+
+            for chunk in chunks:
+                start = chunk[0]["start"] + time_offset
+                end = chunk[-1]["end"] + time_offset
+                # Gap chiquito entre chunks para que se vean separados
+                end = max(end - 0.05, start + 0.3)
+                text = _escape_ass_text(" ".join(w["word"] for w in chunk))
+                text_with_fade = f"{{\\fad(60,60)}}{text}"
                 dialogue = (
                     f"Dialogue: 0,{_format_ass_time(start)},"
                     f"{_format_ass_time(end)},Cinema,,0,0,0,,{text_with_fade}"
                 )
                 lines.append(dialogue)
+
+        # MODO 2: solo segments (frases largas) — los partimos por palabras + timing estimado
         else:
-            # Fallback: segmentos completos (frases) con fade más lento
             for seg in segments:
                 start = float(seg.get("start", 0)) + time_offset
                 end = float(seg.get("end", start + 2)) + time_offset
-                text = _escape_ass_text((seg.get("text", "") or "").strip())
-                if not text:
+                text_raw = (seg.get("text", "") or "").strip()
+                if not text_raw:
                     continue
-                text_with_fade = f"{{\\fad(150,150)}}{text}"
-                dialogue = (
-                    f"Dialogue: 0,{_format_ass_time(start)},"
-                    f"{_format_ass_time(end)},Cinema,,0,0,0,,{text_with_fade}"
-                )
-                lines.append(dialogue)
+                words_in_seg = text_raw.split()
+                total_words = len(words_in_seg)
+                if total_words == 0:
+                    continue
+                total_dur = max(end - start, 0.5)
+                # Dividir en chunks de chunk_words
+                num_chunks = max(1, (total_words + chunk_words - 1) // chunk_words)
+                chunk_dur = total_dur / num_chunks
+                for ci in range(num_chunks):
+                    chunk_words_list = words_in_seg[ci * chunk_words:(ci + 1) * chunk_words]
+                    if not chunk_words_list:
+                        continue
+                    c_start = start + ci * chunk_dur
+                    c_end = c_start + chunk_dur - 0.05  # mini gap
+                    text = _escape_ass_text(" ".join(chunk_words_list))
+                    text_with_fade = f"{{\\fad(80,80)}}{text}"
+                    dialogue = (
+                        f"Dialogue: 0,{_format_ass_time(c_start)},"
+                        f"{_format_ass_time(c_end)},Cinema,,0,0,0,,{text_with_fade}"
+                    )
+                    lines.append(dialogue)
 
         Path(output_path).write_text("\n".join(lines), encoding="utf-8")
         return True, ""
@@ -230,11 +257,10 @@ def apply_auto_subtitles(
         shutil.copy(video_path, output_path)
         return True, "no-segments-detected"
 
-    # 2. Generate ASS file
-    # Usamos SEGMENTOS (frases agrupadas) — estilo limpio tipo CapCut.
-    # Pasar words=None fuerza el fallback a segments naturales.
+    # 2. Generate ASS file con chunks de 3 palabras estilo TikTok
     ass_path = str(work / "subtitles.ass")
-    ok, err = generate_ass_file(segments, ass_path, words=None, font="Montserrat")
+    ok, err = generate_ass_file(segments, ass_path, words=words,
+                                 font="Montserrat", chunk_words=3)
     if not ok:
         return False, f"ASS: {err}"
 

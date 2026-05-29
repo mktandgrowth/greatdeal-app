@@ -523,22 +523,32 @@ def mux_audio(video_file: str, music_file: str,
         return False, "No pude obtener duración del video"
 
     if voice_file and Path(voice_file).exists():
-        # Ducking dinámico real con sidechaincompress:
-        # - Música a 80% base (audible cuando no hay voz)
-        # - Voz a 100%
-        # - sidechaincompress comprime la música SOLO cuando detecta voz
-        # - Resultado: música alta cuando no habla, baja cuando habla
+        # Pipeline pro:
+        #  1. VOZ: highpass (saca rumble) → afftdn (denoiser FFT) →
+        #          acompressor (nivela voz) → loudnorm (normalize a -16 LUFS)
+        #  2. MÚSICA: base a 35% (mucho más baja que antes, 80% → 35%)
+        #  3. Sidechain ducking AGRESIVO (ratio 20:1, threshold bajo)
+        #     → cuando habla, música casi se silencia
+        #  4. Mix con voz al 110% para que destaque
         filter_complex = (
-            f"[1:a]volume=0.8,apad[music_base];"
-            f"[2:a]volume=1.0,apad[voice_base];"
-            # Split voice para usar uno como sidechain key y otro en mix
-            f"[voice_base]asplit=2[voice_for_mix][voice_for_sc];"
-            # Sidechain compress: música ducks cuando voz suena
+            # VOZ — limpieza + nivelación
+            f"[2:a]"
+            f"highpass=f=85,"            # quita ruido grave/AC/rumble
+            f"afftdn=nr=12:nf=-25,"      # denoiser FFT (limpia ambiente)
+            f"acompressor=threshold=0.089:ratio=9:attack=10:release=120:makeup=2,"  # voz pareja
+            f"loudnorm=I=-16:LRA=11:TP=-1.5,"  # normalize broadcast standard
+            f"apad[voice_clean];"
+            # MÚSICA — base mucho más baja (35% vs 80% anterior)
+            f"[1:a]volume=0.35,apad[music_base];"
+            # Split voz: una al mix, otra como sidechain key
+            f"[voice_clean]asplit=2[voice_for_mix][voice_for_sc];"
+            # Sidechain agresivo: música baja MUCHO cuando voz suena
             f"[music_base][voice_for_sc]sidechaincompress="
-            f"threshold=0.05:ratio=10:attack=20:release=500:makeup=2[music_ducked];"
-            # Mix de música ducked + voz
-            f"[music_ducked][voice_for_mix]amix=inputs=2:duration=longest:normalize=0[mix];"
-            f"[mix]volume=1.5,atrim=0:{video_dur:.2f},asetpts=PTS-STARTPTS[out]"
+            f"threshold=0.03:ratio=20:attack=10:release=300:makeup=1[music_ducked];"
+            # Mix final: voz al 110% (destacada), música ducked al 100% (con su 35% base)
+            f"[voice_for_mix]volume=1.10[voice_final];"
+            f"[music_ducked][voice_final]amix=inputs=2:duration=longest:normalize=0[mix];"
+            f"[mix]volume=1.4,atrim=0:{video_dur:.2f},asetpts=PTS-STARTPTS[out]"
         )
         cmd = [
             "ffmpeg", "-y",
@@ -610,16 +620,19 @@ def process_clip_combined(input_path: str, output_path: str,
     if headline or subline:
         fade_out_start = max(0.1, effective_duration - 0.3)
         if headline:
+            # borderw del MISMO color (blanco) = engrosamiento visual (truco para
+            # "más bold que Black"). 2px en cada lado = ~33% más grueso percibido.
             filters.append(
                 f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
-                f"fontsize=42:fontcolor=white:"
-                f"x=(w-text_w)/2:y=(h-text_h)/2-28"
+                f"fontsize=48:fontcolor=white:"
+                f"borderw=2:bordercolor=white:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2-32"
             )
         if subline:
             filters.append(
                 f"drawtext=fontfile={FONT_REG}:text='{_esc(subline)}':"
                 f"fontsize=26:fontcolor=white:"
-                f"x=(w-text_w)/2:y=(h-text_h)/2+28"
+                f"x=(w-text_w)/2:y=(h-text_h)/2+34"
             )
         filters.append(
             f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_out_start}:d=0.3"
