@@ -527,30 +527,23 @@ def mux_audio(video_file: str, music_file: str,
         return False, "No pude obtener duración del video"
 
     if voice_file and Path(voice_file).exists():
-        # Pipeline broadcast pro:
-        #  VOZ: highpass agresivo (100Hz) → afftdn fuerte (nr=20) →
-        #       anlmdn (denoiser non-local-means para ruido residual) →
-        #       deesser (suaviza sibilancias S/SH/CH) →
-        #       acompressor → loudnorm → ganancia
-        #  MÚSICA: base a 30% + sidechain agresivo con release LARGO (700ms)
-        #          para que NO suba entre palabras
+        # Pipeline LITE (memory-safe para Render Standard 2GB):
+        #  VOZ: highpass + acompressor (sin afftdn ni anlmdn que son caros en RAM).
+        #  MÚSICA: base baja + sidechain ducking agresivo.
+        # TODO: re-agregar denoisers cuando upgradeemos plan o procesemos en chunks.
         filter_complex = (
-            # VOZ — limpieza profunda
+            # VOZ — limpieza mínima
             f"[2:a]"
-            f"highpass=f=100,"           # corta rumble bajo (AC, manos, golpes)
-            f"afftdn=nr=20:nf=-30:tn=1," # denoiser FFT fuerte, track noise
-            f"anlmdn=s=0.8:p=0.002:r=0.006,"  # denoiser NLM (params válidos para voz)
+            f"highpass=f=100,"           # quita rumble grave (AC, golpes)
             f"acompressor=threshold=0.089:ratio=9:attack=10:release=150:makeup=2,"
-            f"loudnorm=I=-14:LRA=9:TP=-1.5,"  # normalize a -14 LUFS (más alto que -16)
             f"apad[voice_clean];"
-            # MÚSICA — base baja y aún más cuando habla
+            # MÚSICA — base baja
             f"[1:a]volume=0.30,apad[music_base];"
             f"[voice_clean]asplit=2[voice_for_mix][voice_for_sc];"
-            # Sidechain MUY agresivo: ratio 25 + release 700ms para que la música
-            # NO vuelva a subir entre palabras de la misma frase
+            # Sidechain agresivo: música baja MUCHO cuando voz suena, release 700ms
             f"[music_base][voice_for_sc]sidechaincompress="
             f"threshold=0.025:ratio=25:attack=8:release=700:makeup=1[music_ducked];"
-            # Voz al 115% para que destaque (limit por loudnorm evita clipping)
+            # Voz al 115% para que destaque
             f"[voice_for_mix]volume=1.15[voice_final];"
             f"[music_ducked][voice_final]amix=inputs=2:duration=longest:normalize=0[mix];"
             f"[mix]volume=1.3,atrim=0:{video_dur:.2f},asetpts=PTS-STARTPTS[out]"
