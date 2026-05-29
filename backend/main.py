@@ -97,18 +97,33 @@ async def music_presets():
 
 @app.get("/api/music-preview/{preset_key}")
 async def music_preview(preset_key: str):
-    """Sirve el mp3 real del preset (descarga y cachea on-demand).
-    Mucho más rápido y simple que generar un AAC: servimos el mp3 original."""
-    from editor import download_music_track, MUSIC_PRESETS as _MP
+    """Sirve un preview del preset. Intenta primero el mp3 real (Mixkit);
+    si la CDN bloquea (403 hotlinking) o falla, genera un AAC sintetizado
+    como fallback para que la app siga funcionando."""
+    from editor import download_music_track, synth_music_preset, MUSIC_PRESETS as _MP
     if preset_key not in _MP:
         raise HTTPException(404, f"Preset '{preset_key}' no encontrado")
+
+    # 1) Intentar mp3 real (rápido si está cacheado)
     ok, result = download_music_track(preset_key)
-    if not ok:
-        print(f"[music-preview] FAIL {preset_key}: {result}", flush=True)
-        raise HTTPException(500, f"No pude obtener música '{preset_key}': {result[:300]}")
-    # result es el path al mp3 cacheado
-    return FileResponse(result, media_type="audio/mpeg",
-                        headers={"Cache-Control": "public, max-age=86400",
+    if ok:
+        return FileResponse(result, media_type="audio/mpeg",
+                            headers={"Cache-Control": "public, max-age=86400",
+                                     "Access-Control-Allow-Origin": "*"})
+
+    # 2) Fallback: sintetizar un AAC de 8s
+    print(f"[music-preview] mp3 falló ({result}), usando synth fallback", flush=True)
+    preview_dir = OUTPUT_DIR / "music_previews"
+    preview_dir.mkdir(exist_ok=True)
+    preview_path = preview_dir / f"{preset_key}.aac"
+    if not preview_path.exists() or preview_path.stat().st_size < 100:
+        if preview_path.exists():
+            preview_path.unlink()
+        ok2, err = synth_music_preset(preset_key, str(preview_path), 8.0)
+        if not ok2 or not preview_path.exists():
+            raise HTTPException(500, f"Preview falló: {err[:300]}")
+    return FileResponse(str(preview_path), media_type="audio/aac",
+                        headers={"Cache-Control": "public, max-age=3600",
                                  "Access-Control-Allow-Origin": "*"})
 
 

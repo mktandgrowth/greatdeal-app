@@ -378,40 +378,108 @@ def download_music_track(preset_key: str) -> tuple[bool, str]:
     if cache_path.exists() and cache_path.stat().st_size > 50_000:
         return True, str(cache_path)
 
-    url = preset["url"]
-    print(f"[music] descargando {preset_key} desde {url}", flush=True)
+    # URLs candidatas: principal + fallbacks. Probamos en orden.
+    urls = [preset["url"]] + (preset.get("fallback_urls") or [])
+    # Headers de navegador real — Mixkit/CDNs bloquean User-Agent python-requests
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "audio/mpeg, audio/*, */*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
+        "Referer": "https://mixkit.co/",
+        "Origin": "https://mixkit.co",
+        "Range": "bytes=0-",
+    }
 
-    try:
-        import requests
-        r = requests.get(url, timeout=60, stream=True)
-        if r.status_code != 200:
-            return False, f"HTTP {r.status_code} al descargar {url}"
-        with open(cache_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-        if cache_path.stat().st_size < 10_000:
-            return False, f"download too small ({cache_path.stat().st_size} bytes)"
-        return True, str(cache_path)
-    except Exception as e:
-        return False, f"download failed: {str(e)[:200]}"
+    import requests
+    last_err = ""
+    for url in urls:
+        print(f"[music] descargando {preset_key} desde {url}", flush=True)
+        try:
+            with requests.Session() as sess:
+                sess.headers.update(headers)
+                # Algunas CDNs requieren primero un HEAD/visita a la página
+                r = sess.get(url, timeout=60, stream=True, allow_redirects=True)
+                if r.status_code not in (200, 206):
+                    last_err = f"HTTP {r.status_code} para {url}"
+                    print(f"[music] {last_err}", flush=True)
+                    continue
+                with open(cache_path, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                if cache_path.stat().st_size < 10_000:
+                    last_err = f"download too small ({cache_path.stat().st_size} bytes)"
+                    cache_path.unlink(missing_ok=True)
+                    continue
+                return True, str(cache_path)
+        except Exception as e:
+            last_err = f"exception: {str(e)[:200]}"
+            continue
+
+    return False, last_err or "no URL funcionó"
+
+
+# Fallback: parámetros de síntesis básica por preset (para cuando la descarga
+# de Mixkit falla — la app sigue funcionando aunque suene más simple).
+SYNTH_FALLBACK = {
+    "cinematic_view":      {"freqs": [55, 82.5, 110, 165], "vols": [0.7, 0.5, 0.4, 0.3], "lowpass": 1800, "post": 1.6, "echo": True},
+    "elegant_piano":       {"freqs": [146.83, 220, 293.66], "vols": [0.5, 0.45, 0.35], "lowpass": 3500, "post": 1.5, "echo": True},
+    "warm_acoustic":       {"freqs": [130.81, 196, 261.63], "vols": [0.5, 0.4, 0.3], "lowpass": 2400, "post": 1.45, "echo": False},
+    "happy_summer":        {"freqs": [261.63, 392, 523.25], "vols": [0.45, 0.4, 0.35], "lowpass": 5000, "post": 1.4, "echo": False},
+    "corporate_inspiring": {"freqs": [110, 165], "vols": [0.55, 0.4], "lowpass": 2500, "post": 1.4, "echo": False},
+    "dreaming_big":        {"freqs": [220, 330, 440], "vols": [0.5, 0.4, 0.3], "lowpass": 4000, "post": 1.4, "echo": False},
+    "lofi_chill":          {"freqs": [110, 165, 220], "vols": [0.6, 0.4, 0.3], "lowpass": 2200, "post": 1.5, "echo": False},
+    "tech_house":          {"freqs": [82.5, 165, 247.5], "vols": [0.55, 0.4, 0.3], "lowpass": 3000, "post": 1.5, "echo": False},
+    "urban_hiphop":        {"freqs": [55, 110, 165], "vols": [0.6, 0.45, 0.35], "lowpass": 2000, "post": 1.5, "echo": True},
+    "chill_hiphop":        {"freqs": [82.5, 165, 220], "vols": [0.55, 0.4, 0.3], "lowpass": 2400, "post": 1.45, "echo": False},
+}
+
+
+def _synth_fallback_track(preset_key: str, output_file: str,
+                          duration: float) -> tuple[bool, str]:
+    """Sintetiza una pista usando FFmpeg sine — fallback cuando no se puede
+    descargar la música real."""
+    p = SYNTH_FALLBACK.get(preset_key, SYNTH_FALLBACK["cinematic_view"])
+    freqs, vols = p["freqs"], p["vols"]
+    fade_out_start = max(2, duration - 2)
+    sines = ";".join(f"sine=f={f}:duration={duration}[s{i}]" for i, f in enumerate(freqs))
+    voiced = ";".join(
+        f"[s{i}]volume={vols[i]},"
+        f"afade=t=in:st=0:d={2 + i * 0.3},"
+        f"afade=t=out:st={fade_out_start}:d=2[a{i}]"
+        for i in range(len(freqs))
+    )
+    inputs = "".join(f"[a{i}]" for i in range(len(freqs)))
+    mix = f"{inputs}amix=inputs={len(freqs)}:duration=longest:normalize=0[mix]"
+    post = f"[mix]lowpass=f={p['lowpass']}"
+    if p["echo"]:
+        post += ",aecho=0.6:0.3:600:0.3"
+    post += f",volume={p['post']}[out]"
+    cmd = [
+        "ffmpeg", "-y", "-filter_complex", f"{sines};{voiced};{mix};{post}",
+        "-map", "[out]", "-ac", "2", "-ar", "44100",
+        "-c:a", "aac", "-b:a", "128k", "-t", str(duration), output_file
+    ]
+    return run(cmd, f"synth-fallback {preset_key}")
 
 
 def synth_music_preset(preset_key: str, output_file: str,
                         duration: float) -> tuple[bool, str]:
-    """Toma la pista real del preset, la loopea si hace falta, recorta a duración,
-    aplica fade-out y la convierte a AAC. Nombre mantenido por compat."""
+    """Toma la pista real del preset (descarga + loopea + recorta + fade-out).
+    Si la descarga falla (CDN bloquea, network down), cae al sintetizador.
+    Nombre mantenido por compat."""
     # Fallback al primer preset si vienen claves viejas/inválidas
     if preset_key not in MUSIC_PRESETS:
         preset_key = "cinematic_view"
 
     ok, mp3_path = download_music_track(preset_key)
     if not ok:
-        return False, mp3_path  # error message
+        print(f"[music] download falló ({mp3_path}) — uso fallback sintetizado", flush=True)
+        return _synth_fallback_track(preset_key, output_file, duration)
 
     fade_out_start = max(0.5, duration - 1.5)
-    # -stream_loop -1 loopea infinitamente la entrada hasta que -t corte.
-    # afade out al final para que no se corte brusco.
     cmd = [
         "ffmpeg", "-y",
         "-stream_loop", "-1", "-i", mp3_path,
@@ -421,7 +489,12 @@ def synth_music_preset(preset_key: str, output_file: str,
         "-c:a", "aac", "-b:a", "160k",
         output_file
     ]
-    return run(cmd, f"music {preset_key}")
+    ok, err = run(cmd, f"music {preset_key}")
+    if not ok:
+        # Si el mp3 está corrupto, también caemos al synth
+        print(f"[music] FFmpeg falló con mp3 real — uso fallback", flush=True)
+        return _synth_fallback_track(preset_key, output_file, duration)
+    return True, ""
 
 
 # Backward-compatible alias
