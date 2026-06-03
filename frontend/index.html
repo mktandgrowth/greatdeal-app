@@ -1112,24 +1112,194 @@ function renderSimpleUpload() {
   return dropzone + grid;
 }
 
-function handleSimpleUpload(files) {
+// ─────────────────────────────────────────────────────────────────
+// COMPRESIÓN CLIENT-SIDE de videos antes de upload
+// Reescala a 540x960 a ~1.5 Mbps usando Canvas + MediaRecorder.
+// iPhone 4K (~200 MB) → ~5-15 MB. Permite subir en red móvil sin
+// "Failed to fetch". Si falla (browser viejo), fallback al original.
+// ─────────────────────────────────────────────────────────────────
+const COMPRESS_TARGET_W = 540;
+const COMPRESS_TARGET_H = 960;
+const COMPRESS_BITRATE = 1_500_000; // 1.5 Mbps — buena calidad para reels
+
+function pickRecorderMimeType() {
+  const candidates = [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9",
+    "video/webm",
+    "video/mp4",
+  ];
+  for (const t of candidates) {
+    try { if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t; }
+    catch (_) {}
+  }
+  return null;
+}
+
+async function compressVideoFile(file, onProgress) {
+  // Si el browser no soporta MediaRecorder o el archivo ya es pequeño, no comprimir
+  const mime = pickRecorderMimeType();
+  if (!mime || !HTMLCanvasElement.prototype.captureStream) {
+    return file; // fallback al original
+  }
+  if (file.size < 5 * 1024 * 1024) {
+    return file; // <5MB ya es razonable, no comprimir
+  }
+
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.src = URL.createObjectURL(file);
+    video.muted = true;
+    video.playsInline = true;
+    video.crossOrigin = "anonymous";
+
+    const cleanup = () => { try { URL.revokeObjectURL(video.src); } catch (_) {} };
+    const failSafe = setTimeout(() => { cleanup(); resolve(file); }, 120_000);
+
+    video.onerror = () => { clearTimeout(failSafe); cleanup(); resolve(file); };
+    video.onloadedmetadata = async () => {
+      try {
+        const srcW = video.videoWidth, srcH = video.videoHeight;
+        if (!srcW || !srcH) { clearTimeout(failSafe); cleanup(); return resolve(file); }
+
+        // Aspect-fit dentro de 540x960 con padding negro (matchea pipeline FFmpeg)
+        const srcAspect = srcW / srcH;
+        const tgtAspect = COMPRESS_TARGET_W / COMPRESS_TARGET_H;
+        let dstW, dstH;
+        if (srcAspect > tgtAspect) {
+          dstW = COMPRESS_TARGET_W;
+          dstH = Math.round(COMPRESS_TARGET_W / srcAspect);
+        } else {
+          dstH = COMPRESS_TARGET_H;
+          dstW = Math.round(COMPRESS_TARGET_H * srcAspect);
+        }
+        const offX = Math.round((COMPRESS_TARGET_W - dstW) / 2);
+        const offY = Math.round((COMPRESS_TARGET_H - dstH) / 2);
+
+        const canvas = document.createElement("canvas");
+        canvas.width = COMPRESS_TARGET_W;
+        canvas.height = COMPRESS_TARGET_H;
+        const ctx = canvas.getContext("2d", { alpha: false });
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, COMPRESS_TARGET_W, COMPRESS_TARGET_H);
+
+        const stream = canvas.captureStream(30);
+
+        // Capturar audio del video original si tiene
+        try {
+          if (video.captureStream) {
+            const vs = video.captureStream();
+            vs.getAudioTracks().forEach(t => stream.addTrack(t));
+          }
+        } catch (_) {}
+
+        const recorder = new MediaRecorder(stream, {
+          mimeType: mime,
+          videoBitsPerSecond: COMPRESS_BITRATE,
+        });
+        const chunks = [];
+        recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+        recorder.onerror = () => { clearTimeout(failSafe); cleanup(); resolve(file); };
+        recorder.onstop = () => {
+          clearTimeout(failSafe);
+          try {
+            const blob = new Blob(chunks, { type: mime });
+            const ext = mime.includes("mp4") ? "mp4" : "webm";
+            const baseName = file.name.replace(/\.[^.]+$/, "");
+            const compressed = new File([blob], `${baseName}_opt.${ext}`, { type: mime });
+            cleanup();
+            // Si la compresión no redujo, devolver original
+            if (compressed.size >= file.size * 0.95) {
+              return resolve(file);
+            }
+            resolve(compressed);
+          } catch (_) {
+            cleanup();
+            resolve(file);
+          }
+        };
+
+        let stopped = false;
+        const drawFrame = () => {
+          if (stopped) return;
+          if (video.ended || video.paused) {
+            stopped = true;
+            try { recorder.stop(); } catch (_) {}
+            return;
+          }
+          ctx.drawImage(video, offX, offY, dstW, dstH);
+          if (typeof onProgress === "function") {
+            onProgress(Math.min(0.99, video.currentTime / Math.max(0.1, video.duration || 1)));
+          }
+          requestAnimationFrame(drawFrame);
+        };
+
+        video.onended = () => {
+          if (!stopped) { stopped = true; try { recorder.stop(); } catch (_) {} }
+        };
+
+        recorder.start(500);
+        await video.play();
+        drawFrame();
+      } catch (_) {
+        clearTimeout(failSafe);
+        cleanup();
+        resolve(file);
+      }
+    };
+  });
+}
+
+// Overlay simple para mostrar progreso de compresión
+function showCompressionOverlay(total) {
+  let ov = document.getElementById("compressOverlay");
+  if (!ov) {
+    ov = document.createElement("div");
+    ov.id = "compressOverlay";
+    ov.className = "fixed inset-0 flex items-center justify-center z-50";
+    ov.style.background = "rgba(0,0,0,0.75)";
+    ov.style.backdropFilter = "blur(8px)";
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = `<div style="background: var(--bg-card); border: 1px solid var(--gold-border); padding: 24px 32px; border-radius: 20px; text-align: center; min-width: 260px;">
+    <div class="spinner w-10 h-10 rounded-full mx-auto mb-3" style="border: 3px solid var(--border-medium); border-top-color: var(--gold);"></div>
+    <div class="serif-heading" style="color: var(--gold); font-size: 18px; margin-bottom: 4px;">Optimizando video…</div>
+    <div id="compressProgress" style="color: var(--text-muted); font-size: 12px; letter-spacing: 0.04em;">Preparando 1 / ${total}</div>
+    <div style="color: var(--text-faint); font-size: 10px; margin-top: 8px;">Reduciendo tamaño para subida rápida</div>
+  </div>`;
+}
+function updateCompressionOverlay(idx, total, pct) {
+  const p = document.getElementById("compressProgress");
+  if (p) p.textContent = `Video ${idx} / ${total} · ${Math.round((pct || 0) * 100)}%`;
+}
+function hideCompressionOverlay() {
+  const ov = document.getElementById("compressOverlay");
+  if (ov) ov.remove();
+}
+
+async function handleSimpleUpload(files) {
   const arr = Array.from(files).filter(f => f.type.startsWith("video/"));
   if (arr.length === 0) return;
-  let pending = arr.length;
-  arr.forEach(f => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      const suggestedTitle = suggestSimpleHeadline(state.simple_clips.length);
-      state.simple_clips.push({
-        id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        file: f, dataUrl: e.target.result, name: f.name,
-        headline: suggestedTitle, subline: "",
-      });
-      pending--;
-      if (pending === 0) { render(); setTimeout(initSimpleSortable, 50); }
-    };
-    reader.readAsDataURL(f);
-  });
+  showCompressionOverlay(arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    updateCompressionOverlay(i + 1, arr.length, 0);
+    const compressed = await compressVideoFile(arr[i], (p) => updateCompressionOverlay(i + 1, arr.length, p));
+    const dataUrl = await new Promise((res) => {
+      const r = new FileReader();
+      r.onload = e => res(e.target.result);
+      r.readAsDataURL(compressed);
+    });
+    const suggestedTitle = suggestSimpleHeadline(state.simple_clips.length);
+    state.simple_clips.push({
+      id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      file: compressed, dataUrl, name: compressed.name,
+      headline: suggestedTitle, subline: "",
+    });
+    render();
+    setTimeout(initSimpleSortable, 50);
+  }
+  hideCompressionOverlay();
 }
 
 function removeSimpleClip(id) {
@@ -1248,28 +1418,30 @@ function suggestSimpleHeadline(indexInList) {
   return `Toma ${indexInList + 1}`;
 }
 
-function handleSectionUpload(key, files) {
+async function handleSectionUpload(key, files) {
   const cfg = SECTION_CONFIG[key];
   const sec = state.sections[key];
   const slotsLeft = cfg.maxClips - sec.clips.length;
   const arr = Array.from(files).filter(f => f.type.startsWith("video/")).slice(0, slotsLeft);
-  let pending = arr.length;
-  if (pending === 0) return;
-  arr.forEach(f => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      // Pre-llenar headline editable según sección (Vale puede borrarlo o cambiarlo)
-      const suggestedTitle = suggestHeadline(key, sec.clips.length);
-      sec.clips.push({
-        id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        file: f, dataUrl: e.target.result, name: f.name,
-        headline: suggestedTitle, subline: "",
-      });
-      pending--;
-      if (pending === 0) render();
-    };
-    reader.readAsDataURL(f);
-  });
+  if (arr.length === 0) return;
+  showCompressionOverlay(arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    updateCompressionOverlay(i + 1, arr.length, 0);
+    const compressed = await compressVideoFile(arr[i], (p) => updateCompressionOverlay(i + 1, arr.length, p));
+    const dataUrl = await new Promise((res) => {
+      const r = new FileReader();
+      r.onload = e => res(e.target.result);
+      r.readAsDataURL(compressed);
+    });
+    const suggestedTitle = suggestHeadline(key, sec.clips.length);
+    sec.clips.push({
+      id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      file: compressed, dataUrl, name: compressed.name,
+      headline: suggestedTitle, subline: "",
+    });
+    render();
+  }
+  hideCompressionOverlay();
 }
 
 function removeSectionClip(key, idx) {
