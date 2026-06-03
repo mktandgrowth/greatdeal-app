@@ -32,123 +32,206 @@ RUNWAY_VERSION = "2024-11-06"
 STYLE_PRESETS = {
     "iluminacion_perfecta": {
         "label": "💡 Iluminación natural perfecta",
-        "description": "Como si lo grabara un fotógrafo profesional a las 12 del día",
+        "description": "DRAMATICA mejora de luz natural, espacio brillante e impecable",
         "prompt_es": (
-            "Misma escena con iluminación natural perfecta de mediodía, como si la grabara un fotógrafo "
-            "arquitectónico profesional a las 12 del día. Luz brillante y uniforme en todo el espacio, "
-            "sin sombras duras, exposición perfectamente balanceada, atmósfera fresca y aireada."
+            "DRAMATICAMENTE iluminar la escena con luz natural cinematográfica intensa, "
+            "como portada de revista Architectural Digest. SAME walls/furniture/layout (NO cambiar "
+            "estructura), pero iluminación TOTALMENTE transformada: luz dorada cinematográfica "
+            "entrando fuerte por ventanas, contraste rico, sombras dramáticas suaves, "
+            "exposición perfectamente expuesta, blancos brillantes glowing, atmosphere etérea premium."
         ),
-        # Core: el concepto principal sin la cinematografía detallada (se agrega al combinar)
         "prompt_core": (
-            "PERFECT natural midday sunlight as if photographed at 12 noon by an architectural photographer "
-            "for Architectural Digest, bright ambient daylight evenly distributed through windows, "
-            "no harsh shadows, perfectly balanced exposure, 5600K daylight color temperature, "
-            "bright airy fresh atmosphere, clean white walls glowing softly"
+            "DRAMATICALLY transformed lighting (architecture/furniture UNCHANGED): "
+            "intense cinematic natural sunlight pouring through windows creating volumetric god rays, "
+            "warm golden hour glow, rich contrast, dramatic soft shadows, "
+            "perfectly exposed highlights with detail in shadows, white walls glowing brilliantly, "
+            "5600K balanced daylight pushed to magazine cover quality, Architectural Digest professional look"
         ),
         "prompt_full": (
-            "Same exact scene completely preserved with all furniture and objects in identical positions, "
-            "but bathed in PERFECT natural midday sunlight as if photographed at exactly 12 noon on a clear sunny day "
-            "by a professional architectural photographer for Architectural Digest magazine. "
-            "Beautiful bright ambient daylight pouring evenly through every window, "
-            "soft diffused fill light reaching every corner of the room, no harsh shadows anywhere, "
-            "perfectly balanced exposure with detail in both highlights and shadows, "
-            "clean white walls glowing softly, every surface clearly visible and beautifully lit, "
-            "color temperature 5600K daylight balanced, slight warm boost in midtones, "
-            "subtle volumetric light rays visible in the air, fresh airy bright atmosphere, "
-            "shot on Phase One IQ4 medium format camera with 35mm Schneider Kreuznach lens at f/5.6, "
-            "tack sharp across entire frame, museum-quality real estate photography, "
-            "extremely slow smooth gimbal dolly forward movement, professional cinematography, "
-            "ultra-realistic, photorealistic, 4K cinematic quality, no text overlays, no people, no animals"
+            "EXACT same scene — walls, furniture, layout, decor, windows ALL preserved identically. "
+            "Transform ONLY the lighting DRAMATICALLY to magazine cover quality: "
+            "intense cinematic natural daylight pouring through every window creating beautiful "
+            "volumetric god rays in the air, warm golden cinematic glow, rich high-end contrast, "
+            "dramatic but soft shadows revealing texture and depth, perfectly balanced exposure "
+            "with crisp highlights and detail in shadows, white walls glowing softly luminous, "
+            "every surface beautifully illuminated, color temperature 5600K daylight balanced "
+            "pushed to Architectural Digest cover quality, slight warm cinematic boost in midtones. "
+            "Look as if shot at the PERFECT magical moment by a top architectural photographer "
+            "with Phase One IQ4 150MP medium format camera, 35mm Schneider Kreuznach lens at f/5.6, "
+            "professional 3-point HMI cinema lighting setup outside windows pushing light in, "
+            "tack sharp museum-quality real estate photography. "
+            "Extremely slow smooth gimbal dolly forward movement, professional cinematography, "
+            "ultra-realistic, photorealistic, 4K cinematic, no text overlays, no people, no animals"
         ),
     },
     "orden_limpieza": {
-        "label": "🧹 Orden y limpieza",
-        "description": "Saca cosas de encima, ordena, estira la cama",
+        "label": "🧹 Orden y limpieza extrema",
+        "description": "Vaciar TODO el desorden, look hotel 5 estrellas, calidad revista",
         "prompt_es": (
-            "Misma escena pero perfectamente ordenada y limpia, calidad revista. Sin objetos personales, "
-            "cables, papeles o desorden. Cama tendida estilo hotel con sábanas blancas y almohadas "
-            "arregladas. Mesones y mesas completamente despejados. Cojines simétricos en sofás. "
-            "Todo impecable como una suite de lujo."
+            "TRANSFORMACION EXTREMA a estado impecable nivel hotel 5 estrellas. SAME walls/furniture "
+            "(NO cambiar estructura), pero VACIAR completamente: cero objetos personales, cero "
+            "papeles, cero ropa, cero cables, cero items en superficies. Cama PERFECTAMENTE tendida "
+            "estilo Four Seasons con sábanas blancas crujientes, almohadas arregladas en geometría "
+            "perfecta. Mesones brillantes y vacíos. Cojines simétricos militarmente. "
+            "Suelos brillando. Look IMPECABLE como suite presidencial."
         ),
         "prompt_core": (
-            "PERFECTLY tidy magazine-quality immaculate state, ALL clutter and personal items removed "
-            "(no papers, cables, cups, clothes, remotes), bed made hotel-style with crisp white linens "
-            "and pillows arranged geometrically, all surfaces clear and spotless, "
-            "cushions on sofas arranged symmetrically, luxury hotel suite quality"
+            "EXTREME magazine-perfect tidiness (architecture UNCHANGED): "
+            "ALL clutter REMOVED—zero papers, cables, cups, clothes, toys, remotes, personal items. "
+            "Bed made hotel-style with crisp white Egyptian cotton linens, decorative pillows "
+            "arranged geometrically perfect, throw blanket folded precisely. "
+            "All countertops completely empty and gleaming spotless. "
+            "Cushions on sofas militarily symmetric, floors pristine shining like just-polished. "
+            "Look like Four Seasons presidential suite ready for VIP guest inspection"
         ),
         "prompt_full": (
-            "Same scene transformed to PERFECTLY tidy magazine-quality immaculate state. "
-            "Remove ALL clutter, personal items, papers, cups, glasses, cables, remotes, "
-            "clothing, toys, books out of place, and any visual mess. "
-            "Bed must be PERFECTLY made hotel-style with crisp white linens, "
-            "fluffed decorative pillows arranged geometrically, throw blanket folded precisely. "
-            "All surfaces completely clear and spotless—countertops empty and gleaming, "
-            "tables clear of any objects, no items on floors. "
-            "Cushions on sofas arranged in perfect symmetric pattern. "
-            "Curtains perfectly draped, floor pristine and shining, every surface polished. "
-            "Look like a luxury hotel suite ready for inspection. "
-            "Same lighting and camera angle preserved, just impeccable order everywhere. "
-            "Shot on Sony Venice with 35mm Master Prime lens, professional real estate cinematography, "
-            "smooth slow camera movement, ultra-realistic, photorealistic, 4K, no text, no people"
+            "SAME exact scene — walls, fixed furniture, layout, windows ALL preserved. "
+            "Transform to ABSOLUTELY IMPECCABLE 5-star hotel showroom state — EXTREME makeover: "
+            "REMOVE absolutely ALL clutter, personal items, papers, cups, glasses, cables, remotes, "
+            "clothing, toys, books out of place, kitchen appliances on counters, products in bathroom, "
+            "ANY visual mess whatsoever. Bed must be PERFECTLY made Four Seasons hotel-style with "
+            "crisp white Egyptian cotton linens, fluffed decorative pillows arranged in geometric "
+            "perfection, throw blanket folded precisely at 45 degrees. "
+            "ALL surfaces completely clear and gleaming — countertops empty and polished, "
+            "tables clear of all objects, nothing on floors, kitchen counters bare and shining. "
+            "Cushions on sofas arranged in perfect mirror symmetry. Curtains perfectly draped. "
+            "Floor pristine and reflective like just-mopped. Every surface polished, dust-free, "
+            "glowing. Look like Four Seasons presidential suite ready for a magazine photoshoot. "
+            "Same lighting and camera angle preserved, just IMPECCABLE order everywhere. "
+            "Shot on Sony Venice cinema camera with 35mm Master Prime lens, professional real estate "
+            "cinematography, ultra-realistic, photorealistic, 4K, no text, no people, no clutter"
         ),
     },
     "estabilizar_pro": {
-        "label": "🎬 Estabilizar y profesionalizar",
-        "description": "Rescata tomas movidas, borrosas o mal grabadas",
+        "label": "🎬 Cinematografía profesional",
+        "description": "Transforma toma amateur en cinematografía broadcast con grading rico",
         "prompt_es": (
-            "Misma escena pero como toma de cinematografía profesional. Movimiento de cámara "
-            "ultra-suave estabilizado con gimbal, enfoque perfectamente nítido, composición arquitectónica "
-            "balanceada. Como una toma de listado inmobiliario de alta gama."
+            "TRANSFORMACION COMPLETA a cinematografía broadcast premium. SAME walls/furniture/layout "
+            "(NO cambiar estructura), pero el resto TOTALMENTE elevado: movimiento de cámara "
+            "ULTRA suave estabilizado profesional, enfoque tack-sharp cristalino, color grading "
+            "cinematográfico rico (highlights cálidos + shadows fríos estilo Netflix), composición "
+            "arquitectónica balanceada con leading lines, depth of field cinemático. "
+            "Pasar de toma amateur a calidad de comercial de inmobiliaria de lujo."
         ),
         "prompt_core": (
-            "ULTRA-SMOOTH gimbal-stabilized cinematic camera movement (NO shake or wobble), "
-            "tack-sharp focus throughout entire frame, perfectly balanced architectural composition "
-            "with leading lines, slow intentional deliberate motion (smooth dolly or gentle pan)"
+            "DRAMATIC cinematic upgrade (architecture UNCHANGED): "
+            "ULTRA-smooth gimbal-stabilized motion (zero shake), tack-sharp crystal clear focus, "
+            "rich cinematic color grading (warm highlights + teal shadows, Netflix-quality), "
+            "perfect architectural composition with strong leading lines, "
+            "shallow cinematic depth of field with creamy bokeh, "
+            "elevated from amateur to luxury real estate commercial production value"
         ),
         "prompt_full": (
-            "Same scene completely re-imagined as a perfectly executed professional cinematography shot. "
-            "Replace any camera shake, wobble or handheld instability with ULTRA-SMOOTH gimbal-stabilized "
-            "cinematic movement, perfectly steady and deliberate. "
-            "If original is blurry, restore tack-sharp focus throughout entire frame. "
-            "If original is poorly composed, recompose to optimal real estate framing showing the space "
-            "professionally with leading lines and balanced architectural composition. "
-            "Slow, intentional, controlled camera motion—either a smooth dolly forward, "
-            "gentle pan left to right, or graceful slow reveal of the space. "
-            "Perfect exposure, balanced color grading, crystal clear image quality. "
-            "Shot on ARRI Alexa Mini LF with 35mm Master Anamorphic lens, "
-            "f/2.8 shallow depth of field with creamy bokeh, "
-            "professional architectural cinematography for high-end real estate listing, "
-            "ultra-realistic, photorealistic, 4K cinematic quality, no text, no people"
+            "SAME exact scene — walls, furniture, layout, decor ALL preserved. "
+            "Transform from amateur footage to BROADCAST CINEMA quality production: "
+            "Replace ANY camera shake, wobble, handheld instability, blur or amateur look with "
+            "ULTRA-SMOOTH professional gimbal-stabilized cinematic movement, perfectly steady, deliberate. "
+            "Restore tack-sharp crystal-clear focus across entire frame. "
+            "Recompose to optimal real estate framing with strong leading lines and balanced "
+            "architectural composition. Apply DRAMATIC cinematic color grading: warm golden highlights, "
+            "cool teal-ish shadows, rich saturation pushed to Netflix/HBO broadcast standard, "
+            "deep blacks, brilliant whites, midtones with magazine quality contrast. "
+            "Slow, intentional, controlled motion — smooth dolly forward, gentle pan, or graceful reveal. "
+            "Perfect exposure, masterful color science, crystal clear premium image quality. "
+            "Shot on ARRI Alexa Mini LF with 35mm Master Anamorphic lens, f/2.8 shallow depth of field "
+            "with creamy organic bokeh, professional architectural cinematography for "
+            "$10M+ real estate listing commercial. Ultra-realistic, photorealistic, 4K cinema, "
+            "no text overlays, no people"
         ),
     },
     "agregar_personas": {
         "label": "👥 Personas viviendo el lugar",
-        "description": "Una pareja tomando café, gente disfrutando el espacio",
+        "description": "Pareja elegante disfrutando el espacio, vibe aspiracional",
         "prompt_es": (
-            "Misma escena con una pareja joven y feliz viviendo el espacio naturalmente. "
-            "Uno tomando café, el otro relajado leyendo. Ropa casual elegante en tonos neutros. "
-            "Ellos no son el foco, la propiedad sigue siendo la estrella. Vibe aspiracional de lifestyle."
+            "Misma escena (SAME walls/furniture/layout, NO cambiar), AGREGAR pareja joven elegante "
+            "viviendo el espacio: uno tomando café en taza minimalista, el otro relajado leyendo, "
+            "ambos felices y cómodos. Ropa elegante casual tonos neutros (camisas blancas, jeans claros). "
+            "Ellos out-of-focus, la propiedad foco principal. Iluminación dorada cinemática golden hour. "
+            "Vibe aspiracional comercial de marca de lujo."
         ),
         "prompt_core": (
-            "young attractive happy couple in their 30s naturally living and enjoying the space "
-            "(one sipping coffee, the other relaxed reading or smiling), elegant casual clothing in "
-            "neutral tones (white shirts light jeans), they are NOT the focus the property remains the star, "
-            "slightly out of focus while architecture stays sharp, lifestyle aspirational vibe"
+            "(architecture UNCHANGED) ADD young attractive happy couple in their 30s naturally "
+            "enjoying the space (one sipping coffee, other relaxed reading or smiling), elegant casual "
+            "clothing in neutral tones (white shirts light jeans), they're OUT OF FOCUS while "
+            "architecture stays sharp, golden hour cinematic lighting, aspirational lifestyle commercial vibe"
         ),
         "prompt_full": (
-            "Same scene preserved, now with a young attractive happy couple in their 30s naturally "
-            "living and enjoying the space. They appear casually—one of them sipping coffee from a mug, "
-            "the other reading or smiling, both relaxed and comfortable. "
-            "They wear elegant casual clothing in neutral tones (white shirts, light jeans). "
-            "Their presence feels authentic and aspirational, like a lifestyle magazine cover. "
-            "They are NOT the focus—the property remains the star—they just inhabit the space gracefully. "
-            "Natural body language, soft smiles, intimate but discrete interaction. "
-            "Beautiful warm natural daylight floods the scene, golden hour lighting through windows, "
-            "shot on Sony FX6 with 35mm f/1.8 lens, shallow depth of field with creamy bokeh, "
-            "they're slightly out of focus while the architecture stays sharp, "
-            "smooth slow gimbal dolly movement, lifestyle real estate cinematography, "
-            "aspirational vibe like a luxury home commercial, "
-            "ultra-realistic, photorealistic, 4K cinematic quality, no text overlays"
+            "SAME exact scene — walls, furniture, layout, decor ALL preserved. "
+            "ADD a young attractive happy couple in their 30s naturally living and enjoying the space. "
+            "They appear casually — one sipping coffee from a minimalist ceramic mug, the other "
+            "reading or smiling softly, both relaxed and comfortable. They wear elegant casual "
+            "clothing in neutral tones (crisp white shirts, light denim jeans). "
+            "Their presence feels authentic, aspirational, like a luxury lifestyle magazine cover. "
+            "They are NOT the focus — the property remains the absolute star — they just gracefully "
+            "inhabit the space. Natural body language, soft genuine smiles, intimate but discrete. "
+            "Beautiful warm golden hour cinematic daylight floods the scene through windows, "
+            "rich cinematic color grading. Shot on Sony FX6 with 35mm f/1.8 lens, shallow depth of "
+            "field with creamy bokeh, they're slightly OUT OF FOCUS while architecture stays tack-sharp. "
+            "Smooth slow gimbal dolly movement, lifestyle real estate cinematography, "
+            "aspirational vibe like luxury home commercial for top brand, "
+            "ultra-realistic, photorealistic, 4K cinematic, no text overlays"
+        ),
+    },
+    "golden_hour_dramatico": {
+        "label": "🌅 Golden hour dramático",
+        "description": "Atardecer dorado cinematográfico premium",
+        "prompt_es": (
+            "TRANSFORMAR a golden hour dramático cinematográfico. SAME walls/furniture/layout "
+            "(NO cambiar), pero AGREGAR luz dorada espectacular del atardecer entrando por ventanas, "
+            "creando volumetric rays visibles en el aire, sombras alargadas dramáticas, color "
+            "grading cálido naranja-dorado-magenta, atmosphere mágica de hora dorada. Como "
+            "comercial de lujo de marca de joyería o auto premium."
+        ),
+        "prompt_core": (
+            "DRAMATIC golden hour transformation (architecture UNCHANGED): "
+            "spectacular warm golden sunset light pouring through windows, "
+            "visible volumetric god rays in the air, long dramatic shadows, "
+            "rich warm orange-gold-magenta color grading, magical atmosphere, "
+            "luxury jewelry commercial quality lighting"
+        ),
+        "prompt_full": (
+            "SAME exact scene — walls, furniture, layout ALL preserved. "
+            "TRANSFORM to dramatic GOLDEN HOUR cinematic moment: "
+            "spectacular warm golden sunset light pouring through every window, "
+            "creating beautiful visible volumetric god rays cutting through the air, "
+            "long dramatic shadows stretching across floors and walls, "
+            "rich cinematic color grading with warm oranges, deep golds, soft magentas, "
+            "highlights glowing warm, shadows deep and rich, magical hour atmosphere. "
+            "Look as if shot exactly 30 minutes before sunset by a top cinematographer "
+            "for a luxury jewelry or premium car commercial. "
+            "Shot on ARRI Alexa LF with anamorphic lens, T1.5 shallow depth, "
+            "premium broadcast cinematography, ultra-realistic, photorealistic, 4K, no text, no people"
+        ),
+    },
+    "revista_magazine": {
+        "label": "📸 Calidad revista premium",
+        "description": "Look Architectural Digest / Elle Decor — finish editorial",
+        "prompt_es": (
+            "TRANSFORMACION a calidad de revista de arquitectura premium (Architectural Digest / "
+            "Elle Decor / Dwell). SAME walls/furniture/layout (NO cambiar), pero TOTALMENTE "
+            "elevar el resto: iluminación editorial perfecta multi-fuente, composición editorial "
+            "balanceada, color grading rico cinematográfico, todo limpio e impecable, "
+            "vibe editorial sofisticada. Como portada de revista de diseño de interiores."
+        ),
+        "prompt_core": (
+            "(architecture UNCHANGED) EDITORIAL magazine cover transformation: "
+            "perfect multi-source editorial lighting, balanced editorial composition, "
+            "rich cinematic color grading, immaculate cleanliness, "
+            "sophisticated Architectural Digest / Elle Decor / Dwell editorial quality"
+        ),
+        "prompt_full": (
+            "SAME exact scene — walls, furniture, layout ALL preserved identically. "
+            "TRANSFORM to Architectural Digest magazine cover quality editorial photography: "
+            "Perfect multi-source professional lighting setup, key light + fill + rim lighting, "
+            "balanced editorial composition with rule of thirds and leading lines, "
+            "rich sophisticated cinematic color grading editor-magazine quality, "
+            "immaculate cleanliness (zero clutter, all surfaces polished), "
+            "luxurious sophisticated editorial atmosphere. "
+            "Look exactly like the cover photo of Architectural Digest, Elle Decor, or Dwell. "
+            "Shot on Phase One IQ4 150MP medium format with 35mm at f/8 for maximum sharpness, "
+            "tack sharp museum quality, perfect color science, "
+            "extremely slow smooth dolly movement, premium cinematography, "
+            "ultra-realistic, photorealistic, 4K editorial, no text, no people"
         ),
     },
 }
@@ -169,14 +252,15 @@ def combine_preset_prompts(preset_keys: list[str]) -> str:
     if not cores:
         return ""
     footer = (
-        "Shot on professional cinema camera with high-end lens, "
-        "smooth slow gimbal dolly movement, "
-        "professional real estate cinematography, "
+        "Shot on ARRI Alexa Mini LF with 35mm prime lens, "
+        "smooth slow gimbal dolly cinematic movement, "
+        "luxury real estate commercial cinematography production value, "
         "ultra-realistic, photorealistic, 4K cinematic quality, no text overlays"
     )
     combined = (
-        "Same scene preserved, transformed simultaneously with the following improvements: "
-        + ". Also, ".join(cores)
+        "DRAMATICALLY TRANSFORM scene (walls/layout/architecture UNCHANGED), "
+        "applying ALL these BOLD improvements simultaneously and visibly: "
+        + ". ALSO, ".join(cores)
         + ". " + footer
     )
     return combined
@@ -325,10 +409,14 @@ def enhance_clip_with_runway(
         frame_b64 = base64.b64encode(f.read()).decode("ascii")
     frame_data_url = f"data:image/jpeg;base64,{frame_b64}"
 
-    # 4. Build enriched prompt
+    # 4. Build enriched prompt — DRAMATICA transformación forzada con keywords
+    # "DRAMATICALLY transform" para que Runway no sea conservador con los cambios.
     enriched_prompt = (
-        f"{prompt}. Professional real estate video, smooth steady camera, "
-        f"high quality, photorealistic, no text overlays."
+        f"DRAMATICALLY TRANSFORM the scene with these professional improvements: {prompt}. "
+        f"Make the visual changes BOLD and CLEARLY VISIBLE compared to the original. "
+        f"Keep walls, layout and fixed architecture identical, but elevate everything else to "
+        f"luxury real estate commercial production quality. "
+        f"Smooth steady cinematic camera, ultra high quality, photorealistic, 4K, no text overlays."
     )
 
     # 5. Create task
