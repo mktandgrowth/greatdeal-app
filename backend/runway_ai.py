@@ -284,6 +284,52 @@ def _headers(api_key: str) -> dict:
     }
 
 
+def ensure_mp4_input(input_video: str, output_mp4: str) -> tuple[bool, str]:
+    """Normaliza un video a MP4 válido. Necesario para videos que vienen de
+    MediaRecorder del browser (webm con EBML header roto/incompleto que
+    FFmpeg no puede abrir directamente).
+
+    Estrategia:
+      1. Si ya es .mp4, intentar usar directo
+      2. Si falla, recodificar a mp4 con re-encode forzado
+    """
+    src = Path(input_video)
+    # Caso fácil: ya es mp4 y se puede leer
+    if src.suffix.lower() == ".mp4":
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", input_video],
+            capture_output=True, text=True
+        )
+        if probe.returncode == 0 and probe.stdout.strip():
+            # MP4 válido — copiar/symlink al output esperado
+            if str(src.resolve()) != str(Path(output_mp4).resolve()):
+                import shutil
+                shutil.copy(input_video, output_mp4)
+            else:
+                pass
+            return True, ""
+
+    # Path general: recodificar a mp4 (fix containers webm/mkv corruptos).
+    # Usamos preset rápido y crf 23 — sale liviano y arregla el header.
+    cmd = [
+        "ffmpeg", "-y",
+        "-fflags", "+genpts+igndts",  # regenera timestamps y ignora dts inválidos
+        "-i", input_video,
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        "-pix_fmt", "yuv420p",
+        output_mp4,
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    if r.returncode != 0:
+        return False, (r.stderr or "")[-500:]
+    if not Path(output_mp4).exists():
+        return False, "normalized mp4 not created"
+    return True, ""
+
+
 def extract_first_frame(video_path: str, output_image: str) -> tuple[bool, str]:
     """Extract the first frame of a video as JPG."""
     cmd = [
@@ -398,13 +444,20 @@ def enhance_clip_with_runway(
     except Exception as e:
         return False, str(e)
 
-    # 2. Extract first frame
+    # 2. Normalizar input a MP4 válido (fix webm de MediaRecorder browser
+    #    cuyo EBML header no es 100% compatible con FFmpeg)
+    normalized = str(work / "rw_input.mp4")
+    ok, err = ensure_mp4_input(input_video, normalized)
+    if not ok:
+        return False, f"Input normalization failed: {err}"
+
+    # 3. Extract first frame del input normalizado
     frame_path = str(work / "rw_frame.jpg")
-    ok, err = extract_first_frame(input_video, frame_path)
+    ok, err = extract_first_frame(normalized, frame_path)
     if not ok:
         return False, f"Frame extraction failed: {err}"
 
-    # 3. Encode frame as data URL
+    # 4. Encode frame as data URL
     with open(frame_path, "rb") as f:
         frame_b64 = base64.b64encode(f.read()).decode("ascii")
     frame_data_url = f"data:image/jpeg;base64,{frame_b64}"

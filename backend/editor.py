@@ -640,8 +640,11 @@ def process_clip_combined(input_path: str, output_path: str,
 
     # Importante: -ss DESPUÉS de -i = "slow seek" = preciso al frame exacto
     # (-ss antes de -i sería "fast seek" pero puede saltar a keyframe lejano)
+    # -fflags +genpts+igndts → tolera webm de MediaRecorder (browser compression)
+    # cuyo EBML header puede estar incompleto/streaming-style.
     cmd = [
         "ffmpeg", "-y",
+        "-fflags", "+genpts+igndts",
         "-i", input_path,
         "-ss", str(trim_start),
         "-t", str(trim_duration),
