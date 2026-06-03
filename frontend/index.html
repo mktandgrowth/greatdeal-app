@@ -6,62 +6,245 @@
 <title>GreatDeal · Editor</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  /* ────────────────────────────────────────────────────────────────
+     DESIGN SYSTEM — Dark luxury real estate (look "Valentina")
+     Paleta: charcoal black + champagne gold + crisp white
+     ──────────────────────────────────────────────────────────────── */
+  :root {
+    --bg-base:        #0a0a0b;    /* fondo general (black puro casi) */
+    --bg-card:        #131316;    /* cards/contenedores */
+    --bg-card-hover:  #1c1c20;
+    --bg-input:       #18181c;
+    --bg-elevated:    #1f1f24;    /* dropdowns, popovers */
+
+    --text-primary:   #f5f0e6;    /* texto principal, blanco champagne */
+    --text-secondary: #b8b3a7;    /* texto secundario, muted */
+    --text-muted:     #8a8579;
+    --text-faint:     #6a6559;
+
+    --gold:           #c9a86a;    /* accent dorado champagne */
+    --gold-bright:    #d4b876;
+    --gold-dark:      #a68a52;
+    --gold-soft:      rgba(201, 168, 106, 0.18);
+    --gold-border:    rgba(201, 168, 106, 0.35);
+
+    --success:        #6ec48a;
+    --error:          #e57676;
+    --border-subtle:  rgba(245, 240, 230, 0.08);
+    --border-medium:  rgba(245, 240, 230, 0.15);
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg-base) !important;
+    color: var(--text-primary);
+    min-height: 100vh;
+  }
+
+  /* Tipografía serif elegante para títulos premium */
+  .font-serif, h1.serif, .serif-heading {
+    font-family: 'Cormorant Garamond', 'Playfair Display', serif !important;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+
+  /* ────────────────────────────────────────────────────────────────
+     OVERRIDES de Tailwind utilities → mapear al design system
+     (así no hay que cambiar cada clase en el HTML uno por uno)
+     ──────────────────────────────────────────────────────────────── */
+  .bg-white { background-color: var(--bg-card) !important; color: var(--text-primary); }
+  .bg-slate-50 { background-color: var(--bg-base) !important; color: var(--text-primary); }
+  .bg-slate-100 { background-color: var(--bg-card-hover) !important; color: var(--text-primary); }
+  .bg-slate-200 { background-color: var(--bg-elevated) !important; }
+  .bg-slate-800 { background-color: var(--bg-card) !important; }
+  .bg-slate-900 { background-color: var(--gold) !important; color: var(--bg-base) !important; }
+  .bg-slate-950 { background-color: #050505 !important; }
+  .bg-stone-50, .bg-emerald-50, .bg-purple-50, .bg-amber-50, .bg-blue-50, .bg-red-50 { background-color: var(--bg-card) !important; color: var(--text-primary); }
+  .bg-amber-500, .bg-amber-400 { background-color: var(--gold) !important; color: var(--bg-base) !important; }
+  .bg-amber-600 { background-color: var(--gold-dark) !important; }
+  .bg-purple-600, .bg-purple-700 { background-color: var(--gold) !important; color: var(--bg-base) !important; }
+  .bg-emerald-500, .bg-emerald-600, .bg-green-500 { background-color: var(--success) !important; color: var(--bg-base) !important; }
+
+  .text-slate-900, .text-slate-800 { color: var(--text-primary) !important; }
+  .text-slate-700, .text-slate-600 { color: var(--text-secondary) !important; }
+  .text-slate-500, .text-slate-400 { color: var(--text-muted) !important; }
+  .text-slate-300 { color: var(--text-secondary) !important; }
+  .text-slate-200, .text-slate-100 { color: var(--text-primary) !important; }
+  .text-white { color: var(--text-primary) !important; }
+  .text-emerald-700, .text-emerald-800, .text-emerald-900, .text-emerald-600 { color: var(--success) !important; }
+  .text-amber-700, .text-amber-800, .text-amber-900, .text-amber-600 { color: var(--gold) !important; }
+  .text-purple-700, .text-purple-800, .text-purple-900, .text-purple-600 { color: var(--gold) !important; }
+  .text-red-700, .text-red-800, .text-red-900 { color: var(--error) !important; }
+
+  .border-slate-200, .border-slate-300 { border-color: var(--border-subtle) !important; }
+  .border-emerald-200, .border-emerald-300 { border-color: var(--gold-border) !important; }
+  .border-purple-200, .border-purple-300, .border-purple-400, .border-purple-500 { border-color: var(--gold-border) !important; }
+  .border-amber-200, .border-amber-300 { border-color: var(--gold-border) !important; }
+  .border-red-200, .border-red-300 { border-color: rgba(229, 118, 118, 0.3) !important; }
+
+  /* Inputs — fondo dark con borde sutil dorado */
+  input[type="text"], input[type="number"], input[type="email"], input[type="password"], textarea, select {
+    background-color: var(--bg-input) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-medium) !important;
+  }
+  input::placeholder, textarea::placeholder { color: var(--text-muted) !important; }
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--gold) !important;
+    outline: none !important;
+    box-shadow: 0 0 0 1px var(--gold-soft) !important;
+  }
+
+  /* Sombras dramáticas pero sutiles para el dark theme */
+  .shadow-sm, .shadow, .shadow-md, .shadow-lg, .shadow-xl { box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--border-subtle) !important; }
+
+  /* Hover states más sutiles en dark */
+  .hover\\:bg-slate-50:hover, .hover\\:bg-slate-100:hover, .hover\\:bg-white:hover { background-color: var(--bg-card-hover) !important; }
+  .hover\\:bg-slate-800:hover, .hover\\:bg-slate-900:hover { background-color: var(--gold-bright) !important; color: var(--bg-base) !important; }
+  .hover\\:bg-purple-700:hover, .hover\\:bg-amber-600:hover { background-color: var(--gold-bright) !important; }
+
+  /* Cards y contenedores — bordes más visibles con gold sutil */
+  .rounded-2xl, .rounded-xl, .rounded-3xl { border-color: var(--border-subtle); }
+
+  /* ──────────────── COMPONENTES CUSTOM ──────────────── */
   .fade-in { animation: fadeIn .3s ease-in; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-  .dropzone { transition: all 0.2s; border-style: dashed; }
-  .dropzone.drag { background: #dbeafe; border-color: #3b82f6; transform: scale(1.02); }
-  .spinner { animation: spin 1s linear infinite; }
+  .dropzone { transition: all 0.2s; border-style: dashed; border-color: var(--gold-border) !important; }
+  .dropzone.drag { background: var(--gold-soft) !important; border-color: var(--gold) !important; transform: scale(1.02); }
+  .spinner { animation: spin 1s linear infinite; border-color: var(--border-medium); border-top-color: var(--gold); }
   @keyframes spin { 100% { transform: rotate(360deg); } }
   .step-dot { transition: all 0.2s; }
   .section-card { transition: all 0.2s; }
-  .section-card.complete { border-color: #10b981; background: #f0fdf4; }
+  .section-card.complete { border-color: var(--gold) !important; background: var(--gold-soft) !important; }
   .clip-tile.sortable-ghost { opacity: 0.3; }
   .clip-tile.sortable-chosen { transform: scale(1.05); z-index: 10; }
-  .editor-modal { position: fixed; inset: 0; background: rgba(15,23,42,0.97); z-index: 100; overflow-y: auto; }
-  .editor-clip.sortable-ghost { opacity: 0.4; background: #1e40af; }
-  .editor-clip.sortable-chosen { transform: scale(1.02); box-shadow: 0 10px 40px rgba(0,0,0,0.4); }
+  .editor-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+  .editor-clip.sortable-ghost { opacity: 0.4; background: var(--gold-dark); }
+  .editor-clip.sortable-chosen { transform: scale(1.02); box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
   .drag-handle { cursor: grab; touch-action: none; }
   .drag-handle:active { cursor: grabbing; }
-  input[type="range"] { -webkit-appearance: none; appearance: none; height: 4px; background: #475569; border-radius: 2px; }
-  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; background: #fbbf24; border-radius: 50%; cursor: pointer; }
-  input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; background: #fbbf24; border-radius: 50%; cursor: pointer; border: none; }
+  input[type="range"] { -webkit-appearance: none; appearance: none; height: 4px; background: var(--bg-elevated); border-radius: 2px; }
+  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; background: var(--gold); border-radius: 50%; cursor: pointer; }
+  input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; background: var(--gold); border-radius: 50%; cursor: pointer; border: none; }
   details > summary { list-style: none; cursor: pointer; }
   details > summary::-webkit-details-marker { display: none; }
   details[open] .chev { transform: rotate(180deg); }
   .chev { transition: transform 0.2s; }
   .mode-pill { transition: all 0.2s; }
-  .mode-pill.active { background: #0f172a; color: white; }
+  .mode-pill.active { background: var(--gold) !important; color: var(--bg-base) !important; }
   .dual-range { position: relative; height: 48px; margin: 8px 0; touch-action: none; }
-  .dual-range .track-bg { position: absolute; top: 22px; left: 0; right: 0; height: 4px; background: #334155; border-radius: 2px; }
-  .dual-range .track-sel { position: absolute; top: 22px; height: 4px; background: #fbbf24; border-radius: 2px; pointer-events: none; }
+  .dual-range .track-bg { position: absolute; top: 22px; left: 0; right: 0; height: 4px; background: var(--bg-elevated); border-radius: 2px; }
+  .dual-range .track-sel { position: absolute; top: 22px; height: 4px; background: var(--gold); border-radius: 2px; pointer-events: none; }
   .dual-range input[type="range"] { position: absolute; top: 0; left: 0; width: 100%; height: 48px; background: transparent; -webkit-appearance: none; appearance: none; pointer-events: none; margin: 0; touch-action: pan-x; }
-  .dual-range input[type="range"]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none; width: 32px; height: 32px; background: #fbbf24; border: 3px solid white; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); margin-top: -14px; touch-action: pan-x; }
-  .dual-range input[type="range"]::-moz-range-thumb { pointer-events: auto; width: 32px; height: 32px; background: #fbbf24; border: 3px solid white; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); touch-action: pan-x; }
+  .dual-range input[type="range"]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none; width: 32px; height: 32px; background: var(--gold); border: 3px solid var(--text-primary); border-radius: 50%; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.6); margin-top: -14px; touch-action: pan-x; }
+  .dual-range input[type="range"]::-moz-range-thumb { pointer-events: auto; width: 32px; height: 32px; background: var(--gold); border: 3px solid var(--text-primary); border-radius: 50%; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.6); touch-action: pan-x; }
   .dual-range input[type="range"]::-webkit-slider-runnable-track { background: transparent; height: 4px; }
   .dual-range input[type="range"]::-moz-range-track { background: transparent; height: 4px; }
   .trim-preview-video { width: 100%; max-height: 220px; background: black; border-radius: 8px; }
-  /* Mobile-friendly editor */
-  .editor-modal { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   .editor-clip input[type="range"]:not(.dual-range *) { height: 36px; touch-action: pan-x; }
   .editor-clip input[type="range"]::-webkit-slider-thumb { width: 26px; height: 26px; touch-action: pan-x; }
   .editor-clip input[type="range"]::-moz-range-thumb { width: 26px; height: 26px; touch-action: pan-x; }
-  /* Prevent text selection during drag in editor */
   .editor-clip { -webkit-user-select: none; user-select: none; }
   .editor-clip input, .editor-clip textarea { -webkit-user-select: text; user-select: text; }
-  .ai-badge { background: linear-gradient(90deg, #a855f7, #ec4899); color: white; }
+  .ai-badge { background: linear-gradient(90deg, var(--gold-dark), var(--gold-bright)); color: var(--bg-base); }
+
+  /* ──────────────── PILLS & BADGES luxury ──────────────── */
+  .luxury-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 16px; border-radius: 999px;
+    border: 1px solid var(--gold-border);
+    color: var(--gold);
+    background: var(--gold-soft);
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .gold-accent { color: var(--gold) !important; }
+  .gold-text-glow { color: var(--gold); text-shadow: 0 0 24px rgba(201,168,106,0.3); }
+
+  /* Online indicator (header) */
+  .online-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 8px rgba(110, 196, 138, 0.6);
+    display: inline-block; margin-right: 6px;
+  }
+
+  /* ──────────────── Tipografía automática ──────────────── */
+  /* Headlines grandes (los h1 de cada paso) en Cormorant Garamond elegante */
+  h1.text-2xl, h1.text-3xl, .text-3xl.font-bold, .text-2xl.font-bold {
+    font-family: 'Cormorant Garamond', 'Playfair Display', serif !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.01em;
+    color: var(--text-primary);
+  }
+
+  /* Highlight de números importantes (precios, métricas) → dorado serif */
+  .gold-number {
+    font-family: 'Cormorant Garamond', serif;
+    color: var(--gold);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  /* Cards principales con padding airy + border sutil + glow muy sutil */
+  .bg-white, .bg-slate-50 .bg-white {
+    border: 1px solid var(--border-subtle);
+  }
+
+  /* Botones rounded-full automatic en los principales */
+  button.rounded-xl, button.rounded-lg, a.rounded-xl, a.rounded-lg {
+    border-radius: 14px;
+  }
+
+  /* Bottom-bar buttons especiales (Continuar / Volver) ya tienen estilo inline */
+
+  /* Subtle gold glow on focus para feedback premium */
+  button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  /* Videos preview cards — mantener fondo black puro */
+  video { background: #000 !important; }
+
+  /* Pills tipo "RECOMENDADO" / "GRATIS" / etc → look luxury automático */
+  .text-xs.uppercase {
+    letter-spacing: 0.1em;
+  }
+
+  /* Scrollbars dark themed */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg-base); }
+  ::-webkit-scrollbar-thumb { background: var(--bg-elevated); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--gold-dark); }
+
+  /* Modal de Editor avanzado y Runway — fondo más profundo */
+  .editor-modal { background: rgba(5,5,5,0.97) !important; }
+
+  /* Iconos de emojis: contraste mejorado en dark mode */
+  .text-xl, .text-2xl, .text-3xl, .text-4xl, .text-5xl { line-height: 1.1; }
 </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
 
-<header class="bg-white border-b border-slate-200 sticky top-0 z-20">
-  <div class="max-w-4xl mx-auto px-5 py-3 flex items-center justify-between">
-    <div class="flex items-center gap-2">
-      <div class="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-white font-bold">G</div>
-      <span class="font-bold text-slate-900">GreatDeal</span>
+<header class="sticky top-0 z-20" style="background: linear-gradient(180deg, #0a0a0b 0%, rgba(10,10,11,0.92) 100%); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border-subtle);">
+  <div class="max-w-4xl mx-auto px-5 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <button onclick="resetAll()" class="w-9 h-9 rounded-full flex items-center justify-center transition" style="border: 1px solid var(--border-subtle); color: var(--text-secondary);" title="Empezar de nuevo">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      </button>
+      <div class="w-10 h-10 rounded-full flex items-center justify-center" style="border: 1.5px solid var(--gold-border); background: var(--gold-soft);">
+        <span class="serif-heading gold-accent" style="font-size: 18px; font-weight: 600;">G</span>
+      </div>
+      <div class="flex flex-col">
+        <span class="serif-heading" style="color: var(--text-primary); font-size: 20px; line-height: 1; letter-spacing: 0.02em;">GreatDeal</span>
+        <span style="color: var(--text-muted); font-size: 11px; margin-top: 2px;"><span class="online-dot"></span>En línea</span>
+      </div>
     </div>
-    <button onclick="resetAll()" class="text-xs text-slate-500 hover:text-slate-900">Empezar de nuevo</button>
+    <div style="color: var(--text-faint); font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;">
+      <span class="serif-heading" style="font-style: italic; font-size: 14px; color: var(--gold);">IA</span>
+      <span style="font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 14px; margin-left: 2px;">Premium</span>
+    </div>
   </div>
 </header>
 
@@ -72,10 +255,10 @@
   <div id="step-content"></div>
 </main>
 
-<div class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-20">
+<div class="fixed bottom-0 left-0 right-0 z-20" style="background: linear-gradient(0deg, #0a0a0b 0%, rgba(10,10,11,0.92) 100%); backdrop-filter: blur(20px); border-top: 1px solid var(--border-subtle);">
   <div class="max-w-4xl mx-auto px-5 py-3 flex items-center justify-between">
-    <button id="btn-prev" onclick="goPrev()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-30">← Volver</button>
-    <button id="btn-next" onclick="goNext()" class="px-6 py-3 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-30 font-medium">Continuar →</button>
+    <button id="btn-prev" onclick="goPrev()" class="px-5 py-2.5 rounded-full disabled:opacity-30 transition" style="color: var(--text-secondary); border: 1px solid var(--border-subtle); background: transparent;">← Volver</button>
+    <button id="btn-next" onclick="goNext()" class="px-7 py-3 rounded-full disabled:opacity-30 font-semibold transition" style="background: var(--gold); color: var(--bg-base); letter-spacing: 0.02em; box-shadow: 0 4px 20px rgba(201,168,106,0.25);">Continuar →</button>
   </div>
 </div>
 
@@ -784,12 +967,23 @@ function renderStepper() {
   const html = STEPS.map((s, i) => {
     const active = state.step === s.id;
     const done = state.step > s.id;
+    let dotStyle, textStyle;
+    if (active) {
+      dotStyle = 'background: var(--gold); color: var(--bg-base); border: 1.5px solid var(--gold); box-shadow: 0 0 18px rgba(201,168,106,0.5);';
+      textStyle = 'color: var(--gold); font-weight: 600; letter-spacing: 0.04em;';
+    } else if (done) {
+      dotStyle = 'background: transparent; color: var(--gold); border: 1.5px solid var(--gold-border);';
+      textStyle = 'color: var(--text-secondary);';
+    } else {
+      dotStyle = 'background: transparent; color: var(--text-muted); border: 1px solid var(--border-subtle);';
+      textStyle = 'color: var(--text-muted);';
+    }
     return `
       <div class="flex items-center gap-2">
-        <div class="step-dot w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${active ? 'bg-slate-900 text-white' : done ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500'}">${done ? '✓' : s.id}</div>
-        <span class="text-sm ${active ? 'text-slate-900 font-medium' : 'text-slate-500'}">${s.label}</span>
+        <div class="step-dot w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition" style="${dotStyle}">${done ? '✓' : s.id}</div>
+        <span class="text-xs uppercase tracking-wider" style="${textStyle}">${s.label}</span>
       </div>
-      ${i < STEPS.length - 1 ? '<div class="w-8 h-px bg-slate-300"></div>' : ''}
+      ${i < STEPS.length - 1 ? `<div class="w-6 h-px" style="background: ${done ? 'var(--gold-border)' : 'var(--border-subtle)'};"></div>` : ''}
     `;
   }).join("");
   document.getElementById("stepper").innerHTML = html;
