@@ -542,7 +542,7 @@ def mux_audio(video_file: str, music_file: str,
             f"[voice_clean]asplit=2[voice_for_mix][voice_for_sc];"
             # Sidechain agresivo: música baja MUCHO cuando voz suena, release 700ms
             f"[music_base][voice_for_sc]sidechaincompress="
-            f"threshold=0.025:ratio=25:attack=8:release=700:makeup=1[music_ducked];"
+            f"threshold=0.025:ratio=20:attack=8:release=700:makeup=1[music_ducked];"
             # Voz al 115% para que destaque
             f"[voice_for_mix]volume=1.15[voice_final];"
             f"[music_ducked][voice_final]amix=inputs=2:duration=longest:normalize=0[mix];"
