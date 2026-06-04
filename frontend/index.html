@@ -173,11 +173,12 @@
   }
 
   /* ──────────────── Tipografía automática ──────────────── */
-  /* Headlines grandes (los h1 de cada paso) en Montserrat Bold */
+  /* Headlines grandes (los h1 de cada paso) en Cormorant Garamond serif elegante
+     — matchea con el branding luxury de la app */
   h1.text-2xl, h1.text-3xl, .text-3xl.font-bold, .text-2xl.font-bold {
-    font-family: 'Montserrat', -apple-system, sans-serif !important;
-    font-weight: 700 !important;
-    letter-spacing: -0.01em;
+    font-family: 'Cormorant Garamond', 'Playfair Display', serif !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.005em;
     color: var(--text-primary);
   }
 
@@ -334,6 +335,8 @@ let state = {
   music_preset: "cinematic_view",
   music_file: null,
   music_presets_catalog: [],
+  cinematic_filter: "",            // "" = sin filtro / look natural
+  cinematic_filters_catalog: [],   // se carga del backend
   voice_audio_file: null,
   voice_audio_url: null,
   voice_method: "none",
@@ -416,6 +419,14 @@ async function loadMusicPresets() {
     const j = await r.json();
     state.music_presets_catalog = j.presets || [];
   } catch (e) { console.warn("Music presets:", e); }
+}
+
+async function loadCinematicFilters() {
+  try {
+    const r = await fetch(API("/cinematic-filters"));
+    const j = await r.json();
+    state.cinematic_filters_catalog = j.filters || [];
+  } catch (e) { console.warn("Cinematic filters:", e); }
 }
 
 // Preescuchar un preset de música (genera/cachea sample de 8s en backend)
@@ -1020,24 +1031,31 @@ function renderStep1() {
       <button onclick="switchUploadMode('simple')" class="mode-pill flex-1 py-2 px-3 rounded-lg text-sm font-medium ${state.upload_mode === 'simple' ? 'active' : 'text-slate-600 hover:bg-slate-100'}">⚡ Subir existentes</button>
     </div>
   `;
+  // Selector de look cinematográfico — reemplaza Runway con filtros pro de FFmpeg
+  const filterCards = (state.cinematic_filters_catalog || []).map(f => {
+    const active = state.cinematic_filter === f.key;
+    return `
+      <button onclick="state.cinematic_filter = '${f.key}'; render()"
+              class="text-left p-3 rounded-xl transition-all border ${active ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}">
+        <div class="text-sm font-semibold text-slate-900">${escapeHtml(f.label)}</div>
+        <div class="text-[11px] text-slate-500 mt-0.5 leading-snug">${escapeHtml(f.description)}</div>
+      </button>`;
+  }).join("");
+  const naturalActive = !state.cinematic_filter;
   const aiToggle = `
-    <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4 max-w-md mx-auto flex items-center gap-3">
-      <div class="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full font-bold">🎬</div>
-      <div class="flex-1">
-        <div class="text-sm font-medium text-slate-900">Color cinematográfico</div>
-        <div class="text-xs text-slate-500">Color pro, nitidez y contraste para TODAS las tomas</div>
+    <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4 max-w-md mx-auto">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-lg">🎨</span>
+        <div class="text-sm font-semibold text-slate-900">Look cinematográfico del reel</div>
       </div>
-      <label class="relative inline-flex items-center cursor-pointer">
-        <input type="checkbox" ${state.enhance_ai ? 'checked' : ''} onchange="state.enhance_ai=this.checked; render()" class="sr-only peer">
-        <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-amber-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5"></div>
-      </label>
-    </div>
-    <div class="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-4 mb-5 max-w-md mx-auto">
-      <div class="flex items-start gap-2">
-        <div class="ai-badge text-xs px-2 py-1 rounded-full font-bold">✨ IA</div>
-        <div class="flex-1 text-xs text-slate-700">
-          <strong>¿Regenerar tomas con IA real (Runway)?</strong> Subí los videos primero. Después en <strong>"Editor avanzado"</strong> (paso 4) vas a poder rehacer cada toma con un prompt tipo "más luz natural cinematográfica".
-        </div>
+      <div class="text-xs text-slate-500 mb-3">Aplicá un estilo profesional a TODAS las tomas. Gratis, instantáneo.</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <button onclick="state.cinematic_filter = ''; render()"
+                class="text-left p-3 rounded-xl transition-all border ${naturalActive ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}">
+          <div class="text-sm font-semibold text-slate-900">🎥 Natural</div>
+          <div class="text-[11px] text-slate-500 mt-0.5 leading-snug">Sin filtro — colores del video original</div>
+        </button>
+        ${filterCards}
       </div>
     </div>
   `;
@@ -1099,10 +1117,6 @@ function renderSimpleUpload() {
               <input type="text" placeholder="Subtítulo (opcional)" value="${escapeAttr(c.subline || '')}" maxlength="50"
                      oninput="(state.simple_clips.find(x=>x.id==='${c.id}')||{}).subline=this.value"
                      class="w-full px-2 py-1 border border-slate-200 rounded text-xs">
-              <button onclick="openRunwayForSimpleClip('${c.id}')"
-                      class="w-full mt-1 px-2 py-1 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded text-[11px] font-medium hover:opacity-90">
-                ✨ Mejorar con IA (Runway)
-              </button>
             </div>
           </div>
         `).join("")}
@@ -1371,10 +1385,6 @@ function renderSectionCard(key) {
             <input type="text" placeholder="Subtítulo (opcional)" value="${escapeAttr(c.subline || '')}" maxlength="50"
                    oninput="state.sections['${key}'].clips[${i}].subline=this.value"
                    class="w-full px-2 py-1 border border-slate-200 rounded text-xs">
-            <button onclick="openRunwayForGuidedClip('${key}', ${i})"
-                    class="w-full mt-1 px-2 py-1 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded text-[11px] font-medium hover:opacity-90">
-              ✨ Mejorar con IA (Runway)
-            </button>
           </div>
         </div>
       `).join("")}
@@ -1844,6 +1854,7 @@ async function applyVoiceToReel() {
   fd.append("cta_data", JSON.stringify(buildCtaData()));
   fd.append("music_preset", state.music_preset || "cinematic_view");
   fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+    fd.append("cinematic_filter", state.cinematic_filter || "");
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
   fd.append("voice_audio", state.voice_audio_file);
 
@@ -2030,6 +2041,7 @@ async function processReel() {
   fd.append("cta_data", JSON.stringify(buildCtaData()));
   fd.append("music_preset", state.music_preset || "cinematic_view");
   fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+    fd.append("cinematic_filter", state.cinematic_filter || "");
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
   files.forEach(f => fd.append("clips", f));
   if (state.music_file) fd.append("music", state.music_file);
@@ -2062,6 +2074,7 @@ async function reprocessFromCurrent() {
   fd.append("cta_data", JSON.stringify(buildCtaData()));
   fd.append("music_preset", state.music_preset || "cinematic_view");
   fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+    fd.append("cinematic_filter", state.cinematic_filter || "");
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
   state.job_status = "reprocessing";
   state.is_reprocessing = true;
@@ -2399,11 +2412,8 @@ function renderEditorClip(c, idx) {
         </div>
         <div class="flex justify-between text-[11px] text-slate-300 mt-1 font-mono"><span>🟢 Inicio: <span id="vstart-${c.id}">${c.trim_start.toFixed(1)}</span>s</span><span>🔴 Fin: <span id="vend-${c.id}">${trimEnd.toFixed(1)}</span>s</span></div>
         <div class="flex gap-2 mt-3"><button onclick="playSegment('${c.id}')" class="flex-1 px-3 py-2 bg-amber-400 text-slate-900 rounded font-medium text-xs hover:bg-amber-300">▶️ Previa del segmento</button><button onclick="resetTrim('${c.id}')" class="px-3 py-2 bg-slate-700 text-slate-200 rounded text-xs hover:bg-slate-600">↺ Todo</button></div>
-        <div class="flex gap-2 mt-2">
-          <button onclick="openRunwayModal('${c.id}')" class="flex-1 px-3 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded font-medium text-xs hover:opacity-90">✨ Rehacer con IA (Runway)</button>
-          ${state.runway_replaced_clips[c.id] ? `<button onclick="revertRunwayClip('${c.id}')" class="px-3 py-2 bg-slate-700 text-slate-200 rounded text-xs hover:bg-slate-600" title="Volver al original">↺ Original</button>` : ''}
-        </div>
-        ${state.runway_replaced_clips[c.id] ? '<div class="text-[10px] text-purple-300 mt-1 text-center">✨ Toma regenerada con IA</div>' : ''}
+        <!-- Runway eliminado: ahora usamos filtros cinematográficos FFmpeg
+             en el paso 2, que aplican a todas las tomas en una sola pasada. -->
       </div>
       <div class="mb-3"><div class="flex justify-between text-xs text-slate-400 mb-1"><span>⚡ Velocidad</span><span class="text-white font-mono"><span id="speed-lbl-${c.id}">${c.speed.toFixed(1)}</span>x</span></div><input type="range" min="0.5" max="4" step="0.25" value="${c.speed}" class="w-full" oninput="this.parentElement.querySelector('#speed-lbl-${c.id}').textContent=parseFloat(this.value).toFixed(1); editorUpdateClip('${c.id}','speed',parseFloat(this.value))"></div>
       <div class="grid grid-cols-2 gap-2">
@@ -2462,6 +2472,7 @@ async function applyEditorChanges() {
     fd.append("cta_data", JSON.stringify(buildCtaData()));
     fd.append("music_preset", state.music_preset || "cinematic_view");
     fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+    fd.append("cinematic_filter", state.cinematic_filter || "");
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
     finalFiles.forEach(f => fd.append("clips", f));
     if (state.music_file) fd.append("music", state.music_file);
@@ -2493,6 +2504,7 @@ async function applyEditorChanges() {
     fd.append("cta_data", JSON.stringify(buildCtaData()));
     fd.append("music_preset", state.music_preset || "cinematic_view");
     fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+    fd.append("cinematic_filter", state.cinematic_filter || "");
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
     state.editor_open = false;
     state.job_status = "reprocessing";
@@ -2648,7 +2660,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const restored = restoreStateFromStorage();
 
   render();
-  await Promise.all([loadMusicPresets(), loadElevenVoices(), loadRunwayPresets()]);
+  await Promise.all([loadMusicPresets(), loadElevenVoices(), loadCinematicFilters()]);
   render();
 
   // Si restauramos algo, mostrar un toast amistoso

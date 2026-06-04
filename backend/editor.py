@@ -8,26 +8,116 @@ import json
 from pathlib import Path
 from typing import Optional
 
-FONT_BOLD = "/usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf"  # peso 700
-FONT_REG  = "/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf"
-FONT_THIN = "/usr/share/fonts/truetype/montserrat/Montserrat-Thin.ttf"
+# TÍTULOS del video → Cormorant Garamond Bold (matchea branding de la app)
+FONT_BOLD = "/usr/share/fonts/truetype/cormorant/CormorantGaramond-Bold.ttf"
+# SUBTÍTULOS de clip + CTA → Inter (sans clean, matchea body de la app)
+FONT_REG  = "/usr/share/fonts/truetype/inter/Inter-Medium.ttf"
+# Subtítulos hablados (Whisper) → Inter Regular (en subtitles.py ASS Style)
+FONT_THIN = "/usr/share/fonts/truetype/inter/Inter-Regular.ttf"
 
-# Fallback fonts (DejaVu si Montserrat no se descargó)
+# Fallbacks por si las fonts nuevas no se descargaron
 if not Path(FONT_BOLD).exists():
-    # Si no hay Bold, intentar SemiBold, después ExtraBold, después DejaVu
     fallbacks = [
+        "/usr/share/fonts/truetype/cormorant/CormorantGaramond-SemiBold.ttf",
+        "/usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf",
         "/usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf",
-        "/usr/share/fonts/truetype/montserrat/Montserrat-ExtraBold.ttf",
-        "/usr/share/fonts/truetype/montserrat/Montserrat-Black.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     ]
     FONT_BOLD = next((f for f in fallbacks if Path(f).exists()), fallbacks[-1])
 if not Path(FONT_REG).exists():
-    FONT_REG = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    fallbacks_reg = [
+        "/usr/share/fonts/truetype/inter/Inter-Regular.ttf",
+        "/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    FONT_REG = next((f for f in fallbacks_reg if Path(f).exists()), fallbacks_reg[-1])
 if not Path(FONT_THIN).exists():
-    FONT_THIN = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    FONT_THIN = FONT_REG  # Inter Regular como thin fallback
 
 W, H = 540, 960
+
+
+# ════════════════════════════════════════════════════════════════════
+# FILTROS CINEMATOGRÁFICOS PROFESIONALES (FFmpeg, gratis, instantáneos)
+# Reemplazan a Runway. Estos son los "looks" que usan editores pro en
+# DaVinci Resolve / Premiere — son chains de filters de color grading
+# que transforman la calidad visual del clip de manera dramática.
+# ════════════════════════════════════════════════════════════════════
+CINEMATIC_FILTERS = {
+    "cinematico_calido": {
+        "label": "🎬 Cinemático cálido",
+        "description": "Look Netflix dorado — contraste rico + warm grade",
+        # Boost saturation + warm color shift (más rojo/amarillo) + contraste + vignette
+        "filter": (
+            "eq=brightness=0.03:saturation=1.32:contrast=1.18:gamma=0.96,"
+            "colorbalance=rs=0.10:gs=-0.03:bs=-0.12:rm=0.06:bm=-0.06:rh=0.08:bh=-0.04,"
+            "unsharp=5:5:0.8:5:5:0.0,"
+            "vignette=PI/5"
+        ),
+    },
+    "cinematico_frio": {
+        "label": "❄️ Cinemático frío",
+        "description": "Look Hollywood teal & orange — skin warm + shadows cool",
+        # Teal en shadows, orange en highlights (look más vendido en Hollywood)
+        "filter": (
+            "eq=saturation=1.28:contrast=1.20:gamma=0.98,"
+            "colorbalance=rs=-0.05:gs=0.05:bs=0.18:rm=0.05:gm=-0.02:bm=-0.04:rh=0.12:gh=0.03:bh=-0.10,"
+            "unsharp=5:5:0.8:5:5:0.0,"
+            "vignette=PI/6"
+        ),
+    },
+    "luminoso": {
+        "label": "☀️ Luminoso premium",
+        "description": "Brillante y vibrante — propiedades luminosas y aireadas",
+        # Subir exposure + saturation + ligero clarity (unsharp)
+        "filter": (
+            "eq=brightness=0.10:contrast=1.18:saturation=1.30:gamma=1.06,"
+            "curves=preset=lighter,"
+            "unsharp=5:5:1.2:5:5:0.0"
+        ),
+    },
+    "hdr_like": {
+        "label": "📸 HDR-like profesional",
+        "description": "Recupera detalle en sombras y luces — look revista",
+        # Curva en S inversa: levanta sombras + comprime highlights
+        "filter": (
+            "curves=master='0/0 0.15/0.22 0.5/0.5 0.85/0.78 1/1',"
+            "eq=saturation=1.25:contrast=1.10,"
+            "unsharp=5:5:1.0:5:5:0.0"
+        ),
+    },
+    "vintage_film": {
+        "label": "🎞️ Vintage film",
+        "description": "Grano sutil + colores deslavados elegantes — estilo cine 70s",
+        # Faded look + slight green tint + grain sutil
+        "filter": (
+            "curves=preset=vintage,"
+            "eq=saturation=0.85:contrast=0.94:gamma=1.02,"
+            "colorbalance=rs=0.08:gs=0.04:rm=0.04:bh=-0.06,"
+            "noise=alls=6:allf=t+u"
+        ),
+    },
+    "estabilizado_pro": {
+        "label": "🎯 Estabilizado pro",
+        "description": "Saca el movimiento real del clip + leve mejora color",
+        # NOTA: vidstab requiere 2-pass (detect + transform). El single-pass
+        # usa deshake como aproximación más simple. Funciona razonablemente
+        # bien para shake leve sin necesidad de pre-procesamiento.
+        "filter": (
+            "deshake=x=-1:y=-1:w=-1:h=-1:rx=64:ry=64,"
+            "eq=saturation=1.15:contrast=1.08,"
+            "unsharp=5:5:0.6:5:5:0.0"
+        ),
+    },
+}
+
+
+def get_cinematic_filter(key: str) -> str | None:
+    """Retorna el chain de filtros FFmpeg del preset, o None si no existe."""
+    preset = CINEMATIC_FILTERS.get(key)
+    if not preset:
+        return None
+    return preset["filter"]
 
 
 def _esc(text: str) -> str:
@@ -581,10 +671,14 @@ def process_clip_combined(input_path: str, output_path: str,
                            trim_start: float, trim_duration: float,
                            speed: float = 1.0,
                            headline: str = "", subline: str = "",
-                           enhance_ai: bool = False) -> tuple[bool, str]:
+                           enhance_ai: bool = False,
+                           cinematic_filter: str = "") -> tuple[bool, str]:
     """Procesa un clip en UNA SOLA operación FFmpeg combinando:
-    normalize + trim + speed + color correction + text overlay.
+    normalize + trim + speed + color correction + cinematic filter + text overlay.
     Reemplaza 3-4 encodes separados → 1 encode. ~3x más rápido por clip.
+
+    cinematic_filter: clave de CINEMATIC_FILTERS (ej "cinematico_calido"). Si está
+    presente, sobreescribe el color grading por default y aplica el look pro.
     """
     filters = []
 
@@ -592,13 +686,24 @@ def process_clip_combined(input_path: str, output_path: str,
     if abs(speed - 1.0) > 0.01:
         filters.append(f"setpts=PTS/{speed}")
 
-    # 2. Scale + pad a 540x960 vertical
-    if enhance_ai:
+    # 2. Scale + pad a 540x960 vertical + color treatment
+    cinematic_chain = get_cinematic_filter(cinematic_filter) if cinematic_filter else None
+
+    if cinematic_chain:
+        # Look cinematográfico pro elegido por el usuario
         filters.append(
             f"scale={W}:{H}:flags=lanczos:force_original_aspect_ratio=decrease"
         )
         filters.append(f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black")
-        # Color cinematográfico
+        filters.append("hqdn3d=1.5:1.5:6:6")  # denoise antes del grading
+        filters.append(cinematic_chain)
+        preset, crf = "fast", "20"  # mejor calidad para preservar el grading
+    elif enhance_ai:
+        filters.append(
+            f"scale={W}:{H}:flags=lanczos:force_original_aspect_ratio=decrease"
+        )
+        filters.append(f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black")
+        # Color cinematográfico (default cuando enhance_ai está ON pero sin filter elegido)
         filters.append("hqdn3d=1.5:1.5:6:6")
         filters.append("eq=brightness=0.06:contrast=1.20:saturation=1.32:gamma=1.05")
         filters.append("unsharp=5:5:1.0:5:5:0.0")
@@ -619,11 +724,14 @@ def process_clip_combined(input_path: str, output_path: str,
     if headline or subline:
         fade_out_start = max(0.1, effective_duration - 0.3)
         if headline:
-            # Montserrat Bold limpio (sin tricks de engrosamiento)
+            # Cormorant Garamond Bold (serif elegante, matchea branding de la app).
+            # Tamaño 62 porque los serif necesitan más píxeles para impactar.
+            # Sombra sutil para legibilidad sobre cualquier fondo.
             filters.append(
                 f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
-                f"fontsize=48:fontcolor=white:"
-                f"x=(w-text_w)/2:y=(h-text_h)/2-32"
+                f"fontsize=62:fontcolor=white:"
+                f"shadowcolor=black@0.5:shadowx=2:shadowy=2:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2-36"
             )
         if subline:
             filters.append(
@@ -662,6 +770,7 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
                music_preset: str = "cinematic_view",
                logo_path: Optional[str] = None,
                enhance_ai: bool = False,
+               cinematic_filter: str = "",
                auto_subtitles: bool = False,
                output_path: str = "reel.mp4") -> dict:
     """
@@ -706,6 +815,7 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
                 headline=headline,
                 subline=subline,
                 enhance_ai=enhance_ai,
+                cinematic_filter=cinematic_filter,
             )
             if not ok:
                 return {"success": False, "error": f"process clip {clip_idx}: {err}", "log": log}

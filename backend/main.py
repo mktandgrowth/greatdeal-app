@@ -95,6 +95,18 @@ async def music_presets():
     }
 
 
+@app.get("/api/cinematic-filters")
+async def cinematic_filters():
+    """Lista de filtros cinematográficos profesionales disponibles."""
+    from editor import CINEMATIC_FILTERS
+    return {
+        "filters": [
+            {"key": k, "label": v["label"], "description": v["description"]}
+            for k, v in CINEMATIC_FILTERS.items()
+        ]
+    }
+
+
 @app.get("/api/music-preview/{preset_key}")
 async def music_preview(preset_key: str):
     """Sirve un preview del preset. Intenta primero el mp3 real (Mixkit);
@@ -324,6 +336,7 @@ async def create_job(
     voice_key: Optional[str] = Form(None),
     generate_voice: bool = Form(False),
     enhance_ai: str = Form("false"),
+    cinematic_filter: str = Form(""),
     auto_subtitles: str = Form("false"),
 ):
     """
@@ -413,6 +426,7 @@ async def create_job(
         "music_path": music_path,
         "music_preset": music_preset,
         "enhance_ai": enhance_flag,
+        "cinematic_filter": cinematic_filter or "",
         "auto_subtitles": auto_subs_flag,
         "output_path": str(output_path),
         "work_dir": str(work_dir),
@@ -427,7 +441,7 @@ async def create_job(
         args=(job_id, resolved_sections, cta, str(work_dir),
               voice_audio_path, music_path, music_preset, logo_path,
               enhance_flag, auto_subs_flag, str(output_path),
-              voice_key, generate_voice),
+              voice_key, generate_voice, cinematic_filter or ""),
         daemon=True,
     ).start()
 
@@ -458,7 +472,7 @@ def _resolve_sections(sections_data, clip_paths):
 def process_job(job_id, sections, cta_data, work_dir,
                 voice_audio_path, music_path, music_preset, logo_path,
                 enhance_ai, auto_subtitles, output_path,
-                voice_key, generate_voice):
+                voice_key, generate_voice, cinematic_filter=""):
     set_job(job_id, status="processing")
 
     # If user wants ElevenLabs voice generation
@@ -488,6 +502,7 @@ def process_job(job_id, sections, cta_data, work_dir,
         music_preset=music_preset,
         logo_path=logo_path,
         enhance_ai=enhance_ai,
+        cinematic_filter=cinematic_filter,
         auto_subtitles=auto_subtitles,
         output_path=output_path,
     )

@@ -206,9 +206,9 @@ def burn_subtitles(
     """
     # Path escape para FFmpeg filter
     ass_escaped = str(ass_path).replace("\\", "/").replace(":", "\\:")
-    fontsdir_escaped = "/usr/share/fonts/truetype/montserrat"
-    # Usar 'ass' filter (específico para .ass files, mejor que 'subtitles=')
-    # fontsdir= le dice a libass dónde buscar las fuentes (importante para Montserrat)
+    # Para que libass encuentre Inter + Cormorant + Montserrat le damos
+    # /usr/share/fonts/truetype/ que es el parent — incluye todas las subcarpetas
+    fontsdir_escaped = "/usr/share/fonts/truetype"
     vf = f"ass='{ass_escaped}':fontsdir={fontsdir_escaped}"
     cmd = [
         "ffmpeg", "-y", "-i", video_path,
@@ -276,9 +276,10 @@ def apply_auto_subtitles(
         return True, "no-segments-detected"
 
     # 2. Generate ASS file con chunks de 3 palabras estilo TikTok
+    # Font "Inter" matchea el body de la app (sans clean)
     ass_path = str(work / "subtitles.ass")
     ok, err = generate_ass_file(segments, ass_path, words=words,
-                                 font="Montserrat", chunk_words=3)
+                                 font="Inter", chunk_words=3)
     if not ok:
         return False, f"ASS: {err}"
 

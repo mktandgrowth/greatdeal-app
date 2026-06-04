@@ -12,20 +12,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
  && rm -rf /var/lib/apt/lists/*
 
-# Descargar Montserrat font (5 pesos) desde Github (Google Fonts repo)
+# Descargar fonts: Montserrat (legacy) + Cormorant Garamond (títulos branded) + Inter (body/subs)
 RUN mkdir -p /usr/share/fonts/truetype/montserrat \
+              /usr/share/fonts/truetype/cormorant \
+              /usr/share/fonts/truetype/inter \
+ # Montserrat (mantener por compat)
  && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-Black.ttf \
     "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Black.ttf" \
  && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf \
     "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Bold.ttf" \
- && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-ExtraBold.ttf \
-    "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-ExtraBold.ttf" \
  && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf \
     "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-SemiBold.ttf" \
  && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf \
     "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Regular.ttf" \
  && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-Thin.ttf \
     "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Thin.ttf" \
+ # Cormorant Garamond — para títulos del video (matchea branding luxury de la app)
+ && curl -L -o /usr/share/fonts/truetype/cormorant/CormorantGaramond-Bold.ttf \
+    "https://raw.githubusercontent.com/google/fonts/main/ofl/cormorantgaramond/CormorantGaramond-Bold.ttf" \
+ && curl -L -o /usr/share/fonts/truetype/cormorant/CormorantGaramond-SemiBold.ttf \
+    "https://raw.githubusercontent.com/google/fonts/main/ofl/cormorantgaramond/CormorantGaramond-SemiBold.ttf" \
+ && curl -L -o /usr/share/fonts/truetype/cormorant/CormorantGaramond-Medium.ttf \
+    "https://raw.githubusercontent.com/google/fonts/main/ofl/cormorantgaramond/CormorantGaramond-Medium.ttf" \
+ # Inter — para subtítulos + CTA (matchea body de la app)
+ && curl -L -o /usr/share/fonts/truetype/inter/Inter-Regular.ttf \
+    "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-Regular.ttf" \
+ && curl -L -o /usr/share/fonts/truetype/inter/Inter-Medium.ttf \
+    "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-Medium.ttf" \
+ && curl -L -o /usr/share/fonts/truetype/inter/Inter-SemiBold.ttf \
+    "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-SemiBold.ttf" \
  && fc-cache -f
 
 WORKDIR /app
