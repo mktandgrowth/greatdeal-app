@@ -141,35 +141,35 @@ STYLE_PRESETS = {
     },
     "agregar_personas": {
         "label": "👥 Personas viviendo el lugar",
-        "description": "Pareja elegante disfrutando el espacio, vibe aspiracional",
+        "description": "Pareja elegante caminando/sentada en el espacio (Gen-3 limitado)",
         "prompt_es": (
-            "Misma escena (SAME walls/furniture/layout, NO cambiar), AGREGAR pareja joven elegante "
-            "viviendo el espacio: uno tomando café en taza minimalista, el otro relajado leyendo, "
-            "ambos felices y cómodos. Ropa elegante casual tonos neutros (camisas blancas, jeans claros). "
-            "Ellos out-of-focus, la propiedad foco principal. Iluminación dorada cinemática golden hour. "
-            "Vibe aspiracional comercial de marca de lujo."
+            "PERSONAS APARECEN EN LA ESCENA: una pareja joven elegante entra caminando lentamente "
+            "al espacio o aparece sentada en un sofá/sillón visible. Mujer en vestido beige claro, "
+            "hombre con camisa blanca y jeans claros, ambos jóvenes felices. La cámara los enfoca "
+            "discretamente mientras se mueven o están sentados. Iluminación dorada golden hour. "
+            "Look comercial lifestyle de inmobiliaria de lujo. (NO cambiar walls/layout)."
         ),
         "prompt_core": (
-            "(architecture UNCHANGED) ADD young attractive happy couple in their 30s naturally "
-            "enjoying the space (one sipping coffee, other relaxed reading or smiling), elegant casual "
-            "clothing in neutral tones (white shirts light jeans), they're OUT OF FOCUS while "
-            "architecture stays sharp, golden hour cinematic lighting, aspirational lifestyle commercial vibe"
+            "TWO PEOPLE ENTER THE SCENE: young elegant couple walks gracefully into the space OR "
+            "appears sitting on a visible sofa/chair. Woman in light beige dress, man in white shirt "
+            "and light jeans, both attractive young happy. Camera follows them as they move or sit. "
+            "Golden hour cinematic lighting. Lifestyle luxury real estate commercial look. "
+            "Architecture preserved but COUPLE IS CENTRAL to the shot"
         ),
         "prompt_full": (
-            "SAME exact scene — walls, furniture, layout, decor ALL preserved. "
-            "ADD a young attractive happy couple in their 30s naturally living and enjoying the space. "
-            "They appear casually — one sipping coffee from a minimalist ceramic mug, the other "
-            "reading or smiling softly, both relaxed and comfortable. They wear elegant casual "
-            "clothing in neutral tones (crisp white shirts, light denim jeans). "
-            "Their presence feels authentic, aspirational, like a luxury lifestyle magazine cover. "
-            "They are NOT the focus — the property remains the absolute star — they just gracefully "
-            "inhabit the space. Natural body language, soft genuine smiles, intimate but discrete. "
-            "Beautiful warm golden hour cinematic daylight floods the scene through windows, "
-            "rich cinematic color grading. Shot on Sony FX6 with 35mm f/1.8 lens, shallow depth of "
-            "field with creamy bokeh, they're slightly OUT OF FOCUS while architecture stays tack-sharp. "
-            "Smooth slow gimbal dolly movement, lifestyle real estate cinematography, "
-            "aspirational vibe like luxury home commercial for top brand, "
-            "ultra-realistic, photorealistic, 4K cinematic, no text overlays"
+            "TRANSFORM the scene by HAVING TWO PEOPLE APPEAR AND MOVE IN IT. "
+            "A young elegant couple in their 30s walks slowly and gracefully into the visible space, "
+            "OR they are clearly sitting on a sofa/chair within the frame. "
+            "The woman wears a flowing light beige or cream dress, the man wears a crisp white "
+            "shirt with light denim jeans. Both are attractive, happy, naturally engaged with each "
+            "other and the space — one might be sipping from a ceramic mug, the other softly smiling. "
+            "Camera captures them clearly while they move or relax — they are VISIBLY PRESENT, "
+            "not hidden. Beautiful golden hour cinematic warm daylight pours through windows. "
+            "Rich cinematic color grading like a luxury home commercial for a top real estate brand. "
+            "Shot on Sony FX6 with 35mm f/1.8 lens, smooth slow gimbal motion following them, "
+            "shallow depth of field. Walls, layout and architecture stay the same, but TWO HUMANS "
+            "DEFINITELY APPEAR in the shot. Ultra-realistic, photorealistic, 4K cinematic. "
+            "No text overlays."
         ),
     },
     "golden_hour_dramatico": {

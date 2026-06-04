@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /usr/share/fonts/truetype/montserrat \
  && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-Black.ttf \
     "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Black.ttf" \
+ && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf \
+    "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Bold.ttf" \
  && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-ExtraBold.ttf \
     "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-ExtraBold.ttf" \
  && curl -L -o /usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf \
