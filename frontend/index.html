@@ -1138,7 +1138,15 @@ function pickRecorderMimeType() {
 }
 
 async function compressVideoFile(file, onProgress) {
-  // Si el browser no soporta MediaRecorder o el archivo ya es pequeño, no comprimir
+  // DESACTIVADO TEMPORALMENTE: la compresión client-side con MediaRecorder
+  // genera WebM con header EBML incompatible con FFmpeg server-side (Runway/reel
+  // procesamiento fallan con "EBML header parsing failed"). Mejor mandar el
+  // archivo original. Para uploads grandes en red móvil, usar WiFi.
+  // TODO: implementar compresión server-side o usar WebCodecs API
+  return file;
+
+  // ─── Código de compresión deshabilitado (mantener para futura ref) ───
+  // eslint-disable-next-line no-unreachable
   const mime = pickRecorderMimeType();
   if (!mime || !HTMLCanvasElement.prototype.captureStream) {
     return file; // fallback al original
@@ -1184,18 +1192,22 @@ async function compressVideoFile(file, onProgress) {
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, COMPRESS_TARGET_W, COMPRESS_TARGET_H);
 
+        // Video-ONLY stream (sin audio — el reel usa música/voz separadas;
+        // capturar audio del video original rompe el container WebM en muchos browsers)
         const stream = canvas.captureStream(30);
 
-        // Capturar audio del video original si tiene
-        try {
-          if (video.captureStream) {
-            const vs = video.captureStream();
-            vs.getAudioTracks().forEach(t => stream.addTrack(t));
-          }
-        } catch (_) {}
+        // Elegir mime que sea sólo video (sin codec de audio en el string)
+        // para que el recorder no espere audio tracks
+        let videoOnlyMime = mime;
+        if (videoOnlyMime.includes(",opus")) {
+          videoOnlyMime = videoOnlyMime.replace(",opus", "");
+        }
+        if (!MediaRecorder.isTypeSupported(videoOnlyMime)) {
+          videoOnlyMime = "video/webm";
+        }
 
         const recorder = new MediaRecorder(stream, {
-          mimeType: mime,
+          mimeType: videoOnlyMime,
           videoBitsPerSecond: COMPRESS_BITRATE,
         });
         const chunks = [];
@@ -1204,10 +1216,14 @@ async function compressVideoFile(file, onProgress) {
         recorder.onstop = () => {
           clearTimeout(failSafe);
           try {
-            const blob = new Blob(chunks, { type: mime });
-            const ext = mime.includes("mp4") ? "mp4" : "webm";
+            const blob = new Blob(chunks, { type: videoOnlyMime });
+            if (blob.size < 50_000) {
+              // Algo salió mal con la grabación
+              cleanup(); return resolve(file);
+            }
+            const ext = videoOnlyMime.includes("mp4") ? "mp4" : "webm";
             const baseName = file.name.replace(/\.[^.]+$/, "");
-            const compressed = new File([blob], `${baseName}_opt.${ext}`, { type: mime });
+            const compressed = new File([blob], `${baseName}_opt.${ext}`, { type: videoOnlyMime });
             cleanup();
             // Si la compresión no redujo, devolver original
             if (compressed.size >= file.size * 0.95) {
@@ -1221,13 +1237,16 @@ async function compressVideoFile(file, onProgress) {
         };
 
         let stopped = false;
+        const finishRecording = () => {
+          if (stopped) return;
+          stopped = true;
+          // Flush último chunk antes de stop → garantiza header EBML completo
+          try { recorder.requestData(); } catch (_) {}
+          setTimeout(() => { try { recorder.stop(); } catch (_) {} }, 80);
+        };
         const drawFrame = () => {
           if (stopped) return;
-          if (video.ended || video.paused) {
-            stopped = true;
-            try { recorder.stop(); } catch (_) {}
-            return;
-          }
+          if (video.ended || video.paused) { finishRecording(); return; }
           ctx.drawImage(video, offX, offY, dstW, dstH);
           if (typeof onProgress === "function") {
             onProgress(Math.min(0.99, video.currentTime / Math.max(0.1, video.duration || 1)));
@@ -1235,11 +1254,10 @@ async function compressVideoFile(file, onProgress) {
           requestAnimationFrame(drawFrame);
         };
 
-        video.onended = () => {
-          if (!stopped) { stopped = true; try { recorder.stop(); } catch (_) {} }
-        };
+        video.onended = finishRecording;
 
-        recorder.start(500);
+        // Pedir chunks cada 1s (vs 500ms) para que el header se escriba primero
+        recorder.start(1000);
         await video.play();
         drawFrame();
       } catch (_) {
@@ -1281,25 +1299,22 @@ function hideCompressionOverlay() {
 async function handleSimpleUpload(files) {
   const arr = Array.from(files).filter(f => f.type.startsWith("video/"));
   if (arr.length === 0) return;
-  showCompressionOverlay(arr.length);
   for (let i = 0; i < arr.length; i++) {
-    updateCompressionOverlay(i + 1, arr.length, 0);
-    const compressed = await compressVideoFile(arr[i], (p) => updateCompressionOverlay(i + 1, arr.length, p));
+    const f = arr[i];
     const dataUrl = await new Promise((res) => {
       const r = new FileReader();
       r.onload = e => res(e.target.result);
-      r.readAsDataURL(compressed);
+      r.readAsDataURL(f);
     });
     const suggestedTitle = suggestSimpleHeadline(state.simple_clips.length);
     state.simple_clips.push({
       id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      file: compressed, dataUrl, name: compressed.name,
+      file: f, dataUrl, name: f.name,
       headline: suggestedTitle, subline: "",
     });
     render();
     setTimeout(initSimpleSortable, 50);
   }
-  hideCompressionOverlay();
 }
 
 function removeSimpleClip(id) {
@@ -1424,24 +1439,21 @@ async function handleSectionUpload(key, files) {
   const slotsLeft = cfg.maxClips - sec.clips.length;
   const arr = Array.from(files).filter(f => f.type.startsWith("video/")).slice(0, slotsLeft);
   if (arr.length === 0) return;
-  showCompressionOverlay(arr.length);
   for (let i = 0; i < arr.length; i++) {
-    updateCompressionOverlay(i + 1, arr.length, 0);
-    const compressed = await compressVideoFile(arr[i], (p) => updateCompressionOverlay(i + 1, arr.length, p));
+    const f = arr[i];
     const dataUrl = await new Promise((res) => {
       const r = new FileReader();
       r.onload = e => res(e.target.result);
-      r.readAsDataURL(compressed);
+      r.readAsDataURL(f);
     });
     const suggestedTitle = suggestHeadline(key, sec.clips.length);
     sec.clips.push({
       id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      file: compressed, dataUrl, name: compressed.name,
+      file: f, dataUrl, name: f.name,
       headline: suggestedTitle, subline: "",
     });
     render();
   }
-  hideCompressionOverlay();
 }
 
 function removeSectionClip(key, idx) {

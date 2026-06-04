@@ -310,24 +310,44 @@ def ensure_mp4_input(input_video: str, output_mp4: str) -> tuple[bool, str]:
                 pass
             return True, ""
 
-    # Path general: recodificar a mp4 (fix containers webm/mkv corruptos).
-    # Usamos preset rápido y crf 23 — sale liviano y arregla el header.
-    cmd = [
-        "ffmpeg", "-y",
-        "-fflags", "+genpts+igndts",  # regenera timestamps y ignora dts inválidos
-        "-i", input_video,
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "128k",
-        "-movflags", "+faststart",
-        "-pix_fmt", "yuv420p",
-        output_mp4,
+    # Path general: recodificar a mp4 con TOLERANCIA AGRESIVA
+    # (webm de MediaRecorder browser puede tener EBML header incompleto/corrupto)
+    # Estrategia: 3 intentos progresivamente más tolerantes.
+    suffix = src.suffix.lower()
+    base_flags_attempts = [
+        # Intento 1: tolerancia estándar (regenera pts/dts)
+        ["-fflags", "+genpts+igndts", "-err_detect", "ignore_err"],
+        # Intento 2: forzar demuxer matroska/webm explícitamente + ignorar index
+        ["-fflags", "+genpts+igndts+ignidx", "-err_detect", "ignore_err",
+         "-f", "matroska"] if suffix in (".webm", ".mkv", "") else
+        ["-fflags", "+genpts+igndts+ignidx", "-err_detect", "ignore_err"],
+        # Intento 3: máxima tolerancia + buscar streams primarios
+        ["-fflags", "+genpts+igndts+ignidx+nobuffer", "-err_detect", "ignore_err",
+         "-analyzeduration", "100M", "-probesize", "100M"],
     ]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-    if r.returncode != 0:
-        return False, (r.stderr or "")[-500:]
-    if not Path(output_mp4).exists():
-        return False, "normalized mp4 not created"
-    return True, ""
+    last_err = ""
+    for i, in_flags in enumerate(base_flags_attempts):
+        cmd = [
+            "ffmpeg", "-y",
+            *in_flags,
+            "-i", input_video,
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            "-pix_fmt", "yuv420p",
+            output_mp4,
+        ]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        except subprocess.TimeoutExpired:
+            last_err = f"timeout (intento {i+1})"
+            continue
+        if r.returncode == 0 and Path(output_mp4).exists() and Path(output_mp4).stat().st_size > 1000:
+            print(f"[normalize] mp4 generado en intento {i+1}", flush=True)
+            return True, ""
+        last_err = (r.stderr or "")[-300:]
+        print(f"[normalize] intento {i+1} falló: {last_err[:200]}", flush=True)
+    return False, last_err or "all normalize attempts failed"
 
 
 def extract_first_frame(video_path: str, output_image: str) -> tuple[bool, str]:
