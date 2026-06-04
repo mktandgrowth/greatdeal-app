@@ -337,6 +337,13 @@ let state = {
   music_presets_catalog: [],
   cinematic_filter: "",            // "" = sin filtro / look natural
   cinematic_filters_catalog: [],   // se carga del backend
+  // ── IA features ──
+  caption_text: "",                // caption generado por IA
+  caption_loading: false,
+  caption_copied: false,
+  clip_analyses: {},               // { clipId: {category, suggested_title, ...} }
+  quality_report: null,            // { overall_score, summary, missing_shots, recommendations }
+  quality_loading: false,
   voice_audio_file: null,
   voice_audio_url: null,
   voice_method: "none",
@@ -1114,6 +1121,10 @@ function renderSimpleUpload() {
               <input type="text" placeholder="Escribí un título o dejalo vacío" value="${escapeAttr(c.headline || '')}" maxlength="40"
                      oninput="(state.simple_clips.find(x=>x.id==='${c.id}')||{}).headline=this.value"
                      class="w-full px-2 py-1 border border-slate-200 rounded text-xs">
+              <button onclick="suggestTitleForSimpleClip('${c.id}')" ${c._analyzing ? 'disabled' : ''}
+                      class="w-full px-2 py-1 rounded text-[11px] font-medium" style="background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold-border);">
+                ${c._analyzing ? '🔍 Analizando…' : '✨ Sugerir título con IA'}
+              </button>
               <input type="text" placeholder="Subtítulo (opcional)" value="${escapeAttr(c.subline || '')}" maxlength="50"
                      oninput="(state.simple_clips.find(x=>x.id==='${c.id}')||{}).subline=this.value"
                      class="w-full px-2 py-1 border border-slate-200 rounded text-xs">
@@ -1385,6 +1396,10 @@ function renderSectionCard(key) {
             <input type="text" placeholder="Subtítulo (opcional)" value="${escapeAttr(c.subline || '')}" maxlength="50"
                    oninput="state.sections['${key}'].clips[${i}].subline=this.value"
                    class="w-full px-2 py-1 border border-slate-200 rounded text-xs">
+            <button onclick="suggestTitleForGuidedClip('${key}', ${i})" ${c._analyzing ? 'disabled' : ''}
+                    class="w-full px-2 py-1 rounded text-[11px] font-medium" style="background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold-border);">
+              ${c._analyzing ? '🔍 Analizando…' : '✨ Sugerir título con IA'}
+            </button>
           </div>
         </div>
       `).join("")}
@@ -1920,7 +1935,27 @@ function renderStep4() {
           <p class="text-slate-600 text-sm">Duración: ${state.job_duration ? state.job_duration.toFixed(1) : '?'}s · Listo para Instagram / TikTok</p>
         </div>
         <div class="bg-black rounded-2xl overflow-hidden mb-4"><video src="${state.job_download}" controls class="w-full" style="max-height: 70vh; background: black;"></video></div>
-        <a href="${state.job_download}" download class="block w-full text-center px-6 py-4 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 mb-4">⬇ Descargar MP4</a>
+        <a href="${state.job_download}" download class="block w-full text-center px-6 py-4 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 mb-3">⬇ Descargar MP4</a>
+
+        <!-- ✨ AUTO-CAPTION PARA INSTAGRAM (IA) -->
+        <div class="bg-white border border-amber-200 rounded-2xl p-4 mb-3" style="background: linear-gradient(135deg, var(--bg-card) 0%, rgba(201,168,106,0.05) 100%);">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-xs uppercase tracking-wider gold-accent font-semibold">✨ Caption listo para Instagram</div>
+            ${state.caption_text ? `<button onclick="copyCaptionToClipboard()" class="text-xs px-3 py-1 rounded-full" style="background: var(--gold); color: var(--bg-base); font-weight: 600;">${state.caption_copied ? '✓ Copiado' : '📋 Copiar'}</button>` : ''}
+          </div>
+          ${state.caption_loading ? `
+            <div class="flex items-center gap-2 py-4">
+              <div class="spinner w-5 h-5 border-2 rounded-full"></div>
+              <div class="text-sm text-slate-500">Generando caption con IA…</div>
+            </div>
+          ` : state.caption_text ? `
+            <textarea readonly class="w-full px-3 py-2 text-sm bg-transparent border border-slate-200 rounded-lg" rows="8" style="resize: vertical; font-family: inherit;">${escapeHtml(state.caption_text)}</textarea>
+            <div class="text-[10px] text-slate-500 mt-2">Generado con GPT-4o-mini · Editá libremente antes de publicar</div>
+          ` : `
+            <div class="text-sm text-slate-500 mb-3">Generá un caption profesional con hashtags chilenos en 5 segundos.</div>
+            <button onclick="generateInstagramCaption()" class="w-full px-4 py-2.5 rounded-xl font-semibold text-sm" style="background: var(--gold); color: var(--bg-base);">✨ Generar caption con IA</button>
+          `}
+        </div>
 
         <!-- EDITAR — siempre visible, no escondido en accordion -->
         <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-3">
@@ -1971,12 +2006,54 @@ function renderStep4() {
         </details>
       </div>`;
   }
+  // Quality report card (si existe)
+  const qrCard = state.quality_report ? `
+    <div class="bg-white border border-amber-200 rounded-2xl p-4 mb-4 text-left" style="background: linear-gradient(135deg, var(--bg-card) 0%, rgba(201,168,106,0.05) 100%);">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-xs uppercase tracking-wider gold-accent font-semibold">✨ Análisis de calidad IA</div>
+        <div class="text-sm font-bold gold-accent">${state.quality_report.overall_score}/10</div>
+      </div>
+      <div class="text-sm mb-3" style="color: var(--text-primary);">${escapeHtml(state.quality_report.summary || '')}</div>
+      ${state.quality_report.missing_shots?.length ? `
+        <div class="mb-2 text-xs">
+          <div class="font-semibold mb-1" style="color: var(--text-secondary);">📸 Tomas que faltan:</div>
+          <div class="flex flex-wrap gap-1">
+            ${state.quality_report.missing_shots.map(s => `<span class="px-2 py-0.5 rounded-full" style="background: var(--gold-soft); color: var(--gold); font-size: 11px;">${escapeHtml(s)}</span>`).join("")}
+          </div>
+        </div>
+      ` : ''}
+      ${state.quality_report.recommendations?.length ? `
+        <div class="text-xs">
+          <div class="font-semibold mb-1" style="color: var(--text-secondary);">💡 Recomendaciones:</div>
+          <ul class="space-y-1">
+            ${state.quality_report.recommendations.map(r => `<li class="flex gap-1.5"><span class="gold-accent">→</span><span style="color: var(--text-secondary);">${escapeHtml(r)}</span></li>`).join("")}
+          </ul>
+        </div>
+      ` : ''}
+    </div>
+  ` : '';
   return `
-    <div class="fade-in max-w-md mx-auto text-center pt-12">
+    <div class="fade-in max-w-md mx-auto text-center pt-8">
       <div class="text-5xl mb-4">🚀</div>
       <h1 class="text-2xl font-bold text-slate-900 mb-2">Listo para generar</h1>
-      <p class="text-slate-600 mb-6">Tocá <strong>Generar mi reel</strong> abajo. Toma 1-2 minutos.</p>
-      ${state.enhance_ai ? '<div class="bg-purple-50 border border-purple-200 rounded-xl p-3 text-sm text-purple-900">✨ Mejora IA activada — color y nitidez pro automáticos</div>' : ''}
+      <p class="text-slate-600 mb-5">Tocá <strong>Generar mi reel</strong> abajo. Toma 1-2 minutos.</p>
+      ${state.enhance_ai ? '<div class="bg-purple-50 border border-purple-200 rounded-xl p-3 text-sm text-purple-900 mb-3">✨ Mejora IA activada — color y nitidez pro automáticos</div>' : ''}
+
+      ${qrCard}
+
+      ${!state.quality_report && !state.quality_loading ? `
+        <button onclick="runQualityReport()" class="w-full px-4 py-3 rounded-xl font-semibold text-sm mb-2" style="background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold-border);">
+          ✨ Analizar calidad con IA (opcional)
+        </button>
+        <div class="text-[11px] text-slate-500 mb-3">Antes de generar, la IA revisa tus tomas y te dice qué mejorar.</div>
+      ` : state.quality_loading ? `
+        <div class="flex items-center justify-center gap-2 py-4">
+          <div class="spinner w-5 h-5 border-2 rounded-full"></div>
+          <div class="text-sm text-slate-500">Analizando ${state.upload_mode === 'simple' ? state.simple_clips.length : Object.values(state.sections).reduce((a,s)=>a+s.clips.length,0)} clips con IA…</div>
+        </div>
+      ` : `
+        <button onclick="state.quality_report=null; render()" class="text-xs text-slate-500 underline mb-3">🔄 Volver a analizar</button>
+      `}
     </div>`;
 }
 
@@ -2146,6 +2223,127 @@ document.addEventListener("visibilitychange", () => {
     pollJobStatus();
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// IA FEATURES — caption, visión por toma, feedback de calidad
+// ═══════════════════════════════════════════════════════════════════
+
+async function generateInstagramCaption() {
+  state.caption_loading = true;
+  state.caption_text = "";
+  render();
+  try {
+    const r = await fetch(API("/generate-caption"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        property: state.property,
+        description: state.property?.descripcion || state.voice_script || "",
+      }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || "Error generando caption");
+    state.caption_text = j.caption || "";
+  } catch (e) {
+    alert("No pude generar el caption: " + e.message);
+  } finally {
+    state.caption_loading = false;
+    render();
+  }
+}
+
+async function copyCaptionToClipboard() {
+  try {
+    await navigator.clipboard.writeText(state.caption_text || "");
+    state.caption_copied = true;
+    render();
+    setTimeout(() => { state.caption_copied = false; render(); }, 2200);
+  } catch (e) {
+    alert("No pude copiar — seleccioná el texto manualmente");
+  }
+}
+
+// Analiza un clip individual con visión IA → categoria + título + subtítulo + calidad
+async function analyzeClipWithAI(clipFile, clipId) {
+  const fd = new FormData();
+  fd.append("clip", clipFile);
+  try {
+    const r = await fetch(API("/analyze-clip"), { method: "POST", body: fd });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || "Error en analysis");
+    state.clip_analyses[clipId] = j;
+    return j;
+  } catch (e) {
+    console.warn("Clip analysis failed:", e);
+    return null;
+  }
+}
+
+// Sugiere título para un clip simple usando IA visual
+async function suggestTitleForSimpleClip(clipId) {
+  const c = state.simple_clips.find(x => x.id === clipId);
+  if (!c || !c.file) return;
+  c._analyzing = true; render();
+  const result = await analyzeClipWithAI(c.file, clipId);
+  c._analyzing = false;
+  if (result && result.suggested_title) {
+    c.headline = result.suggested_title;
+    c.subline = result.suggested_subtitle || c.subline;
+  }
+  render();
+  setTimeout(initSimpleSortable, 50);
+}
+
+// Sugiere título para un clip guiado (de sección)
+async function suggestTitleForGuidedClip(sectionKey, clipIndex) {
+  const c = state.sections[sectionKey]?.clips?.[clipIndex];
+  if (!c || !c.file) return;
+  c._analyzing = true; render();
+  const result = await analyzeClipWithAI(c.file, c.id);
+  c._analyzing = false;
+  if (result && result.suggested_title) {
+    c.headline = result.suggested_title;
+    c.subline = result.suggested_subtitle || c.subline;
+  }
+  render();
+}
+
+// Análisis de calidad global del reel — corre análisis de TODOS los clips
+// y después genera el reporte global con recomendaciones
+async function runQualityReport() {
+  state.quality_loading = true;
+  state.quality_report = null;
+  render();
+  try {
+    const clips = state.upload_mode === "simple"
+      ? state.simple_clips
+      : Object.values(state.sections).flatMap(s => s.clips);
+
+    // Analizar todos los clips en paralelo (max 4 a la vez para no saturar)
+    const analyses = [];
+    for (let i = 0; i < clips.length; i += 4) {
+      const batch = clips.slice(i, i + 4);
+      const results = await Promise.all(
+        batch.map(c => state.clip_analyses[c.id] ? Promise.resolve(state.clip_analyses[c.id]) : analyzeClipWithAI(c.file, c.id))
+      );
+      analyses.push(...results.filter(Boolean));
+    }
+    // Generar reporte global
+    const r = await fetch(API("/analyze-quality"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ analyses, property: state.property }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || "Error en reporte");
+    state.quality_report = j;
+  } catch (e) {
+    alert("No pude generar el reporte: " + e.message);
+  } finally {
+    state.quality_loading = false;
+    render();
+  }
+}
 
 // ── EDITOR DE SUBTÍTULOS (post-Whisper) ───────────────────────────
 async function openSubtitleEditor() {

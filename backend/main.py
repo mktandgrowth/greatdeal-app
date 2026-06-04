@@ -704,6 +704,71 @@ async def reapply_job_subtitles(job_id: str, payload: dict = Body(...)):
     }
 
 
+# ══════════════════════════════════════════════════════════════════════
+# IA FEATURES — auto-caption, visión por toma, feedback de calidad
+# ══════════════════════════════════════════════════════════════════════
+
+@app.post("/api/generate-caption")
+async def generate_caption_endpoint(payload: dict = Body(...)):
+    """Genera un caption profesional para Instagram listo para publicar.
+    Body: {property: {tipo, comuna, m2, dorms, banos, precio_uf, diferenciador}, description: str}
+    """
+    from ai_features import generate_instagram_caption
+    prop = payload.get("property") or {}
+    desc = (payload.get("description") or "").strip()
+    if not prop:
+        raise HTTPException(400, "Falta property data")
+    ok, result = generate_instagram_caption(prop, desc)
+    if not ok:
+        raise HTTPException(500, f"Caption gen failed: {result[:300]}")
+    return {"caption": result}
+
+
+@app.post("/api/analyze-clip")
+async def analyze_clip_endpoint(clip: UploadFile = File(...)):
+    """Analiza un clip con GPT-4o Vision: categoriza espacio, sugiere
+    título/subtítulo, evalúa calidad y detecta issues.
+    Multipart con 'clip' (UploadFile).
+    """
+    from ai_features import analyze_clip
+    task_id = uuid.uuid4().hex[:8]
+    work_dir = WORK_DIR / f"analyze_{task_id}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    ext = Path(clip.filename or "").suffix or ".mp4"
+    clip_path = work_dir / f"input{ext}"
+    with open(clip_path, "wb") as f:
+        shutil.copyfileobj(clip.file, f)
+
+    ok, result = analyze_clip(str(clip_path), str(work_dir))
+    try:
+        clip_path.unlink()
+        (work_dir / "analyze_frame.jpg").unlink(missing_ok=True)
+        work_dir.rmdir()
+    except Exception:
+        pass
+
+    if not ok:
+        raise HTTPException(500, f"Analysis failed: {result}")
+    return result
+
+
+@app.post("/api/analyze-quality")
+async def analyze_quality_endpoint(payload: dict = Body(...)):
+    """Toma una lista de análisis de clips (output de /api/analyze-clip)
+    y genera reporte de calidad global del reel.
+    Body: {analyses: [...], property: {...}}
+    """
+    from ai_features import generate_quality_report
+    analyses = payload.get("analyses") or []
+    prop = payload.get("property") or {}
+    if not isinstance(analyses, list) or not analyses:
+        raise HTTPException(400, "Falta lista de analyses")
+    ok, report = generate_quality_report(analyses, prop)
+    if not ok:
+        raise HTTPException(500, f"Report failed: {report.get('error', 'unknown')}")
+    return report
+
+
 @app.post("/api/transcribe-audio")
 async def transcribe_audio(audio: UploadFile = File(...)):
     """Transcribe un audio con Whisper y devuelve el texto.
