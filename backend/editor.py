@@ -725,13 +725,13 @@ def process_clip_combined(input_path: str, output_path: str,
         fade_out_start = max(0.1, effective_duration - 0.3)
         if headline:
             # Cormorant Garamond Bold (serif elegante, matchea branding de la app).
-            # Tamaño 62 porque los serif necesitan más píxeles para impactar.
+            # Tamaño 48 — equilibrado para que sea legible sin invadir la toma.
             # Sombra sutil para legibilidad sobre cualquier fondo.
             filters.append(
                 f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
-                f"fontsize=62:fontcolor=white:"
+                f"fontsize=48:fontcolor=white:"
                 f"shadowcolor=black@0.5:shadowx=2:shadowy=2:"
-                f"x=(w-text_w)/2:y=(h-text_h)/2-36"
+                f"x=(w-text_w)/2:y=(h-text_h)/2-28"
             )
         if subline:
             filters.append(

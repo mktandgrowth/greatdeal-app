@@ -89,14 +89,23 @@ def generate_instagram_caption(property_data: dict, description: str = "") -> tu
     bullets_str = " · ".join(bullets) if bullets else "(sin datos)"
 
     system_prompt = (
-        "Sos un copywriter de marketing inmobiliario chileno especialista en Instagram. "
-        "Tu trabajo es escribir captions atractivos, profesionales y con CTA claro "
-        "para reels de propiedades en venta. Usás emojis con criterio (no de más), "
-        "español chileno natural (sin 'tu', usás 'vos' o tercera persona), "
-        "y siempre cerrás con hashtags relevantes al mercado chileno."
+        "Eres un copywriter de marketing inmobiliario CHILENO especialista en Instagram. "
+        "Escribes copy en ESPAÑOL DE CHILE (NO argentino, NO neutro). "
+        "REGLAS DE ESPAÑOL CHILENO — críticas: "
+        "1) Usa siempre 'tú' (NUNCA 'vos', NUNCA 'che', NUNCA 'sos/tenés/querés'). "
+        "2) Verbos en imperativo con 'tú': 'Agenda', 'Conoce', 'Descubre', 'Mira', 'Visita' "
+        "   (NUNCA 'agendá', 'conocé', 'descubrí', 'mirá'). "
+        "3) Para casos formales/neutros usa imperativo impersonal: 'Agenda tu visita', "
+        "   'Solicita más información'. "
+        "4) Vocabulario chileno apropiado: 'departamento' (no 'depto'), 'arriendo', "
+        "   'corretaje', 'cocina americana', 'piso flotante', 'aluminio', 'logia'. "
+        "5) NO uses modismos informales como 'weón', 'po', 'cachái' (es marketing, no chat). "
+        "6) Hashtags 100% chilenos: #PropiedadesChile #InmobiliariaChile #VivirEnSantiago "
+        "   #CasasChile #DeptosChile #VentaPropiedades #ComunaXYZ etc. "
+        "Tono: profesional pero cercano, aspiracional. Emojis con criterio (no demasiados)."
     )
 
-    user_prompt = f"""Generá un caption de Instagram para este reel de propiedad:
+    user_prompt = f"""Genera un copy/descripción de Instagram en ESPAÑOL DE CHILE para este reel de propiedad:
 
 **Tipo:** {tipo}
 **Ubicación:** {comuna or 'Chile'}
@@ -104,15 +113,18 @@ def generate_instagram_caption(property_data: dict, description: str = "") -> tu
 {f'**Diferenciador:** {diferenciador}' if diferenciador else ''}
 {f'**Descripción del agente:** {description}' if description else ''}
 
-Estructura del caption:
+Estructura:
 1. Frase de gancho (1-2 líneas con emoji llamativo al inicio)
-2. Descripción breve de la propiedad (3-5 líneas, características destacables)
-3. CTA claro ("Agendá visita por DM", "Más info al link en bio", etc.)
+2. Descripción breve (3-5 líneas, características destacables)
+3. CTA claro EN ESPAÑOL CHILENO: usa 'Agenda tu visita', 'Escríbenos', 'Conoce más', 'Solicita más información', 'Contáctanos por DM' (NUNCA 'agendá', 'escribinos', 'conocé').
 4. Línea separadora
-5. 12-15 hashtags chilenos relevantes mezclando: ubicación, tipo de propiedad, mercado inmobiliario, estilo de vida
+5. 12-15 hashtags chilenos relevantes mezclando: ubicación específica, tipo de propiedad, mercado inmobiliario, estilo de vida chileno
 
 Tono: profesional pero cercano, aspiracional. Máximo 2200 caracteres totales.
-Devolvé SOLO el caption, sin meta-comentarios."""
+
+IMPORTANTE: revisa el texto antes de devolverlo y asegúrate que NO uses argentino ('vos', 'sos', 'tenés', 'querés', 'agendá', 'conocé', 'descubrí'). Solo español chileno con 'tú' o impersonal.
+
+Devuelve SOLO el copy, sin meta-comentarios."""
 
     ok, result = _post_chat(
         messages=[
