@@ -344,6 +344,9 @@ let state = {
   clip_analyses: {},               // { clipId: {category, suggested_title, ...} }
   quality_report: null,            // { overall_score, summary, missing_shots, recommendations }
   quality_loading: false,
+  // ── Versionado de reel ──
+  previous_reel: null,             // {download, duration, caption, saved_at}
+  adjustments_modal_open: false,   // modal "Aplicar ajustes" en pantalla final
   voice_audio_file: null,
   voice_audio_url: null,
   voice_method: "none",
@@ -1974,54 +1977,51 @@ function renderStep4() {
           `}
         </div>
 
-        <!-- EDITAR — siempre visible, no escondido en accordion -->
-        <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-3">
-          <div class="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-3 px-1">✏️ Editar el reel</div>
-          <div class="grid grid-cols-1 gap-2">
-            <button onclick="openManualEditor()" class="flex items-center gap-3 px-4 py-3 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 text-left">
-              <span class="text-2xl">🎬</span>
+        <!-- VOLVER AL REEL ANTERIOR (si existe) -->
+        ${state.previous_reel ? `
+        <button onclick="restorePreviousReel()" class="w-full mb-3 flex items-center gap-2 justify-center px-4 py-2.5 rounded-xl text-sm font-medium" style="background: rgba(201,168,106,0.08); color: var(--gold); border: 1px solid var(--gold-border);">
+          <span>↶</span>
+          <span>Volver al reel anterior</span>
+        </button>
+        ` : ''}
+
+        <!-- APLICAR AJUSTES (modal único con texto + imagen) -->
+        <button onclick="openAdjustmentsModal()" class="w-full mb-3 flex items-center gap-3 px-4 py-4 rounded-xl text-left transition-all" style="background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 20px rgba(201,168,106,0.25);">
+          <span class="text-2xl">✏️</span>
+          <div class="flex-1">
+            <div class="font-bold">Aplicar ajustes</div>
+            <div class="text-xs opacity-80">Cambiar textos, transcripción, efectos de imagen</div>
+          </div>
+          <span class="text-xl opacity-70">›</span>
+        </button>
+
+        <!-- EDITOR AVANZADO (acceso secundario, menos prominente) -->
+        <details class="bg-white border border-slate-200 rounded-2xl mb-3">
+          <summary class="flex items-center justify-between p-4 cursor-pointer text-sm">
+            <span style="color: var(--text-secondary);">Más opciones (editor avanzado, cambiar audio/datos)</span>
+            <span class="chev text-slate-400">▾</span>
+          </summary>
+          <div class="border-t border-slate-200 p-3 grid grid-cols-1 gap-2">
+            <button onclick="openManualEditor()" class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl text-left">
+              <span class="text-xl">🎬</span>
               <div class="flex-1">
-                <div class="font-semibold">Editor avanzado</div>
-                <div class="text-xs opacity-75 font-normal">Ajustar clips, velocidad, recortes, orden, Runway IA</div>
+                <div class="font-semibold text-sm">Editor avanzado (clips/velocidad/orden)</div>
               </div>
-              <span class="text-xl opacity-50">›</span>
             </button>
-            ${hasVoice ? `
-            <button onclick="openSubtitleEditor()" class="flex items-center gap-3 px-4 py-3 bg-white border-2 border-purple-300 text-purple-900 rounded-xl font-medium hover:bg-purple-50 text-left">
-              <span class="text-2xl">✍️</span>
+            <button onclick="state.step=3; render()" class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl text-left">
+              <span class="text-xl">🎵</span>
               <div class="flex-1">
-                <div class="font-semibold">Editar subtítulos</div>
-                <div class="text-xs opacity-75 font-normal">Corregir errores de transcripción (Whisper)</div>
+                <div class="font-semibold text-sm">Cambiar música o voz</div>
               </div>
-              <span class="text-xl opacity-50">›</span>
-            </button>` : ''}
-            <button onclick="state.step=3; render()" class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl font-medium hover:bg-slate-50 text-left">
-              <span class="text-2xl">🎵</span>
-              <div class="flex-1">
-                <div class="font-semibold">Cambiar música o voz</div>
-                <div class="text-xs opacity-75 font-normal">Música de fondo, voz, subtítulos automáticos</div>
-              </div>
-              <span class="text-xl opacity-50">›</span>
             </button>
-            <button onclick="state.step=1; render()" class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl font-medium hover:bg-slate-50 text-left">
-              <span class="text-2xl">📝</span>
+            <button onclick="state.step=2; render()" class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl text-left">
+              <span class="text-xl">💼</span>
               <div class="flex-1">
-                <div class="font-semibold">Cambiar títulos y subtítulos por toma</div>
-                <div class="text-xs opacity-75 font-normal">Editá el texto que aparece sobre cada clip</div>
+                <div class="font-semibold text-sm">Cambiar datos de la propiedad</div>
               </div>
-              <span class="text-xl opacity-50">›</span>
-            </button>
-            <button onclick="state.step=2; render()" class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl font-medium hover:bg-slate-50 text-left">
-              <span class="text-2xl">💼</span>
-              <div class="flex-1">
-                <div class="font-semibold">Cambiar datos de la propiedad</div>
-                <div class="text-xs opacity-75 font-normal">Comuna, m², CTA, logo, efectos cinematográficos</div>
-              </div>
-              <span class="text-xl opacity-50">›</span>
             </button>
           </div>
-          <button onclick="reprocessFromCurrent()" class="mt-3 block w-full text-center px-6 py-3 bg-amber-500 text-white rounded-xl font-semibold hover:bg-amber-600">↻ Re-generar reel con cambios</button>
-        </div>
+        </details>
 
         <details class="bg-slate-50 rounded-xl px-4 py-3 text-sm">
           <summary class="flex items-center justify-between cursor-pointer"><span class="text-slate-600">¿Querés empezar de cero?</span><span class="chev text-slate-400">▾</span></summary>
@@ -2171,6 +2171,15 @@ async function reprocessFromCurrent() {
   if (!confirm("¿Re-procesar el reel con los cambios?")) return;
   const { sections } = buildPayload();
   if (sections.length === 0) { alert("No hay videos"); return; }
+  // ── GUARDAR EL REEL ANTERIOR para poder volver ──
+  if (state.job_download) {
+    state.previous_reel = {
+      download: state.job_download,
+      duration: state.job_duration,
+      caption: state.caption_text,
+      saved_at: Date.now(),
+    };
+  }
   const fd = new FormData();
   fd.append("sections", JSON.stringify(sections));
   fd.append("cta_data", JSON.stringify(buildCtaData()));
@@ -2277,6 +2286,16 @@ async function generateInstagramCaption() {
   }
 }
 
+function restorePreviousReel() {
+  if (!state.previous_reel) return;
+  if (!confirm("¿Volver al reel anterior y descartar el actual?")) return;
+  state.job_download = state.previous_reel.download;
+  state.job_duration = state.previous_reel.duration;
+  state.caption_text = state.previous_reel.caption || "";
+  state.previous_reel = null;
+  render();
+}
+
 async function copyCaptionToClipboard() {
   try {
     await navigator.clipboard.writeText(state.caption_text || "");
@@ -2368,6 +2387,123 @@ async function runQualityReport() {
     state.quality_loading = false;
     render();
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODAL UNIFICADO "APLICAR AJUSTES" (post-render)
+// ═══════════════════════════════════════════════════════════════════
+
+function openAdjustmentsModal() {
+  state.adjustments_modal_open = true;
+  renderAdjustmentsModal();
+}
+
+function closeAdjustmentsModal() {
+  state.adjustments_modal_open = false;
+  const el = document.getElementById("adjModal");
+  if (el) el.remove();
+}
+
+function renderAdjustmentsModal() {
+  let el = document.getElementById("adjModal");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "adjModal";
+    el.className = "fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4";
+    el.style.background = "rgba(0,0,0,0.85)";
+    el.style.backdropFilter = "blur(12px)";
+    document.body.appendChild(el);
+  }
+
+  const hasVoice = !!(state.voice_audio_url || state.voice_audio_file);
+  const imageEffects = [
+    { key: "aumentar_contraste", label: "🔆 Aumentar contraste", desc: "Negros + profundos, blancos + brillantes" },
+    { key: "mejorar_luz", label: "💡 Mejorar la luz", desc: "Levanta sombras, equilibra exposición" },
+    { key: "mejorar_nitidez", label: "✨ Mejorar nitidez", desc: "Define detalles, textures cristalinas" },
+  ];
+  const currentEffect = state.cinematic_filter;
+  const effectButtons = imageEffects.map(e => `
+    <button onclick="applyImageEffect('${e.key}')" class="text-left p-3 rounded-xl transition-all border ${currentEffect === e.key ? 'border-amber-400' : 'border-slate-300'}" style="background: ${currentEffect === e.key ? 'rgba(201,168,106,0.18)' : 'transparent'};">
+      <div class="text-sm font-semibold" style="color: var(--text-primary);">${e.label}</div>
+      <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">${e.desc}</div>
+    </button>
+  `).join("");
+
+  el.innerHTML = `
+    <div class="w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl overflow-hidden max-h-[90vh] flex flex-col" style="background: var(--bg-card);">
+      <!-- Header -->
+      <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border-subtle);">
+        <div>
+          <div class="font-bold text-base" style="color: var(--text-primary);">✏️ Aplicar ajustes</div>
+          <div class="text-xs" style="color: var(--text-muted);">Cambiá textos o efectos de imagen</div>
+        </div>
+        <button onclick="closeAdjustmentsModal()" class="text-xl" style="color: var(--text-secondary);">✕</button>
+      </div>
+
+      <!-- Contenido scrolleable -->
+      <div class="flex-1 overflow-y-auto p-5 space-y-5">
+
+        <!-- SECCIÓN TEXTO -->
+        <div>
+          <div class="text-[11px] uppercase tracking-wider gold-accent font-semibold mb-2">📝 Texto</div>
+          <button onclick="closeAdjustmentsModal(); state.step=1; render();" class="w-full mb-2 flex items-center gap-3 p-3 rounded-xl border text-left transition" style="border-color: var(--border-subtle); background: rgba(255,255,255,0.02);">
+            <span class="text-xl">📝</span>
+            <div class="flex-1">
+              <div class="text-sm font-semibold" style="color: var(--text-primary);">Arreglar títulos y subtítulos por toma</div>
+              <div class="text-[11px]" style="color: var(--text-muted);">Editá el texto sobre cada clip del reel</div>
+            </div>
+            <span style="color: var(--text-muted);">›</span>
+          </button>
+          ${hasVoice ? `
+          <button onclick="closeAdjustmentsModal(); openSubtitleEditor();" class="w-full flex items-center gap-3 p-3 rounded-xl border text-left transition" style="border-color: var(--border-subtle); background: rgba(255,255,255,0.02);">
+            <span class="text-xl">🎙️</span>
+            <div class="flex-1">
+              <div class="text-sm font-semibold" style="color: var(--text-primary);">Corregir transcripción del audio</div>
+              <div class="text-[11px]" style="color: var(--text-muted);">Revisar y editar lo que la IA transcribió</div>
+            </div>
+            <span style="color: var(--text-muted);">›</span>
+          </button>
+          ` : `
+          <div class="p-3 rounded-xl text-xs" style="background: rgba(255,255,255,0.04); color: var(--text-muted);">
+            🎙️ Para editar la transcripción del audio, primero cargá una voz en el paso 3.
+          </div>
+          `}
+        </div>
+
+        <!-- SECCIÓN IMAGEN -->
+        <div>
+          <div class="text-[11px] uppercase tracking-wider gold-accent font-semibold mb-2">🎨 Imagen</div>
+          <div class="text-[11px] mb-3" style="color: var(--text-muted);">Aplicá un efecto y tocá "Aplicar al reel" para ver el resultado.</div>
+          <div class="grid grid-cols-1 gap-2">
+            <button onclick="applyImageEffect('')" class="text-left p-3 rounded-xl transition-all border ${!currentEffect ? 'border-amber-400' : 'border-slate-300'}" style="background: ${!currentEffect ? 'rgba(201,168,106,0.18)' : 'transparent'};">
+              <div class="text-sm font-semibold" style="color: var(--text-primary);">🎥 Natural</div>
+              <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">Sin efecto — video original</div>
+            </button>
+            ${effectButtons}
+          </div>
+          ${currentEffect ? `
+          <div class="mt-3 p-3 rounded-xl text-xs flex items-center gap-2" style="background: rgba(201,168,106,0.10); color: var(--gold);">
+            <span>✨</span>
+            <span>Efecto seleccionado. Tocá "Aplicar al reel" abajo para regenerar.</span>
+          </div>
+          ` : ''}
+        </div>
+      </div>
+
+      <!-- Footer con CTA -->
+      <div class="p-4" style="border-top: 1px solid var(--border-subtle);">
+        <button onclick="closeAdjustmentsModal(); reprocessFromCurrent();" class="w-full py-3 rounded-xl font-bold text-sm" style="background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 20px rgba(201,168,106,0.25);">
+          ↻ Aplicar al reel y re-generar
+        </button>
+        <div class="text-[11px] text-center mt-2" style="color: var(--text-muted);">El reel anterior queda guardado por si querés volver</div>
+      </div>
+    </div>
+  `;
+}
+
+function applyImageEffect(effectKey) {
+  state.cinematic_filter = effectKey;
+  renderAdjustmentsModal();  // re-render del modal con la selección
 }
 
 // ── EDITOR DE SUBTÍTULOS (post-Whisper) ───────────────────────────

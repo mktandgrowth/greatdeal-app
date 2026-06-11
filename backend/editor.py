@@ -109,6 +109,36 @@ CINEMATIC_FILTERS = {
             "unsharp=5:5:0.6:5:5:0.0"
         ),
     },
+    # ──────── Mejoras puntuales (efectos atómicos para "Aplicar ajustes") ────────
+    "aumentar_contraste": {
+        "label": "🔆 Aumentar contraste",
+        "description": "Negros más profundos + blancos más brillantes — look pro",
+        # Curva en S: shadows más oscuras, highlights más brillantes + boost saturación leve
+        "filter": (
+            "curves=master='0/0 0.18/0.10 0.5/0.5 0.82/0.92 1/1',"
+            "eq=contrast=1.22:saturation=1.12:gamma=0.96"
+        ),
+    },
+    "mejorar_luz": {
+        "label": "💡 Mejorar la luz",
+        "description": "Levanta sombras, equilibra exposición — escenas oscuras se ven mejor",
+        # Levantar sombras (lift) + recuperar highlights + boost brillo midtones
+        "filter": (
+            "curves=master='0/0.10 0.25/0.42 0.5/0.62 0.75/0.82 1/0.98',"
+            "eq=brightness=0.05:saturation=1.18:gamma=1.08,"
+            "unsharp=5:5:0.5:5:5:0.0"
+        ),
+    },
+    "mejorar_nitidez": {
+        "label": "✨ Mejorar nitidez",
+        "description": "Define detalles + reduce blur — textures cristalinas",
+        # Denoise leve primero (evita amplificar grano) + unsharp fuerte para detalles
+        "filter": (
+            "hqdn3d=1.0:1.0:4:4,"
+            "unsharp=7:7:1.6:7:7:0.4,"
+            "eq=saturation=1.08:contrast=1.06"
+        ),
+    },
 }
 
 

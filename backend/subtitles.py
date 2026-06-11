@@ -29,7 +29,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cinema,{font},26,&H00FFFFFF,&H000000FF,&H00000000,&HF0000000,0,0,0,0,100,100,0,0,3,6,2,2,100,100,360,1
+Style: Cinema,{font},32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,3,12,3,2,100,100,340,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -38,13 +38,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # Prompt con vocabulario inmobiliario chileno — fuerza a Whisper a usar
 # estos términos y reduce traducciones/errores. Se pasa como `prompt`.
+# El estilo del ejemplo le indica a Whisper que use puntuación y mayúsculas.
 WHISPER_PROMPT_CHILE = (
     "Esta es una descripción de una propiedad inmobiliaria en Chile, en español "
-    "chileno. Palabras comunes: comuna, dormitorio, baño, living, comedor, "
-    "cocina, terraza, jardín, estacionamiento, bodega, ascensor, conserjería, "
-    "metros cuadrados, m², UF, pesos, departamento, casa, parcela, oficina, "
-    "Las Condes, Vitacura, Providencia, Ñuñoa, La Reina, Lo Barnechea, Maipú, "
-    "Santiago, Concepción, Viña del Mar. La narración es natural y conversacional."
+    "chileno. Usa puntuación completa: mayúsculas al inicio de oración, comas "
+    "para pausas, puntos al final. Ejemplo: \"Esta hermosa casa en Vitacura "
+    "cuenta con 320 metros cuadrados construidos. Tiene 4 dormitorios, 3 baños "
+    "completos, living-comedor amplio y cocina americana con isla. Cuenta con "
+    "jardín privado y dos estacionamientos.\" Palabras comunes: comuna, "
+    "dormitorio, baño, living, comedor, cocina, terraza, jardín, estacionamiento, "
+    "bodega, ascensor, conserjería, metros cuadrados, m², UF, pesos, departamento, "
+    "casa, parcela, oficina, Las Condes, Vitacura, Providencia, Ñuñoa, La Reina, "
+    "Lo Barnechea, Maipú, Santiago, Concepción, Viña del Mar."
 )
 
 
@@ -275,11 +280,13 @@ def apply_auto_subtitles(
         shutil.copy(video_path, output_path)
         return True, "no-segments-detected"
 
-    # 2. Generate ASS file con chunks de 3 palabras estilo TikTok
+    # 2. Generate ASS file. Usamos SEGMENTS completos (frases enteras) — esto
+    # preserva la puntuación, mayúsculas, comas y puntos que Whisper devuelve
+    # naturalmente, en vez de partir palabra por palabra.
     # Font "Inter" matchea el body de la app (sans clean)
     ass_path = str(work / "subtitles.ass")
-    ok, err = generate_ass_file(segments, ass_path, words=words,
-                                 font="Inter", chunk_words=3)
+    ok, err = generate_ass_file(segments, ass_path, words=None,
+                                 font="Inter", chunk_words=8)
     if not ok:
         return False, f"ASS: {err}"
 
