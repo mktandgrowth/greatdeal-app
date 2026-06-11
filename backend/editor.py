@@ -8,31 +8,31 @@ import json
 from pathlib import Path
 from typing import Optional
 
-# TÍTULOS del video → Cormorant Garamond Bold (matchea branding de la app)
-FONT_BOLD = "/usr/share/fonts/truetype/cormorant/CormorantGaramond-Bold.ttf"
-# SUBTÍTULOS de clip + CTA → Inter (sans clean, matchea body de la app)
-FONT_REG  = "/usr/share/fonts/truetype/inter/Inter-Medium.ttf"
-# Subtítulos hablados (Whisper) → Inter Regular (en subtitles.py ASS Style)
-FONT_THIN = "/usr/share/fonts/truetype/inter/Inter-Regular.ttf"
+# TÍTULOS del video → Montserrat Bold
+FONT_BOLD = "/usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf"
+# SUBTÍTULOS de clip + CTA → Montserrat Regular
+FONT_REG  = "/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf"
+# Subtítulos hablados (Whisper) → Montserrat Regular (en subtitles.py ASS Style)
+FONT_THIN = "/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf"
 
-# Fallbacks por si las fonts nuevas no se descargaron
+# Fallbacks por si las fonts no se descargaron
 if not Path(FONT_BOLD).exists():
     fallbacks = [
-        "/usr/share/fonts/truetype/cormorant/CormorantGaramond-SemiBold.ttf",
-        "/usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf",
         "/usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf",
+        "/usr/share/fonts/truetype/montserrat/Montserrat-Black.ttf",
+        "/usr/share/fonts/truetype/inter/Inter-SemiBold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     ]
     FONT_BOLD = next((f for f in fallbacks if Path(f).exists()), fallbacks[-1])
 if not Path(FONT_REG).exists():
     fallbacks_reg = [
-        "/usr/share/fonts/truetype/inter/Inter-Regular.ttf",
         "/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf",
+        "/usr/share/fonts/truetype/inter/Inter-Regular.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ]
     FONT_REG = next((f for f in fallbacks_reg if Path(f).exists()), fallbacks_reg[-1])
 if not Path(FONT_THIN).exists():
-    FONT_THIN = FONT_REG  # Inter Regular como thin fallback
+    FONT_THIN = FONT_REG
 
 W, H = 540, 960
 
@@ -754,20 +754,20 @@ def process_clip_combined(input_path: str, output_path: str,
     if headline or subline:
         fade_out_start = max(0.1, effective_duration - 0.3)
         if headline:
-            # Cormorant Garamond Bold (serif elegante, matchea branding de la app).
-            # Tamaño 48 — equilibrado para que sea legible sin invadir la toma.
-            # Sombra sutil para legibilidad sobre cualquier fondo.
+            # Título: Montserrat Bold 30px, blanco, sin sombra,
+            # caja negra light (40% opaca) con padding 10px alrededor.
             filters.append(
                 f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
-                f"fontsize=48:fontcolor=white:"
-                f"shadowcolor=black@0.5:shadowx=2:shadowy=2:"
-                f"x=(w-text_w)/2:y=(h-text_h)/2-28"
+                f"fontsize=30:fontcolor=white:"
+                f"box=1:boxcolor=black@0.4:boxborderw=10:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2-22"
             )
         if subline:
+            # Subtítulo: Montserrat Regular 20px, blanco, sin sombra ni caja
             filters.append(
                 f"drawtext=fontfile={FONT_REG}:text='{_esc(subline)}':"
-                f"fontsize=26:fontcolor=white:"
-                f"x=(w-text_w)/2:y=(h-text_h)/2+34"
+                f"fontsize=20:fontcolor=white:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2+22"
             )
         filters.append(
             f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_out_start}:d=0.3"

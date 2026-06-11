@@ -29,7 +29,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cinema,{font},32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,3,12,3,2,100,100,340,1
+Style: Cinema,{font},20,&H00FFFFFF,&H000000FF,&H00000000,&HC0000000,0,0,0,0,100,100,0,0,3,12,3,2,100,100,340,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -281,12 +281,11 @@ def apply_auto_subtitles(
         return True, "no-segments-detected"
 
     # 2. Generate ASS file. Usamos SEGMENTS completos (frases enteras) — esto
-    # preserva la puntuación, mayúsculas, comas y puntos que Whisper devuelve
-    # naturalmente, en vez de partir palabra por palabra.
-    # Font "Inter" matchea el body de la app (sans clean)
+    # preserva la puntuación, mayúsculas, comas y puntos que Whisper devuelve.
+    # Font "Montserrat" para consistencia con títulos y subtítulos del clip.
     ass_path = str(work / "subtitles.ass")
     ok, err = generate_ass_file(segments, ass_path, words=None,
-                                 font="Inter", chunk_words=8)
+                                 font="Montserrat", chunk_words=8)
     if not ok:
         return False, f"ASS: {err}"
 

@@ -266,10 +266,9 @@
 <script>
 // ── CONFIG ─────────────────────────────────────────────────────────
 const STEPS = [
-  { id: 1, label: "Videos" },
-  { id: 2, label: "Datos" },
-  { id: 3, label: "Audio" },
-  { id: 4, label: "Tu reel" },
+  { id: 1, label: "Videos + Datos" },
+  { id: 2, label: "Audio" },
+  { id: 3, label: "Tu reel" },
 ];
 
 const SECTION_ORDER = ["entrada", "dormitorios", "banos", "areas", "exterior", "vista"];
@@ -1011,7 +1010,7 @@ function renderStepper() {
 
   document.getElementById("btn-prev").disabled = (state.step === 1);
   const next = document.getElementById("btn-next");
-  if (state.step === 4) {
+  if (state.step === 3) {
     const isProc = state.job_status && state.job_status !== "done" && state.job_status !== "error";
     if (isProc) { next.textContent = "Procesando…"; next.disabled = true; }
     else if (!state.has_been_processed) { next.textContent = "Generar mi reel →"; next.disabled = false; }
@@ -1027,7 +1026,7 @@ function renderStepper() {
 
 function goNext() {
   if (state.step === 1 && totalClipsCount() === 0) { alert("Subí al menos un video"); return; }
-  if (state.step === 4 && !state.has_been_processed) { processReel(); return; }
+  if (state.step === 3 && !state.has_been_processed) { processReel(); return; }
   if (state.step < STEPS.length) { state.step++; render(); }
 }
 
@@ -1947,86 +1946,146 @@ function renderStep4() {
   }
   if (isDone && state.job_download) {
     const hasVoice = !!(state.voice_audio_url || state.voice_audio_file);
+    const filter = state.cinematic_filter || "";
+    const cssFilter = cssFilterFor(filter);
+    const isPreviewing = !!filter;
+
+    // Efectos rápidos (los 3 pedidos por Vale) — botones inline con preview live
+    const quickEffects = [
+      { key: "", label: "🎥 Original", desc: "Sin efecto" },
+      { key: "aumentar_contraste", label: "🔆 + Contraste", desc: "Negros y blancos más definidos" },
+      { key: "mejorar_luz", label: "💡 + Luz", desc: "Levanta sombras, equilibra" },
+      { key: "mejorar_nitidez", label: "✨ + Nitidez", desc: "Detalles más cristalinos" },
+    ];
+    const effectButtons = quickEffects.map(e => {
+      const active = state.cinematic_filter === e.key;
+      return `
+        <button onclick="setPreviewFilter('${e.key}')" class="text-left p-2.5 rounded-xl transition-all" style="background: ${active ? 'var(--gold-soft)' : 'rgba(255,255,255,0.03)'}; border: 1px solid ${active ? 'var(--gold)' : 'var(--border-subtle)'};">
+          <div class="text-xs font-semibold" style="color: var(--text-primary);">${e.label}</div>
+          <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">${e.desc}</div>
+        </button>
+      `;
+    }).join("");
+
+    // Looks cinematográficos (en desplegable, para no saturar)
+    const cineLooks = (state.cinematic_filters_catalog || []).filter(f =>
+      !["aumentar_contraste", "mejorar_luz", "mejorar_nitidez"].includes(f.key)
+    );
+    const cineCards = cineLooks.map(f => {
+      const active = state.cinematic_filter === f.key;
+      return `
+        <button onclick="setPreviewFilter('${f.key}')" class="text-left p-2.5 rounded-xl transition-all" style="background: ${active ? 'var(--gold-soft)' : 'rgba(255,255,255,0.03)'}; border: 1px solid ${active ? 'var(--gold)' : 'var(--border-subtle)'};">
+          <div class="text-xs font-semibold" style="color: var(--text-primary);">${escapeHtml(f.label)}</div>
+          <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">${escapeHtml(f.description)}</div>
+        </button>
+      `;
+    }).join("");
+
     return `
       <div class="fade-in max-w-2xl mx-auto">
         <div class="text-center mb-4">
           <div class="text-3xl mb-2">✨</div>
           <h1 class="text-2xl font-bold text-slate-900 mb-1">Tu reel está listo</h1>
-          <p class="text-slate-600 text-sm">Duración: ${state.job_duration ? state.job_duration.toFixed(1) : '?'}s · Listo para Instagram / TikTok</p>
+          <p class="text-slate-600 text-sm">${state.job_duration ? state.job_duration.toFixed(1) : '?'}s · Para Instagram / TikTok</p>
         </div>
-        <div class="bg-black rounded-2xl overflow-hidden mb-4"><video src="${state.job_download}" controls class="w-full" style="max-height: 70vh; background: black;"></video></div>
-        <a href="${state.job_download}" download class="block w-full text-center px-6 py-4 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 mb-3">⬇ Descargar MP4</a>
+
+        <!-- VIDEO con preview CSS en vivo del filtro elegido -->
+        <div class="bg-black rounded-2xl overflow-hidden mb-2">
+          <video id="reelPreviewVideo" src="${state.job_download}" controls class="w-full" style="max-height: 70vh; background: black; filter: ${cssFilter}; transition: filter 0.3s ease;"></video>
+        </div>
+        ${isPreviewing ? `
+          <div class="text-center text-[11px] mb-3" style="color: var(--gold);">
+            👁️ Previsualizando "${escapeHtml(quickEffects.concat(cineLooks).find(f => f.key === filter)?.label || filter)}" — Para aplicarlo definitivo tocá "Aplicar y regenerar" abajo
+          </div>
+        ` : '<div class="mb-3"></div>'}
+
+        <div class="flex gap-2 mb-3">
+          <a href="${state.job_download}" download class="flex-1 text-center px-4 py-3 rounded-xl font-semibold text-sm" style="background: var(--gold); color: var(--bg-base);">⬇ Descargar MP4</a>
+          ${state.previous_reel ? `
+          <button onclick="restorePreviousReel()" class="px-4 py-3 rounded-xl text-sm font-medium" style="background: rgba(201,168,106,0.08); color: var(--gold); border: 1px solid var(--gold-border);">↶ Anterior</button>
+          ` : ''}
+        </div>
 
         <!-- ✨ COPY / DESCRIPCIÓN DE LA PROPIEDAD (IA) -->
-        <div class="bg-white border border-amber-200 rounded-2xl p-4 mb-3" style="background: linear-gradient(135deg, var(--bg-card) 0%, rgba(201,168,106,0.05) 100%);">
+        <div class="rounded-2xl p-4 mb-3" style="background: linear-gradient(135deg, var(--bg-card) 0%, rgba(201,168,106,0.05) 100%); border: 1px solid var(--border-subtle);">
           <div class="flex items-center justify-between mb-2">
             <div class="text-xs uppercase tracking-wider gold-accent font-semibold">📝 Copy / descripción de la propiedad</div>
             ${state.caption_text ? `<button onclick="copyCaptionToClipboard()" class="text-xs px-3 py-1 rounded-full" style="background: var(--gold); color: var(--bg-base); font-weight: 600;">${state.caption_copied ? '✓ Copiado' : '📋 Copiar'}</button>` : ''}
           </div>
           ${state.caption_loading ? `
-            <div class="flex items-center gap-2 py-4">
-              <div class="spinner w-5 h-5 border-2 rounded-full"></div>
-              <div class="text-sm text-slate-500">Generando copy con IA…</div>
-            </div>
+            <div class="flex items-center gap-2 py-4"><div class="spinner w-5 h-5 border-2 rounded-full"></div><div class="text-sm" style="color: var(--text-muted);">Generando copy con IA…</div></div>
           ` : state.caption_text ? `
-            <textarea readonly class="w-full px-3 py-2 text-sm bg-transparent border border-slate-200 rounded-lg" rows="8" style="resize: vertical; font-family: inherit;">${escapeHtml(state.caption_text)}</textarea>
-            <div class="text-[10px] text-slate-500 mt-2">Generado con IA en español chileno · Listo para pegar en Instagram</div>
+            <textarea readonly class="w-full px-3 py-2 text-sm bg-transparent border rounded-lg" rows="8" style="resize: vertical; font-family: inherit; border-color: var(--border-subtle); color: var(--text-primary);">${escapeHtml(state.caption_text)}</textarea>
+            <div class="text-[10px] mt-2" style="color: var(--text-muted);">Generado con IA en español chileno · Listo para Instagram</div>
           ` : `
-            <div class="text-sm text-slate-500 mb-3">Genera un copy profesional con hashtags chilenos en 5 segundos.</div>
             <button onclick="generateInstagramCaption()" class="w-full px-4 py-2.5 rounded-xl font-semibold text-sm" style="background: var(--gold); color: var(--bg-base);">✨ Generar copy con IA</button>
           `}
         </div>
 
-        <!-- VOLVER AL REEL ANTERIOR (si existe) -->
-        ${state.previous_reel ? `
-        <button onclick="restorePreviousReel()" class="w-full mb-3 flex items-center gap-2 justify-center px-4 py-2.5 rounded-xl text-sm font-medium" style="background: rgba(201,168,106,0.08); color: var(--gold); border: 1px solid var(--gold-border);">
-          <span>↶</span>
-          <span>Volver al reel anterior</span>
-        </button>
-        ` : ''}
+        <!-- 🎨 EFECTOS DE IMAGEN — con preview CSS en vivo -->
+        <div class="rounded-2xl p-4 mb-3" style="background: var(--bg-card); border: 1px solid var(--border-subtle);">
+          <div class="text-xs uppercase tracking-wider gold-accent font-semibold mb-1">🎨 Look del video</div>
+          <div class="text-[11px] mb-3" style="color: var(--text-muted);">Tocá un efecto y mirá el video arriba → se aplica al instante. Para guardarlo en el MP4, tocá "Aplicar y regenerar".</div>
+          <div class="grid grid-cols-2 gap-2 mb-3">${effectButtons}</div>
+          <details class="rounded-xl" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle);">
+            <summary class="px-3 py-2 cursor-pointer text-[11px]" style="color: var(--text-secondary);">+ Looks cinematográficos (golden hour, vintage, magazine…)</summary>
+            <div class="p-2 grid grid-cols-2 gap-2">${cineCards}</div>
+          </details>
+        </div>
 
-        <!-- APLICAR AJUSTES (modal único con texto + imagen) -->
-        <button onclick="openAdjustmentsModal()" class="w-full mb-3 flex items-center gap-3 px-4 py-4 rounded-xl text-left transition-all" style="background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 20px rgba(201,168,106,0.25);">
-          <span class="text-2xl">✏️</span>
-          <div class="flex-1">
-            <div class="font-bold">Aplicar ajustes</div>
-            <div class="text-xs opacity-80">Cambiar textos, transcripción, efectos de imagen</div>
-          </div>
-          <span class="text-xl opacity-70">›</span>
-        </button>
-
-        <!-- EDITOR AVANZADO (acceso secundario, menos prominente) -->
-        <details class="bg-white border border-slate-200 rounded-2xl mb-3">
-          <summary class="flex items-center justify-between p-4 cursor-pointer text-sm">
-            <span style="color: var(--text-secondary);">Más opciones (editor avanzado, cambiar audio/datos)</span>
-            <span class="chev text-slate-400">▾</span>
-          </summary>
-          <div class="border-t border-slate-200 p-3 grid grid-cols-1 gap-2">
-            <button onclick="openManualEditor()" class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl text-left">
-              <span class="text-xl">🎬</span>
+        <!-- ✏️ EDITAR TEXTOS / AUDIO -->
+        <div class="rounded-2xl p-4 mb-3" style="background: var(--bg-card); border: 1px solid var(--border-subtle);">
+          <div class="text-xs uppercase tracking-wider gold-accent font-semibold mb-3">✏️ Editar textos y audio</div>
+          <div class="grid grid-cols-1 gap-2">
+            <button onclick="state.step=1; render()" class="flex items-center gap-3 px-4 py-3 rounded-xl text-left" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+              <span class="text-xl">📝</span>
               <div class="flex-1">
-                <div class="font-semibold text-sm">Editor avanzado (clips/velocidad/orden)</div>
+                <div class="font-semibold text-sm">Editar títulos por toma</div>
+                <div class="text-[11px]" style="color: var(--text-muted);">Cambiar texto sobre cada clip</div>
               </div>
+              <span style="color: var(--text-muted);">›</span>
             </button>
-            <button onclick="state.step=3; render()" class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl text-left">
+            ${hasVoice ? `
+            <button onclick="openSubtitleEditor()" class="flex items-center gap-3 px-4 py-3 rounded-xl text-left" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+              <span class="text-xl">🎙️</span>
+              <div class="flex-1">
+                <div class="font-semibold text-sm">Corregir transcripción del audio</div>
+                <div class="text-[11px]" style="color: var(--text-muted);">Revisar y editar lo que la IA transcribió</div>
+              </div>
+              <span style="color: var(--text-muted);">›</span>
+            </button>` : ''}
+            <button onclick="state.step=2; render()" class="flex items-center gap-3 px-4 py-3 rounded-xl text-left" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
               <span class="text-xl">🎵</span>
               <div class="flex-1">
                 <div class="font-semibold text-sm">Cambiar música o voz</div>
               </div>
-            </button>
-            <button onclick="state.step=2; render()" class="flex items-center gap-3 px-4 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl text-left">
-              <span class="text-xl">💼</span>
-              <div class="flex-1">
-                <div class="font-semibold text-sm">Cambiar datos de la propiedad</div>
-              </div>
+              <span style="color: var(--text-muted);">›</span>
             </button>
           </div>
-        </details>
+        </div>
 
-        <details class="bg-slate-50 rounded-xl px-4 py-3 text-sm">
-          <summary class="flex items-center justify-between cursor-pointer"><span class="text-slate-600">¿Querés empezar de cero?</span><span class="chev text-slate-400">▾</span></summary>
-          <div class="border-t border-slate-200 pt-3 mt-3">
-            <button onclick="if(confirm('¿Descartar este reel y empezar de cero?')) { resetAll(); state.step=1; render(); }" class="px-4 py-2 bg-white border border-slate-300 rounded text-xs">↩ Empezar otro reel</button>
+        <!-- BOTÓN GRANDE APLICAR Y REGENERAR -->
+        <button onclick="reprocessFromCurrent()" class="w-full mb-3 px-6 py-4 rounded-xl font-bold" style="background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 20px rgba(201,168,106,0.25);">
+          ↻ Aplicar cambios y regenerar reel
+        </button>
+        <div class="text-[10px] text-center mb-3" style="color: var(--text-muted);">El reel actual queda guardado por si querés volver</div>
+
+        <!-- ACCESO SECUNDARIO -->
+        <details class="rounded-xl px-4 py-2 text-sm mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle);">
+          <summary class="flex items-center justify-between cursor-pointer py-1">
+            <span style="color: var(--text-secondary);">Más opciones (editor avanzado, empezar de cero)</span>
+            <span class="chev" style="color: var(--text-muted);">▾</span>
+          </summary>
+          <div class="pt-3 grid grid-cols-1 gap-2">
+            <button onclick="openManualEditor()" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+              🎬 Editor avanzado (clips/velocidad/orden)
+            </button>
+            <button onclick="state.step=1; render()" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+              💼 Cambiar datos de la propiedad
+            </button>
+            <button onclick="if(confirm('¿Descartar este reel y empezar de cero?')) { resetAll(); state.step=1; render(); }" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+              ↩ Empezar otro reel desde cero
+            </button>
           </div>
         </details>
       </div>`;
@@ -2284,6 +2343,41 @@ async function generateInstagramCaption() {
     state.caption_loading = false;
     render();
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PREVIEW CSS en vivo de efectos sobre el video del reel
+// Mapea los filtros FFmpeg a CSS filter properties aproximadas — el preview
+// no es 100% idéntico al render final, pero sí muy cercano y se ve INSTANT.
+// ═══════════════════════════════════════════════════════════════════
+const CSS_FILTERS = {
+  "": "none",
+  // Efectos atómicos (los 3 que pidió Vale)
+  "aumentar_contraste": "contrast(1.22) saturate(1.12)",
+  "mejorar_luz": "brightness(1.10) contrast(0.96) saturate(1.18)",
+  "mejorar_nitidez": "contrast(1.06) saturate(1.05) brightness(1.02)",
+  // 6 looks cinematográficos (también con preview CSS)
+  "cinematico_calido": "contrast(1.18) saturate(1.30) brightness(1.03) sepia(0.06)",
+  "cinematico_frio": "contrast(1.20) saturate(1.25) hue-rotate(-6deg) brightness(0.98)",
+  "luminoso": "brightness(1.12) contrast(1.18) saturate(1.30)",
+  "hdr_like": "contrast(1.10) saturate(1.25) brightness(1.04)",
+  "vintage_film": "sepia(0.30) saturate(0.85) contrast(0.94) brightness(0.98)",
+  "estabilizado_pro": "contrast(1.08) saturate(1.15)",
+  "golden_hour_dramatico": "saturate(1.35) brightness(1.05) sepia(0.18) contrast(1.15)",
+  "revista_magazine": "contrast(1.12) saturate(1.20) brightness(1.05)",
+};
+
+function cssFilterFor(key) {
+  return CSS_FILTERS[key] || "none";
+}
+
+function setPreviewFilter(filterKey) {
+  state.cinematic_filter = filterKey;
+  // Actualizar el video preview AL INSTANTE sin re-render completo
+  const vid = document.getElementById("reelPreviewVideo");
+  if (vid) vid.style.filter = cssFilterFor(filterKey);
+  // Re-renderizar solo los botones de efectos para mostrar cuál está activo
+  render();
 }
 
 function restorePreviousReel() {
@@ -2887,10 +2981,9 @@ async function applyEditorChanges() {
 function render() {
   renderStepper();
   const c = document.getElementById("step-content");
-  if (state.step === 1) { c.innerHTML = renderStep1(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); }
-  if (state.step === 2) c.innerHTML = renderStep2();
-  if (state.step === 3) c.innerHTML = renderStep3();
-  if (state.step === 4) c.innerHTML = renderStep4();
+  if (state.step === 1) { c.innerHTML = renderStep1() + renderStep2(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); }
+  if (state.step === 2) c.innerHTML = renderStep3();
+  if (state.step === 3) c.innerHTML = renderStep4();
   const existing = document.getElementById("editor-overlay");
   if (state.editor_open) {
     if (existing) existing.remove();
