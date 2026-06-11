@@ -1061,7 +1061,16 @@ function goNext() {
   if (state.step === 2 && totalClipsCount() === 0) { alert("Subí al menos un video"); return; }
   if (state.step === 4 && !state.has_been_processed) { processReel(); return; }
   if (state.step === 4 && state.has_been_processed) { reprocessFromCurrent(); return; }
-  if (state.step < STEPS.length) { stopMusicPreviewIfPlaying(); state.step++; render(); }
+  if (state.step < STEPS.length) {
+    stopMusicPreviewIfPlaying();
+    // Si avanza a paso 4 y ya tiene reel generado, activar el banner
+    // "regenerar con cambios / mantener original"
+    if (state.step === 3 && state.has_been_processed) {
+      state.has_navigated_back_after_process = true;
+    }
+    state.step++;
+    render();
+  }
 }
 
 function goPrev() {
@@ -3355,6 +3364,7 @@ function saveStateToStorage() {
       custom_cta_info: state.custom_cta_info,
       custom_cta_precio: state.custom_cta_precio,
       has_been_processed: state.has_been_processed,
+      has_navigated_back_after_process: state.has_navigated_back_after_process,
       job_id: state.job_id,
       // Marca cuántos clips había para avisar al usuario
       _clips_count_sections: SECTION_ORDER.reduce((acc, k) => acc + (state.sections[k]?.clips?.length || 0), 0),
@@ -3389,6 +3399,7 @@ function restoreStateFromStorage() {
   if (saved.custom_tagline !== undefined) state.custom_tagline = saved.custom_tagline;
   if (saved.custom_cta_info !== undefined) state.custom_cta_info = saved.custom_cta_info;
   if (saved.custom_cta_precio !== undefined) state.custom_cta_precio = saved.custom_cta_precio;
+  if (saved.has_navigated_back_after_process !== undefined) state.has_navigated_back_after_process = saved.has_navigated_back_after_process;
   return true;
 }
 

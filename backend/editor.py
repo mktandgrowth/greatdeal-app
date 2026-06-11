@@ -676,7 +676,13 @@ def mux_audio(video_file: str, music_file: str,
             "-i", voice_file,
             "-filter_complex", filter_complex,
             "-map", "0:v", "-map", "[out]",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+            # Re-encode rápido del video para LINEALIZAR los PTS (los clips
+            # acelerados con setpts=PTS/speed dejan timestamps rotos que
+            # desfasan el audio cuando se hace -c:v copy).
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20",
+            "-r", "30", "-vsync", "cfr",
+            "-c:a", "aac", "-b:a", "128k",
+            "-pix_fmt", "yuv420p",
             "-movflags", "+faststart",
             output_file
         ]
@@ -690,7 +696,10 @@ def mux_audio(video_file: str, music_file: str,
             "-i", video_file, "-i", music_file,
             "-filter_complex", filter_complex,
             "-map", "0:v", "-map", "[out]",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20",
+            "-r", "30", "-vsync", "cfr",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "128k",
             "-movflags", "+faststart",
             output_file
         ]
@@ -754,11 +763,12 @@ def process_clip_combined(input_path: str, output_path: str,
     if headline or subline:
         fade_out_start = max(0.1, effective_duration - 0.3)
         if headline:
-            # Título: Montserrat Bold 30px, blanco PELADO.
-            # Sin caja, sin sombra, sin contorno — solo la letra blanca limpia.
+            # Título: Montserrat Bold 30px, blanco, con caja negra 40% opaca
+            # y padding 10px (el look que le gustó a Vale).
             filters.append(
                 f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
                 f"fontsize=30:fontcolor=white:"
+                f"box=1:boxcolor=black@0.4:boxborderw=10:"
                 f"x=(w-text_w)/2:y=(h-text_h)/2-22"
             )
         if subline:
