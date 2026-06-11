@@ -414,18 +414,6 @@ async def create_job(
     enhance_flag = (enhance_ai or "").strip().lower() in ("true", "1", "yes", "on")
     auto_subs_flag = (auto_subtitles or "").strip().lower() in ("true", "1", "yes", "on")
 
-    job = {
-        "id": job_id,
-        "status": "pending",
-        "created": datetime.utcnow().isoformat(),
-        "sections": resolved_sections,
-        "cta_data": cta,
-        "clip_paths": clip_paths,
-        "logo_path": logo_path,
-        "voice_key": voice_key,
-        "voice_audio_path": voice_audio_path,
-        "music_path": music_path,
-        "music_preset": music_preset,
     # Parsear voice_segments_json (transcripción pre-corregida por el user)
     pre_segments = None
     if voice_segments_json:
