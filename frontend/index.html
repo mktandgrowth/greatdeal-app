@@ -1040,13 +1040,27 @@ function renderStepper() {
   }
 }
 
+// Detiene cualquier preview de música que esté sonando.
+// Se llama al navegar entre pasos o abrir modales para que el audio no
+// siga sonando cuando el usuario está editando otra cosa.
+function stopMusicPreviewIfPlaying() {
+  try {
+    if (_previewAudio) {
+      _previewAudio.pause();
+      _previewAudio.currentTime = 0;
+      _previewAudio = null;
+    }
+    state._music_playing = null;
+  } catch (_) {}
+}
+
 function goNext() {
   if (state.step === 2 && totalClipsCount() === 0) { alert("Subí al menos un video"); return; }
   if (state.step === 4 && !state.has_been_processed) { processReel(); return; }
-  if (state.step < STEPS.length) { state.step++; render(); }
+  if (state.step < STEPS.length) { stopMusicPreviewIfPlaying(); state.step++; render(); }
 }
 
-function goPrev() { if (state.step > 1) { state.step--; render(); } }
+function goPrev() { if (state.step > 1) { stopMusicPreviewIfPlaying(); state.step--; render(); } }
 
 // ── STEP 1: VIDEOS ─────────────────────────────────────────────────
 function renderStep1() {
@@ -1056,56 +1070,9 @@ function renderStep1() {
   const modeToggle = '';
   const aiToggle = '';
   const content = renderGuidedSections();
-
-  // ─── Selector de efectos cinematográficos (desplegable al final de Videos) ───
-  const filterChosen = state.cinematic_filters_catalog?.find(f => f.key === state.cinematic_filter);
-  const currentLabel = filterChosen ? filterChosen.label : '🎥 Natural (sin filtro)';
-  const filterCards = (state.cinematic_filters_catalog || []).map(f => {
-    const active = state.cinematic_filter === f.key;
-    return `
-      <button onclick="state.cinematic_filter = '${f.key}'; render()"
-              class="text-left p-3 rounded-xl transition-all border ${active ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}">
-        <div class="text-sm font-semibold text-slate-900">${escapeHtml(f.label)}</div>
-        <div class="text-[11px] text-slate-500 mt-0.5 leading-snug">${escapeHtml(f.description)}</div>
-      </button>`;
-  }).join("");
-  const naturalActive = !state.cinematic_filter;
-  // Filter cards COMPACTAS para la lista con scroll (una sola columna,
-  // padding reducido, label + descripción en una sola línea con truncado)
-  const filterCardsCompact = (state.cinematic_filters_catalog || []).map(f => {
-    const active = state.cinematic_filter === f.key;
-    return `
-      <button onclick="state.cinematic_filter = '${f.key}'; render()"
-              class="w-full text-left px-3 py-2 rounded-lg transition-all border ${active ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}">
-        <div class="text-xs font-semibold text-slate-900">${escapeHtml(f.label)}</div>
-        <div class="text-[10px] text-slate-500 truncate">${escapeHtml(f.description)}</div>
-      </button>`;
-  }).join("");
-  const effectsBlock = `
-    <details class="bg-white border border-slate-200 rounded-2xl mt-4 mb-4" ${state.cinematic_filter ? 'open' : ''}>
-      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer">
-        <div class="flex items-center gap-2">
-          <span class="text-base">🎨</span>
-          <div>
-            <div class="text-sm font-semibold text-slate-900">Efectos cinematográficos</div>
-            <div class="text-[10px] text-slate-500">${escapeHtml(currentLabel)}</div>
-          </div>
-        </div>
-        <span class="chev text-slate-400">▾</span>
-      </summary>
-      <div class="border-t border-slate-200 p-3">
-        <div class="text-[10px] text-slate-500 mb-2 px-1">Estilo profesional a TODAS las tomas.</div>
-        <div class="space-y-1.5 overflow-y-auto pr-1" style="max-height: 260px;">
-          <button onclick="state.cinematic_filter = ''; render()"
-                  class="w-full text-left px-3 py-2 rounded-lg transition-all border ${naturalActive ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}">
-            <div class="text-xs font-semibold text-slate-900">🎥 Natural</div>
-            <div class="text-[10px] text-slate-500 truncate">Sin filtro — colores del video original</div>
-          </button>
-          ${filterCardsCompact}
-        </div>
-      </div>
-    </details>
-  `;
+  // Efectos cinematográficos eliminados de este paso — ahora viven SOLO en
+  // el paso 4 (Tu reel) donde hay preview CSS en vivo. Ahí sí tiene sentido.
+  const effectsBlock = '';
   return `
     <div class="fade-in">
       <h1 class="text-2xl font-bold text-slate-900 mb-1 text-center">Tus videos</h1>
@@ -1652,9 +1619,9 @@ function renderCierreCustomization() {
         <div>
           <div class="text-sm font-medium text-slate-900 mb-2">💎 Personalizar cierre (opcional)</div>
           <div class="space-y-2">
-            <input type="text" placeholder="Info (default: ${escapeAttr(`${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`)})" value="${escapeAttr(state.custom_cta_info)}" maxlength="60" oninput="state.custom_cta_info=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
-            <input type="text" placeholder="Precio (default: ${escapeAttr(p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar')})" value="${escapeAttr(state.custom_cta_precio)}" maxlength="30" oninput="state.custom_cta_precio=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
-            <input type="text" placeholder="Tagline final" value="${escapeAttr(state.custom_tagline)}" maxlength="40" oninput="state.custom_tagline=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
+            <input type="text" placeholder="Info (default: ${escapeAttr(`${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`)})" value="${escapeAttr(state.custom_cta_info)}" maxlength="60" oninput="state.custom_cta_info=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
+            <input type="text" placeholder="Precio (default: ${escapeAttr(p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar')})" value="${escapeAttr(state.custom_cta_precio)}" maxlength="30" oninput="state.custom_cta_precio=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
+            <input type="text" placeholder="Tagline final" value="${escapeAttr(state.custom_tagline)}" maxlength="40" oninput="state.custom_tagline=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
           </div>
         </div>
       </div>
@@ -2162,11 +2129,11 @@ function renderStep4() {
           </details>
         </div>
 
-        <!-- ✏️ EDITAR TEXTOS / AUDIO -->
+        <!-- ✏️ EDITAR TEXTOS / AUDIO — abren modales SIN salir del reel -->
         <div class="rounded-2xl p-4 mb-3" style="background: var(--bg-card); border: 1px solid var(--border-subtle);">
           <div class="text-xs uppercase tracking-wider gold-accent font-semibold mb-3">✏️ Editar textos y audio</div>
           <div class="grid grid-cols-1 gap-2">
-            <button onclick="state.step=1; render()" class="flex items-center gap-3 px-4 py-3 rounded-xl text-left" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+            <button onclick="openEditTitlesPopup()" class="flex items-center gap-3 px-4 py-3 rounded-xl text-left" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
               <span class="text-xl">📝</span>
               <div class="flex-1">
                 <div class="font-semibold text-sm">Editar títulos por toma</div>
@@ -2183,7 +2150,7 @@ function renderStep4() {
               </div>
               <span style="color: var(--text-muted);">›</span>
             </button>` : ''}
-            <button onclick="state.step=2; render()" class="flex items-center gap-3 px-4 py-3 rounded-xl text-left" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+            <button onclick="openEditAudioPopup()" class="flex items-center gap-3 px-4 py-3 rounded-xl text-left" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
               <span class="text-xl">🎵</span>
               <div class="flex-1">
                 <div class="font-semibold text-sm">Cambiar música o voz</div>
@@ -2209,7 +2176,7 @@ function renderStep4() {
             <button onclick="openManualEditor()" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
               🎬 Editor avanzado (clips/velocidad/orden)
             </button>
-            <button onclick="state.step=1; render()" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+            <button onclick="openEditDataPopup()" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
               💼 Cambiar datos de la propiedad
             </button>
             <button onclick="if(confirm('¿Descartar este reel y empezar de cero?')) { resetAll(); state.step=1; render(); }" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
@@ -2573,6 +2540,134 @@ function updateVoiceTranscript(newText) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// MODALES POP-UP para editar SIN salir de la pantalla del reel listo
+// Usuario edita → "Aplicar y regenerar" → se cierra modal → re-procesa →
+// muestra nueva versión (con botón para volver al anterior).
+// ═══════════════════════════════════════════════════════════════════
+
+function _openEditModal(title, contentHtml, applyLabel = "↻ Aplicar y regenerar") {
+  let el = document.getElementById("editFromReelModal");
+  if (el) el.remove();
+  el = document.createElement("div");
+  el.id = "editFromReelModal";
+  el.className = "fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4";
+  el.style.background = "rgba(0,0,0,0.85)";
+  el.style.backdropFilter = "blur(10px)";
+  el.innerHTML = `
+    <div class="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden max-h-[90vh] flex flex-col" style="background: var(--bg-card); border: 1px solid var(--border-subtle);">
+      <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border-subtle);">
+        <div class="font-bold" style="color: var(--text-primary);">${title}</div>
+        <button onclick="closeEditFromReelModal()" class="text-2xl" style="color: var(--text-secondary);">✕</button>
+      </div>
+      <div id="editFromReelBody" class="flex-1 overflow-y-auto p-5">${contentHtml}</div>
+      <div class="p-4 flex gap-2" style="border-top: 1px solid var(--border-subtle);">
+        <button onclick="closeEditFromReelModal()" class="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium" style="background: rgba(255,255,255,0.05); color: var(--text-primary); border: 1px solid var(--border-subtle);">Cancelar</button>
+        <button onclick="applyEditAndRegenerate()" class="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold" style="background: var(--gold); color: var(--bg-base);">${applyLabel}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(el);
+}
+
+function closeEditFromReelModal() {
+  const el = document.getElementById("editFromReelModal");
+  if (el) el.remove();
+}
+
+async function applyEditAndRegenerate() {
+  closeEditFromReelModal();
+  // re-procesar el reel con los cambios actuales del state (sin confirm porque
+  // ya está implícito en haber tocado "Aplicar y regenerar")
+  if (!state.job_id) return;
+  if (state.job_download) {
+    state.previous_reel = {
+      download: state.job_download,
+      duration: state.job_duration,
+      caption: state.caption_text,
+      saved_at: Date.now(),
+    };
+  }
+  const { sections } = buildPayload();
+  if (sections.length === 0) { alert("No hay videos"); return; }
+  const fd = new FormData();
+  fd.append("sections", JSON.stringify(sections));
+  fd.append("cta_data", JSON.stringify(buildCtaData()));
+  fd.append("music_preset", state.music_preset || "cinematic_view");
+  fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
+  fd.append("cinematic_filter", state.cinematic_filter || "");
+  if (state.voice_segments && state.voice_segments.length > 0) {
+    fd.append("voice_segments_json", JSON.stringify(state.voice_segments));
+  }
+  fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
+  state.job_status = "reprocessing";
+  state.is_reprocessing = true;
+  state.job_log = [];
+  state.job_error = null;
+  state.job_download = null;
+  render();
+  try {
+    const r = await fetchWithDetail(API(`/jobs/${state.job_id}/reprocess`), { method: "POST", body: fd });
+    if (!r.ok) {
+      let d = `HTTP ${r.status}`;
+      try { d += ` — ${(await r.text()).slice(0, 400)}`; } catch (_) {}
+      throw new Error(d);
+    }
+    pollJobStatus();
+  } catch (e) {
+    state.job_status = "error";
+    state.job_error = e.message || String(e);
+    render();
+  }
+}
+
+// ── MODAL: Editar títulos por toma ──────────────────────────────────
+function openEditTitlesPopup() {
+  const clips = state.upload_mode === "simple"
+    ? state.simple_clips.map(c => ({ ...c, _section: null }))
+    : Object.entries(state.sections).flatMap(([k, s]) =>
+        s.clips.map((c, i) => ({ ...c, _section: k, _index: i }))
+      );
+  if (clips.length === 0) {
+    alert("No hay clips para editar");
+    return;
+  }
+  const items = clips.map((c, idx) => {
+    const onInputHeadline = c._section
+      ? `oninput="state.sections['${c._section}'].clips[${c._index}].headline=this.value"`
+      : `oninput="(state.simple_clips.find(x=>x.id==='${c.id}')||{}).headline=this.value"`;
+    const onInputSubline = c._section
+      ? `oninput="state.sections['${c._section}'].clips[${c._index}].subline=this.value"`
+      : `oninput="(state.simple_clips.find(x=>x.id==='${c.id}')||{}).subline=this.value"`;
+    return `
+      <div class="rounded-xl p-3 mb-3" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle);">
+        <div class="flex gap-3 items-start">
+          <video src="${c.dataUrl}" muted playsinline preload="metadata" class="w-16 h-24 object-cover rounded bg-black flex-shrink-0"></video>
+          <div class="flex-1 space-y-2">
+            <div class="text-[10px] uppercase tracking-wider" style="color: var(--gold);">Toma ${idx + 1}${c._section ? ` · ${c._section}` : ''}</div>
+            <input type="text" value="${escapeAttr(c.headline || '')}" maxlength="40" placeholder="Título" ${onInputHeadline}
+                   class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--bg-input); border: 1px solid var(--border-medium); color: var(--text-primary);">
+            <input type="text" value="${escapeAttr(c.subline || '')}" maxlength="50" placeholder="Subtítulo (opcional)" ${onInputSubline}
+                   class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--bg-input); border: 1px solid var(--border-medium); color: var(--text-primary);">
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+  _openEditModal("📝 Editar títulos por toma", items);
+}
+
+// ── MODAL: Cambiar música o voz (incluye edición de transcripción) ─
+function openEditAudioPopup() {
+  // Reusamos directamente renderStep3 dentro del modal — tiene todo
+  _openEditModal("🎵 Cambiar música o voz", renderStep3(), "↻ Aplicar y regenerar");
+}
+
+// ── MODAL: Cambiar datos de la propiedad ───────────────────────────
+function openEditDataPopup() {
+  _openEditModal("💼 Cambiar datos de la propiedad", renderStep2());
+}
+
 function restorePreviousReel() {
   if (!state.previous_reel) return;
   if (!confirm("¿Volver al reel anterior y descartar el actual?")) return;
@@ -2909,6 +3004,7 @@ async function saveEditedSubtitles() {
 
 // ── MANUAL EDITOR (CapCut-style with visual trim) ──────────────────
 function openManualEditor() {
+  stopMusicPreviewIfPlaying();
   const { files, sections } = buildPayload();
   if (files.length === 0) { alert("No hay clips para editar"); return; }
   const editorClips = [];

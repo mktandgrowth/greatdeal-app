@@ -754,12 +754,12 @@ def process_clip_combined(input_path: str, output_path: str,
     if headline or subline:
         fade_out_start = max(0.1, effective_duration - 0.3)
         if headline:
-            # Título: Montserrat Bold 30px, blanco, sin sombra,
-            # caja negra light (40% opaca) con padding 10px alrededor.
+            # Título: Montserrat Bold 30px, blanco, contorno negro fino 2px
+            # (sin caja de fondo — el contorno da legibilidad sin tapar la imagen).
             filters.append(
                 f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
                 f"fontsize=30:fontcolor=white:"
-                f"box=1:boxcolor=black@0.4:boxborderw=10:"
+                f"borderw=2:bordercolor=black:"
                 f"x=(w-text_w)/2:y=(h-text_h)/2-22"
             )
         if subline:
