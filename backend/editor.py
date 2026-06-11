@@ -802,6 +802,7 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
                enhance_ai: bool = False,
                cinematic_filter: str = "",
                auto_subtitles: bool = False,
+               voice_pre_segments: Optional[list] = None,
                output_path: str = "reel.mp4") -> dict:
     """
     Main entry. Builds a reel from structured sections.
@@ -921,7 +922,10 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
         f"voice_exists={Path(voice_audio_path).exists() if voice_audio_path else False}"
     )
     if needs_subtitles:
-        log.append("🎤 transcribiendo voz con Whisper…")
+        if voice_pre_segments:
+            log.append(f"📝 usando transcripción pre-editada ({len(voice_pre_segments)} segments)")
+        else:
+            log.append("🎤 transcribiendo voz con Whisper…")
         try:
             from subtitles import apply_auto_subtitles
             ok, err = apply_auto_subtitles(
@@ -930,6 +934,7 @@ def build_reel(sections: list[dict], cta_data: dict, work_dir: str,
                 work_dir=str(work),
                 output_path=output_path,
                 language="es",
+                pre_segments=voice_pre_segments,
             )
             if not ok:
                 log.append(f"❌ subtítulos fallaron: {err[:200]}")

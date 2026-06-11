@@ -338,6 +338,7 @@ async def create_job(
     enhance_ai: str = Form("false"),
     cinematic_filter: str = Form(""),
     auto_subtitles: str = Form("false"),
+    voice_segments_json: str = Form(""),  # transcripción pre-corregida por usuario
 ):
     """
     Create a new editing job with section-based structure.
@@ -425,6 +426,29 @@ async def create_job(
         "voice_audio_path": voice_audio_path,
         "music_path": music_path,
         "music_preset": music_preset,
+    # Parsear voice_segments_json (transcripción pre-corregida por el user)
+    pre_segments = None
+    if voice_segments_json:
+        try:
+            pre_segments = json.loads(voice_segments_json)
+            if not isinstance(pre_segments, list):
+                pre_segments = None
+        except Exception:
+            pre_segments = None
+
+    job = {
+        "id": job_id,
+        "status": "pending",
+        "created": datetime.utcnow().isoformat(),
+        "sections": resolved_sections,
+        "cta_data": cta,
+        "clip_paths": clip_paths,
+        "logo_path": logo_path,
+        "voice_key": voice_key,
+        "voice_audio_path": voice_audio_path,
+        "voice_pre_segments": pre_segments,
+        "music_path": music_path,
+        "music_preset": music_preset,
         "enhance_ai": enhance_flag,
         "cinematic_filter": cinematic_filter or "",
         "auto_subtitles": auto_subs_flag,
@@ -441,7 +465,8 @@ async def create_job(
         args=(job_id, resolved_sections, cta, str(work_dir),
               voice_audio_path, music_path, music_preset, logo_path,
               enhance_flag, auto_subs_flag, str(output_path),
-              voice_key, generate_voice, cinematic_filter or ""),
+              voice_key, generate_voice, cinematic_filter or "",
+              pre_segments),
         daemon=True,
     ).start()
 
@@ -472,7 +497,8 @@ def _resolve_sections(sections_data, clip_paths):
 def process_job(job_id, sections, cta_data, work_dir,
                 voice_audio_path, music_path, music_preset, logo_path,
                 enhance_ai, auto_subtitles, output_path,
-                voice_key, generate_voice, cinematic_filter=""):
+                voice_key, generate_voice, cinematic_filter="",
+                pre_segments=None):
     set_job(job_id, status="processing")
 
     # If user wants ElevenLabs voice generation
@@ -504,6 +530,7 @@ def process_job(job_id, sections, cta_data, work_dir,
         enhance_ai=enhance_ai,
         cinematic_filter=cinematic_filter,
         auto_subtitles=auto_subtitles,
+        voice_pre_segments=pre_segments,
         output_path=output_path,
     )
 
@@ -771,8 +798,9 @@ async def analyze_quality_endpoint(payload: dict = Body(...)):
 
 @app.post("/api/transcribe-audio")
 async def transcribe_audio(audio: UploadFile = File(...)):
-    """Transcribe un audio con Whisper y devuelve el texto.
-    Usado para que Vale grabe una descripción de la propiedad."""
+    """Transcribe un audio con Whisper y devuelve text + segments con timing.
+    Se usa para que Vale revise/corrija la transcripción ANTES de quemarla
+    en el video como subtítulos."""
     from subtitles import transcribe_with_whisper
     upload_dir = UPLOAD_DIR / "transcribes"
     upload_dir.mkdir(exist_ok=True)
@@ -787,7 +815,22 @@ async def transcribe_audio(audio: UploadFile = File(...)):
         pass
     if not ok:
         raise HTTPException(500, f"Transcribe failed: {result}")
-    return {"text": result.get("text", "") if isinstance(result, dict) else ""}
+    if not isinstance(result, dict):
+        return {"text": "", "segments": []}
+    raw_segments = result.get("segments") or []
+    # Limpiar segments para serialización (solo lo que nos importa)
+    segments = []
+    for i, s in enumerate(raw_segments):
+        segments.append({
+            "id": i,
+            "start": float(s.get("start", 0)),
+            "end": float(s.get("end", 0)),
+            "text": (s.get("text") or "").strip(),
+        })
+    return {
+        "text": result.get("text", ""),
+        "segments": segments,
+    }
 
 
 @app.post("/api/generate-voice")

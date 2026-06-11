@@ -239,22 +239,37 @@ def apply_auto_subtitles(
     work_dir: str,
     output_path: str,
     language: str = "es",
+    pre_segments: Optional[list] = None,
 ) -> tuple[bool, str]:
     """End-to-end: transcribe audio + generate ASS + burn into video.
-    También guarda los segments transcritos en `subs_segments.json` dentro de
-    work_dir, para que después se puedan editar y re-quemar.
+    Si `pre_segments` viene (user corrigió la transcripción antes), NO
+    re-transcribimos — usamos esos segments directamente.
     Returns (success, error_msg)."""
     import json
     work = Path(work_dir)
     work.mkdir(parents=True, exist_ok=True)
 
-    # 1. Transcribe
-    ok, result = transcribe_with_whisper(audio_path, language=language)
-    if not ok:
-        return False, f"Transcripción: {result}"
+    # 1. Transcribe — salvo que el user ya nos pase segments corregidos
+    if pre_segments:
+        # Normalizar pre_segments al formato esperado por generate_ass_file
+        segments = []
+        for s in pre_segments:
+            try:
+                segments.append({
+                    "start": float(s.get("start", 0)),
+                    "end": float(s.get("end", 0)),
+                    "text": (s.get("text") or "").strip(),
+                })
+            except (TypeError, ValueError):
+                continue
+        words = []  # no tenemos words a nivel palabra cuando viene editado
+    else:
+        ok, result = transcribe_with_whisper(audio_path, language=language)
+        if not ok:
+            return False, f"Transcripción: {result}"
 
-    segments = result.get("segments", []) if isinstance(result, dict) else []
-    words = result.get("words", []) if isinstance(result, dict) else []
+        segments = result.get("segments", []) if isinstance(result, dict) else []
+        words = result.get("words", []) if isinstance(result, dict) else []
 
     # Guardar segments raw para edición posterior (solo campos relevantes)
     try:

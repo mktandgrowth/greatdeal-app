@@ -346,6 +346,11 @@ let state = {
   // ── Versionado de reel ──
   previous_reel: null,             // {download, duration, caption, saved_at}
   adjustments_modal_open: false,   // modal "Aplicar ajustes" en pantalla final
+  // ── Transcripción pre-procesamiento ──
+  voice_transcript: "",            // texto completo editable
+  voice_segments: [],              // [{start, end, text}]
+  voice_transcribing: false,
+  voice_transcript_dirty: false,   // si el user editó después de transcribir
   voice_audio_file: null,
   voice_audio_url: null,
   voice_method: "none",
@@ -887,6 +892,11 @@ async function startRecording() {
       stream.getTracks().forEach(t => t.stop());
       state.is_recording = false;
       state.media_recorder = null;
+      // Limpiar y disparar transcripción del audio recién grabado
+      state.voice_transcript = "";
+      state.voice_segments = [];
+      state.voice_transcript_dirty = false;
+      setTimeout(() => autoTranscribeVoiceAudio(), 100);
       render();
     };
     mr.start();
@@ -960,6 +970,11 @@ async function generateVoiceWithEleven() {
     state.voice_audio_file = new File([blob], "voz_eleven.mp3", { type: "audio/mpeg" });
     if (state.voice_audio_url) URL.revokeObjectURL(state.voice_audio_url);
     state.voice_audio_url = URL.createObjectURL(blob);
+    // ElevenLabs ya nos da el texto exacto — sin necesidad de transcribir
+    state.voice_transcript = state.voice_script || "";
+    // Aproximar segments con todo el texto en un solo segment
+    state.voice_segments = [{ start: 0, end: 30, text: state.voice_script || "" }];
+    state.voice_transcript_dirty = false;
   } catch (e) {
     alert("Error generando voz: " + e.message);
   } finally {
@@ -1733,8 +1748,56 @@ function renderStep3() {
         <div>${voiceContent}</div>
       </div>
       ${subsToggle}
+
+      ${state.voice_audio_file ? renderTranscriptEditor() : ''}
+
       <div class="text-xs text-slate-500 text-center mt-4">Cuando estés lista, continuá → "Generar mi reel"</div>
     </div>`;
+}
+
+// Bloque editable de la transcripción del audio (sale en paso 2 después de cargar voz)
+function renderTranscriptEditor() {
+  if (state.voice_transcribing) {
+    return `
+      <div class="rounded-2xl p-4 mt-4" style="background: linear-gradient(135deg, var(--bg-card) 0%, rgba(201,168,106,0.05) 100%); border: 1px solid var(--gold-border);">
+        <div class="text-xs uppercase tracking-wider gold-accent font-semibold mb-2">📝 Transcripción del audio</div>
+        <div class="flex items-center gap-2 py-3">
+          <div class="spinner w-5 h-5 border-2 rounded-full"></div>
+          <div class="text-sm" style="color: var(--text-muted);">Transcribiendo con IA en español chileno…</div>
+        </div>
+      </div>
+    `;
+  }
+  if (!state.voice_transcript && state.voice_segments.length === 0) {
+    return `
+      <div class="rounded-2xl p-4 mt-4" style="background: var(--bg-card); border: 1px solid var(--border-subtle);">
+        <div class="text-xs uppercase tracking-wider gold-accent font-semibold mb-2">📝 Transcripción del audio</div>
+        <button onclick="autoTranscribeVoiceAudio()" class="w-full px-4 py-2.5 rounded-xl font-semibold text-sm" style="background: var(--gold); color: var(--bg-base);">✨ Transcribir audio con IA</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="rounded-2xl p-4 mt-4" style="background: linear-gradient(135deg, var(--bg-card) 0%, rgba(201,168,106,0.05) 100%); border: 1px solid var(--gold-border);">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-xs uppercase tracking-wider gold-accent font-semibold">📝 Revisá el texto que va a aparecer</div>
+        <button onclick="autoTranscribeVoiceAudio()" class="text-[10px] underline" style="color: var(--text-muted);">↻ Re-transcribir</button>
+      </div>
+      <div class="text-[11px] mb-2" style="color: var(--text-muted);">Corregí mayúsculas, comas, puntos y palabras mal transcritas antes de generar el reel. Lo que escribas acá es lo que aparecerá como subtítulos.</div>
+      <textarea
+        oninput="updateVoiceTranscript(this.value)"
+        class="w-full px-3 py-2 text-sm rounded-lg"
+        rows="6"
+        style="background: var(--bg-input); border: 1px solid var(--border-medium); color: var(--text-primary); resize: vertical; font-family: inherit;"
+        placeholder="Texto transcrito aparecerá acá…">${escapeHtml(state.voice_transcript || '')}</textarea>
+      ${state.voice_transcript_dirty ? `
+        <div class="text-[10px] mt-2 flex items-center gap-1" style="color: var(--gold);">
+          <span>✏️</span><span>Texto editado · los subtítulos del video usarán esta versión</span>
+        </div>
+      ` : `
+        <div class="text-[10px] mt-2" style="color: var(--text-muted);">Generado con Whisper · Editá si hay errores</div>
+      `}
+    </div>
+  `;
 }
 
 function setVoiceMethod(method) {
@@ -1889,6 +1952,9 @@ async function applyVoiceToReel() {
   fd.append("music_preset", state.music_preset || "cinematic_view");
   fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
     fd.append("cinematic_filter", state.cinematic_filter || "");
+    if (state.voice_segments && state.voice_segments.length > 0) {
+      fd.append("voice_segments_json", JSON.stringify(state.voice_segments));
+    }
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
   fd.append("voice_audio", state.voice_audio_file);
 
@@ -1915,7 +1981,13 @@ function handleVoiceUpload(file) {
   if (state.voice_audio_url) URL.revokeObjectURL(state.voice_audio_url);
   state.voice_audio_file = file;
   state.voice_audio_url = URL.createObjectURL(file);
+  // Limpiar transcripción anterior (es otro audio)
+  state.voice_transcript = "";
+  state.voice_segments = [];
+  state.voice_transcript_dirty = false;
   render();
+  // Auto-transcribir el nuevo audio en background
+  autoTranscribeVoiceAudio();
 }
 
 // ── STEP 4: TU REEL ────────────────────────────────────────────────
@@ -2203,6 +2275,9 @@ async function processReel() {
   fd.append("music_preset", state.music_preset || "cinematic_view");
   fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
     fd.append("cinematic_filter", state.cinematic_filter || "");
+    if (state.voice_segments && state.voice_segments.length > 0) {
+      fd.append("voice_segments_json", JSON.stringify(state.voice_segments));
+    }
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
   files.forEach(f => fd.append("clips", f));
   if (state.music_file) fd.append("music", state.music_file);
@@ -2245,6 +2320,9 @@ async function reprocessFromCurrent() {
   fd.append("music_preset", state.music_preset || "cinematic_view");
   fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
     fd.append("cinematic_filter", state.cinematic_filter || "");
+    if (state.voice_segments && state.voice_segments.length > 0) {
+      fd.append("voice_segments_json", JSON.stringify(state.voice_segments));
+    }
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
   state.job_status = "reprocessing";
   state.is_reprocessing = true;
@@ -2378,6 +2456,64 @@ function setPreviewFilter(filterKey) {
   if (vid) vid.style.filter = cssFilterFor(filterKey);
   // Re-renderizar solo los botones de efectos para mostrar cuál está activo
   render();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TRANSCRIPCIÓN PRE-PROCESAMIENTO EDITABLE
+// Cuando el usuario sube/graba audio, transcribimos automáticamente con
+// Whisper y mostramos el texto editable. Cuando regenera el reel, mandamos
+// el texto corregido en vez de re-transcribir.
+// ═══════════════════════════════════════════════════════════════════
+async function autoTranscribeVoiceAudio() {
+  const file = state.voice_audio_file;
+  if (!file) { return; }
+  state.voice_transcribing = true;
+  state.voice_transcript = "";
+  state.voice_segments = [];
+  state.voice_transcript_dirty = false;
+  render();
+  try {
+    const fd = new FormData();
+    fd.append("audio", file);
+    const r = await fetch(API("/transcribe-audio"), { method: "POST", body: fd });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || "Error transcribiendo");
+    state.voice_segments = j.segments || [];
+    state.voice_transcript = j.text || (j.segments || []).map(s => s.text).join(" ");
+  } catch (e) {
+    console.warn("auto-transcribe:", e);
+    state.voice_transcript = "";
+    state.voice_segments = [];
+  } finally {
+    state.voice_transcribing = false;
+    render();
+  }
+}
+
+// Cuando el user edita el textarea, sincronizamos el texto editado a los
+// segments. Estrategia simple: dividir el texto editado por oraciones y
+// distribuirlo proporcionalmente al timing de los segments originales.
+function updateVoiceTranscript(newText) {
+  state.voice_transcript = newText;
+  state.voice_transcript_dirty = true;
+  if (!state.voice_segments || state.voice_segments.length === 0) return;
+  // Repartir el texto entre los segments proporcionalmente
+  const sentences = newText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [newText];
+  const segCount = state.voice_segments.length;
+  if (sentences.length === segCount) {
+    // Match exacto — asignar uno a uno
+    sentences.forEach((s, i) => { state.voice_segments[i].text = s.trim(); });
+  } else if (sentences.length === 1 || segCount === 1) {
+    // Todo el texto a un solo segment grande
+    state.voice_segments[0].text = newText.trim();
+    for (let i = 1; i < segCount; i++) state.voice_segments[i].text = "";
+  } else {
+    // Aproximación: repartir uniformemente
+    const perSeg = Math.ceil(sentences.length / segCount);
+    for (let i = 0; i < segCount; i++) {
+      state.voice_segments[i].text = sentences.slice(i * perSeg, (i + 1) * perSeg).join(" ").trim();
+    }
+  }
 }
 
 function restorePreviousReel() {
@@ -2929,6 +3065,9 @@ async function applyEditorChanges() {
     fd.append("music_preset", state.music_preset || "cinematic_view");
     fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
     fd.append("cinematic_filter", state.cinematic_filter || "");
+    if (state.voice_segments && state.voice_segments.length > 0) {
+      fd.append("voice_segments_json", JSON.stringify(state.voice_segments));
+    }
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
     finalFiles.forEach(f => fd.append("clips", f));
     if (state.music_file) fd.append("music", state.music_file);
@@ -2961,6 +3100,9 @@ async function applyEditorChanges() {
     fd.append("music_preset", state.music_preset || "cinematic_view");
     fd.append("enhance_ai", state.enhance_ai ? "true" : "false");
     fd.append("cinematic_filter", state.cinematic_filter || "");
+    if (state.voice_segments && state.voice_segments.length > 0) {
+      fd.append("voice_segments_json", JSON.stringify(state.voice_segments));
+    }
   fd.append("auto_subtitles", state.auto_subtitles ? "true" : "false");
     state.editor_open = false;
     state.job_status = "reprocessing";
