@@ -266,9 +266,10 @@
 <script>
 // ── CONFIG ─────────────────────────────────────────────────────────
 const STEPS = [
-  { id: 1, label: "Datos + Videos" },
-  { id: 2, label: "Audio" },
-  { id: 3, label: "Tu reel" },
+  { id: 1, label: "Datos" },
+  { id: 2, label: "Videos" },
+  { id: 3, label: "Audio" },
+  { id: 4, label: "Tu reel" },
 ];
 
 const SECTION_ORDER = ["entrada", "dormitorios", "banos", "areas", "exterior", "vista"];
@@ -1025,12 +1026,12 @@ function renderStepper() {
 
   document.getElementById("btn-prev").disabled = (state.step === 1);
   const next = document.getElementById("btn-next");
-  if (state.step === 3) {
+  if (state.step === 4) {
     const isProc = state.job_status && state.job_status !== "done" && state.job_status !== "error";
     if (isProc) { next.textContent = "Procesando…"; next.disabled = true; }
     else if (!state.has_been_processed) { next.textContent = "Generar mi reel →"; next.disabled = false; }
     else { next.textContent = "✓ Listo"; next.disabled = true; }
-  } else if (state.step === 1) {
+  } else if (state.step === 2) {
     next.textContent = "Continuar →";
     next.disabled = totalClipsCount() === 0;
   } else {
@@ -1040,8 +1041,8 @@ function renderStepper() {
 }
 
 function goNext() {
-  if (state.step === 1 && totalClipsCount() === 0) { alert("Subí al menos un video"); return; }
-  if (state.step === 3 && !state.has_been_processed) { processReel(); return; }
+  if (state.step === 2 && totalClipsCount() === 0) { alert("Subí al menos un video"); return; }
+  if (state.step === 4 && !state.has_been_processed) { processReel(); return; }
   if (state.step < STEPS.length) { state.step++; render(); }
 }
 
@@ -1049,16 +1050,51 @@ function goPrev() { if (state.step > 1) { state.step--; render(); } }
 
 // ── STEP 1: VIDEOS ─────────────────────────────────────────────────
 function renderStep1() {
-  const modeToggle = `
-    <div class="bg-white border border-slate-200 rounded-xl p-1.5 flex gap-1 mb-5 max-w-md mx-auto">
-      <button onclick="switchUploadMode('guided')" class="mode-pill flex-1 py-2 px-3 rounded-lg text-sm font-medium ${state.upload_mode === 'guided' ? 'active' : 'text-slate-600 hover:bg-slate-100'}">🎬 Guiado por tomas</button>
-      <button onclick="switchUploadMode('simple')" class="mode-pill flex-1 py-2 px-3 rounded-lg text-sm font-medium ${state.upload_mode === 'simple' ? 'active' : 'text-slate-600 hover:bg-slate-100'}">⚡ Subir existentes</button>
-    </div>
-  `;
-  // Selector de filtros movido al paso 2 (ahora desplegable allí).
-  // En paso 1 dejamos vacío para no saturar la pantalla de subida.
+  // Toggle eliminado: forzamos modo "guided" (en cada sección ya está la opción
+  // de subir videos existentes).
+  if (state.upload_mode !== "guided") state.upload_mode = "guided";
+  const modeToggle = '';
   const aiToggle = '';
-  const content = state.upload_mode === "simple" ? renderSimpleUpload() : renderGuidedSections();
+  const content = renderGuidedSections();
+
+  // ─── Selector de efectos cinematográficos (desplegable al final de Videos) ───
+  const filterChosen = state.cinematic_filters_catalog?.find(f => f.key === state.cinematic_filter);
+  const currentLabel = filterChosen ? filterChosen.label : '🎥 Natural (sin filtro)';
+  const filterCards = (state.cinematic_filters_catalog || []).map(f => {
+    const active = state.cinematic_filter === f.key;
+    return `
+      <button onclick="state.cinematic_filter = '${f.key}'; render()"
+              class="text-left p-3 rounded-xl transition-all border ${active ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}">
+        <div class="text-sm font-semibold text-slate-900">${escapeHtml(f.label)}</div>
+        <div class="text-[11px] text-slate-500 mt-0.5 leading-snug">${escapeHtml(f.description)}</div>
+      </button>`;
+  }).join("");
+  const naturalActive = !state.cinematic_filter;
+  const effectsBlock = `
+    <details class="bg-white border border-slate-200 rounded-2xl mt-4 mb-4" ${state.cinematic_filter ? 'open' : ''}>
+      <summary class="flex items-center justify-between p-4 cursor-pointer">
+        <div class="flex items-center gap-2">
+          <span class="text-lg">🎨</span>
+          <div>
+            <div class="text-sm font-semibold text-slate-900">Efectos cinematográficos (opcional)</div>
+            <div class="text-[11px] text-slate-500">${escapeHtml(currentLabel)}</div>
+          </div>
+        </div>
+        <span class="chev text-slate-400">▾</span>
+      </summary>
+      <div class="border-t border-slate-200 p-4">
+        <div class="text-xs text-slate-500 mb-3">Aplicá un estilo profesional a TODAS las tomas. Gratis, instantáneo.</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button onclick="state.cinematic_filter = ''; render()"
+                  class="text-left p-3 rounded-xl transition-all border ${naturalActive ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}">
+            <div class="text-sm font-semibold text-slate-900">🎥 Natural</div>
+            <div class="text-[11px] text-slate-500 mt-0.5 leading-snug">Sin filtro — colores del video original</div>
+          </button>
+          ${filterCards}
+        </div>
+      </div>
+    </details>
+  `;
   return `
     <div class="fade-in">
       <h1 class="text-2xl font-bold text-slate-900 mb-1 text-center">Tus videos</h1>
@@ -1066,6 +1102,7 @@ function renderStep1() {
       ${modeToggle}
       ${aiToggle}
       ${content}
+      ${effectsBlock}
     </div>
   `;
 }
@@ -1528,7 +1565,6 @@ function renderStep2() {
       <h1 class="text-2xl font-bold text-slate-900 mb-1">Datos de la propiedad</h1>
       <p class="text-slate-600 mb-6">Con esto armamos el cierre del reel automáticamente.</p>
 
-      ${filtersBlock}
       <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4 space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div><label class="text-xs text-slate-500 block mb-1">Tipo</label>
@@ -3123,9 +3159,14 @@ async function applyEditorChanges() {
 function render() {
   renderStepper();
   const c = document.getElementById("step-content");
-  if (state.step === 1) { c.innerHTML = renderStep2() + renderStep1(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); }
-  if (state.step === 2) c.innerHTML = renderStep3();
-  if (state.step === 3) c.innerHTML = renderStep4();
+  // Paso 1 = Datos (renderStep2 original)
+  // Paso 2 = Videos (renderStep1 original)
+  // Paso 3 = Audio (renderStep3 original)
+  // Paso 4 = Tu reel (renderStep4 original)
+  if (state.step === 1) c.innerHTML = renderStep2();
+  if (state.step === 2) { c.innerHTML = renderStep1(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); }
+  if (state.step === 3) c.innerHTML = renderStep3();
+  if (state.step === 4) c.innerHTML = renderStep4();
   const existing = document.getElementById("editor-overlay");
   if (state.editor_open) {
     if (existing) existing.remove();
