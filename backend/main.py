@@ -549,7 +549,9 @@ async def reprocess_job(
     cta_data: str = Form(...),
     music_preset: Optional[str] = Form(None),
     enhance_ai: Optional[str] = Form(None),
+    cinematic_filter: Optional[str] = Form(None),
     auto_subtitles: Optional[str] = Form(None),
+    voice_segments_json: Optional[str] = Form(None),
     voice_audio: Optional[UploadFile] = File(None),
     music: Optional[UploadFile] = File(None),
 ):
@@ -609,11 +611,28 @@ async def reprocess_job(
             shutil.copyfileobj(music.file, f)
         effective_music_path = str(new_music_path)
 
+    # Parsear voice_segments_json — transcripción editada por el usuario
+    effective_pre_segments = job.get("voice_pre_segments")  # default: del job original
+    if voice_segments_json:
+        try:
+            parsed = json.loads(voice_segments_json)
+            if isinstance(parsed, list) and parsed:
+                effective_pre_segments = parsed
+        except Exception:
+            pass
+
+    effective_cinematic = (
+        cinematic_filter if cinematic_filter is not None
+        else job.get("cinematic_filter", "")
+    )
+
     set_job(job_id, status="processing", sections=resolved, cta_data=cta,
             output_path=str(new_output), work_dir=str(new_work),
             music_preset=effective_preset, enhance_ai=effective_enhance,
+            cinematic_filter=effective_cinematic,
             auto_subtitles=effective_subs,
             voice_audio_path=effective_voice_path,
+            voice_pre_segments=effective_pre_segments,
             music_path=effective_music_path,
             log=[], error=None)
 
@@ -623,7 +642,9 @@ async def reprocess_job(
               effective_voice_path, effective_music_path,
               effective_preset, job.get("logo_path"),
               effective_enhance, effective_subs,
-              str(new_output), None, False),
+              str(new_output), None, False,
+              effective_cinematic or "",
+              effective_pre_segments),
         daemon=True,
     ).start()
 

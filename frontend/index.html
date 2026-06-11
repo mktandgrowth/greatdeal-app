@@ -347,6 +347,9 @@ let state = {
   // ── Versionado de reel ──
   previous_reel: null,             // {download, duration, caption, saved_at}
   adjustments_modal_open: false,   // modal "Aplicar ajustes" en pantalla final
+  // Flag: el user navegó atrás después de tener el reel listo
+  // → al volver al paso 4 le ofrecemos "regenerar con cambios" o "mantener original"
+  has_navigated_back_after_process: false,
   // ── Transcripción pre-procesamiento ──
   voice_transcript: "",            // texto completo editable
   voice_segments: [],              // [{start, end, text}]
@@ -1030,7 +1033,7 @@ function renderStepper() {
     const isProc = state.job_status && state.job_status !== "done" && state.job_status !== "error";
     if (isProc) { next.textContent = "Procesando…"; next.disabled = true; }
     else if (!state.has_been_processed) { next.textContent = "Generar mi reel →"; next.disabled = false; }
-    else { next.textContent = "✓ Listo"; next.disabled = true; }
+    else { next.textContent = "↻ Regenerar con cambios"; next.disabled = false; }
   } else if (state.step === 2) {
     next.textContent = "Continuar →";
     next.disabled = totalClipsCount() === 0;
@@ -1057,10 +1060,31 @@ function stopMusicPreviewIfPlaying() {
 function goNext() {
   if (state.step === 2 && totalClipsCount() === 0) { alert("Subí al menos un video"); return; }
   if (state.step === 4 && !state.has_been_processed) { processReel(); return; }
+  if (state.step === 4 && state.has_been_processed) { reprocessFromCurrent(); return; }
   if (state.step < STEPS.length) { stopMusicPreviewIfPlaying(); state.step++; render(); }
 }
 
-function goPrev() { if (state.step > 1) { stopMusicPreviewIfPlaying(); state.step--; render(); } }
+function goPrev() {
+  if (state.step > 1) {
+    stopMusicPreviewIfPlaying();
+    // Si ya hay reel generado y el user vuelve atrás, marcamos el flag
+    if (state.has_been_processed && state.step === 4) {
+      state.has_navigated_back_after_process = true;
+    }
+    state.step--;
+    render();
+  }
+}
+
+// Ir directo a un paso desde la pantalla del reel listo (botones "Volver a editar")
+function goToStep(step) {
+  stopMusicPreviewIfPlaying();
+  if (state.has_been_processed) {
+    state.has_navigated_back_after_process = true;
+  }
+  state.step = step;
+  render();
+}
 
 // ── STEP 1: VIDEOS ─────────────────────────────────────────────────
 function renderStep1() {
@@ -2085,6 +2109,22 @@ function renderStep4() {
           <p class="text-slate-600 text-sm">${state.job_duration ? state.job_duration.toFixed(1) : '?'}s · Para Instagram / TikTok</p>
         </div>
 
+        <!-- BANNER: volvió de editar — decide regenerar o mantener original -->
+        ${state.has_navigated_back_after_process ? `
+          <div class="rounded-2xl p-4 mb-3" style="background: linear-gradient(135deg, var(--bg-card) 0%, rgba(201,168,106,0.10) 100%); border: 1px solid var(--gold-border);">
+            <div class="text-xs uppercase tracking-wider gold-accent font-semibold mb-1">⚠️ Volviste de editar pasos anteriores</div>
+            <div class="text-[12px] mb-3" style="color: var(--text-secondary);">¿Querés generar un reel nuevo con los cambios o mantener este reel tal cual está?</div>
+            <div class="grid grid-cols-1 gap-2">
+              <button onclick="state.has_navigated_back_after_process=false; reprocessFromCurrent();" class="px-4 py-2.5 rounded-xl font-bold text-sm" style="background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 20px rgba(201,168,106,0.25);">
+                ↻ Regenerar reel con cambios
+              </button>
+              <button onclick="state.has_navigated_back_after_process=false; render();" class="px-4 py-2.5 rounded-xl text-sm" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+                ↶ Mantener este reel sin cambios
+              </button>
+            </div>
+          </div>
+        ` : ''}
+
         <!-- VIDEO con preview CSS en vivo del filtro elegido -->
         <div class="bg-black rounded-2xl overflow-hidden mb-2">
           <video id="reelPreviewVideo" src="${state.job_download}" controls class="w-full" style="max-height: 70vh; background: black; filter: ${cssFilter}; transition: filter 0.3s ease;"></video>
@@ -2118,69 +2158,51 @@ function renderStep4() {
           `}
         </div>
 
-        <!-- 🎨 EFECTOS DE IMAGEN — con preview CSS en vivo -->
+        <!-- A) 🎨 RETOQUES RÁPIDOS — efectos de luz/contraste con preview CSS -->
         <div class="rounded-2xl p-4 mb-3" style="background: var(--bg-card); border: 1px solid var(--border-subtle);">
-          <div class="text-xs uppercase tracking-wider gold-accent font-semibold mb-1">🎨 Look del video</div>
-          <div class="text-[11px] mb-3" style="color: var(--text-muted);">Tocá un efecto y mirá el video arriba → se aplica al instante. Para guardarlo en el MP4, tocá "Aplicar y regenerar".</div>
+          <div class="text-xs uppercase tracking-wider gold-accent font-semibold mb-1">🎨 ¿Querés retocar un poco el video?</div>
+          <div class="text-[11px] mb-3" style="color: var(--text-muted);">Tocá un efecto y mirá el preview arriba al instante. Para guardarlo en el MP4 tocá "Aplicar y regenerar".</div>
           <div class="grid grid-cols-2 gap-2 mb-3">${effectButtons}</div>
-          <details class="rounded-xl" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle);">
-            <summary class="px-3 py-2 cursor-pointer text-[11px]" style="color: var(--text-secondary);">+ Looks cinematográficos (golden hour, vintage, magazine…)</summary>
-            <div class="p-2 grid grid-cols-2 gap-2">${cineCards}</div>
-          </details>
+          ${isPreviewing ? `
+            <button onclick="reprocessFromCurrent()" class="w-full px-4 py-3 rounded-xl font-bold text-sm" style="background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 20px rgba(201,168,106,0.25);">
+              ↻ Aplicar efecto y regenerar
+            </button>
+          ` : ''}
         </div>
 
-        <!-- ✏️ EDITAR TEXTOS / AUDIO — abren modales SIN salir del reel -->
+        <!-- B) ↩ VOLVER A EDITAR PASOS ANTERIORES -->
         <div class="rounded-2xl p-4 mb-3" style="background: var(--bg-card); border: 1px solid var(--border-subtle);">
-          <div class="text-xs uppercase tracking-wider gold-accent font-semibold mb-3">✏️ Editar textos y audio</div>
+          <div class="text-xs uppercase tracking-wider gold-accent font-semibold mb-1">↩ ¿Algo no quedó bien?</div>
+          <div class="text-[11px] mb-3" style="color: var(--text-muted);">Volvé a los pasos anteriores, corregí lo que necesites y regenerá el reel. Este reel queda guardado por si querés volver.</div>
           <div class="grid grid-cols-1 gap-2">
-            <button onclick="openEditTitlesPopup()" class="flex items-center gap-3 px-4 py-3 rounded-xl text-left" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
-              <span class="text-xl">📝</span>
-              <div class="flex-1">
-                <div class="font-semibold text-sm">Editar títulos por toma</div>
-                <div class="text-[11px]" style="color: var(--text-muted);">Cambiar texto sobre cada clip</div>
-              </div>
+            <button onclick="goToStep(1)" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+              <span class="text-lg">1️⃣</span>
+              <div class="flex-1 font-medium">Datos de la propiedad</div>
               <span style="color: var(--text-muted);">›</span>
             </button>
-            ${hasVoice ? `
-            <button onclick="openSubtitleEditor()" class="flex items-center gap-3 px-4 py-3 rounded-xl text-left" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
-              <span class="text-xl">🎙️</span>
-              <div class="flex-1">
-                <div class="font-semibold text-sm">Corregir transcripción del audio</div>
-                <div class="text-[11px]" style="color: var(--text-muted);">Revisar y editar lo que la IA transcribió</div>
-              </div>
+            <button onclick="goToStep(2)" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+              <span class="text-lg">2️⃣</span>
+              <div class="flex-1 font-medium">Videos y títulos por toma</div>
               <span style="color: var(--text-muted);">›</span>
-            </button>` : ''}
-            <button onclick="openEditAudioPopup()" class="flex items-center gap-3 px-4 py-3 rounded-xl text-left" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
-              <span class="text-xl">🎵</span>
-              <div class="flex-1">
-                <div class="font-semibold text-sm">Cambiar música o voz</div>
-              </div>
+            </button>
+            <button onclick="goToStep(3)" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+              <span class="text-lg">3️⃣</span>
+              <div class="flex-1 font-medium">Audio + cierre</div>
               <span style="color: var(--text-muted);">›</span>
             </button>
           </div>
+          <div class="text-[10px] text-center mt-3" style="color: var(--text-muted);">Cuando termines, volvé al paso 4 y tocá "Generar mi reel"</div>
         </div>
 
-        <!-- BOTÓN GRANDE APLICAR Y REGENERAR -->
-        <button onclick="reprocessFromCurrent()" class="w-full mb-3 px-6 py-4 rounded-xl font-bold" style="background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 20px rgba(201,168,106,0.25);">
-          ↻ Aplicar cambios y regenerar reel
-        </button>
-        <div class="text-[10px] text-center mb-3" style="color: var(--text-muted);">El reel actual queda guardado por si querés volver</div>
-
-        <!-- ACCESO SECUNDARIO -->
-        <details class="rounded-xl px-4 py-2 text-sm mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle);">
+        <!-- ACCESO SECUNDARIO MUY DISCRETO -->
+        <details class="rounded-xl px-4 py-2 text-xs" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle);">
           <summary class="flex items-center justify-between cursor-pointer py-1">
-            <span style="color: var(--text-secondary);">Más opciones (editor avanzado, empezar de cero)</span>
+            <span style="color: var(--text-muted);">Empezar otro reel desde cero</span>
             <span class="chev" style="color: var(--text-muted);">▾</span>
           </summary>
-          <div class="pt-3 grid grid-cols-1 gap-2">
-            <button onclick="openManualEditor()" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
-              🎬 Editor avanzado (clips/velocidad/orden)
-            </button>
-            <button onclick="openEditDataPopup()" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
-              💼 Cambiar datos de la propiedad
-            </button>
-            <button onclick="if(confirm('¿Descartar este reel y empezar de cero?')) { resetAll(); state.step=1; render(); }" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); color: var(--text-primary);">
-              ↩ Empezar otro reel desde cero
+          <div class="pt-2">
+            <button onclick="if(confirm('¿Descartar este reel y empezar de cero?')) { resetAll(); state.step=1; render(); }" class="w-full px-4 py-2 rounded-lg text-xs" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); color: var(--text-primary);">
+              ↩ Descartar y empezar otro
             </button>
           </div>
         </details>
@@ -2327,6 +2349,7 @@ async function processReel() {
 async function reprocessFromCurrent() {
   if (!state.job_id) { processReel(); return; }
   if (!confirm("¿Re-procesar el reel con los cambios?")) return;
+  state.has_navigated_back_after_process = false;  // limpia el flag
   const { sections } = buildPayload();
   if (sections.length === 0) { alert("No hay videos"); return; }
   // ── GUARDAR EL REEL ANTERIOR para poder volver ──
@@ -2514,30 +2537,28 @@ async function autoTranscribeVoiceAudio() {
   }
 }
 
-// Cuando el user edita el textarea, sincronizamos el texto editado a los
-// segments. Estrategia simple: dividir el texto editado por oraciones y
-// distribuirlo proporcionalmente al timing de los segments originales.
+// Cuando el user edita el textarea, REEMPLAZAMOS todos los segments por
+// UN SOLO segment que cubra todo el rango temporal del audio con el texto
+// editado completo. El backend (generate_ass_file con chunk_words=8) se
+// encarga de partirlo en chunks proporcionalmente. Esto garantiza que el
+// texto editado siempre se respeta en el video — no se pierde nada.
 function updateVoiceTranscript(newText) {
   state.voice_transcript = newText;
   state.voice_transcript_dirty = true;
-  if (!state.voice_segments || state.voice_segments.length === 0) return;
-  // Repartir el texto entre los segments proporcionalmente
-  const sentences = newText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [newText];
-  const segCount = state.voice_segments.length;
-  if (sentences.length === segCount) {
-    // Match exacto — asignar uno a uno
-    sentences.forEach((s, i) => { state.voice_segments[i].text = s.trim(); });
-  } else if (sentences.length === 1 || segCount === 1) {
-    // Todo el texto a un solo segment grande
-    state.voice_segments[0].text = newText.trim();
-    for (let i = 1; i < segCount; i++) state.voice_segments[i].text = "";
-  } else {
-    // Aproximación: repartir uniformemente
-    const perSeg = Math.ceil(sentences.length / segCount);
-    for (let i = 0; i < segCount; i++) {
-      state.voice_segments[i].text = sentences.slice(i * perSeg, (i + 1) * perSeg).join(" ").trim();
-    }
+  if (!state.voice_segments || state.voice_segments.length === 0) {
+    // No había segments — creamos uno con duración estimada
+    state.voice_segments = [{ start: 0, end: 30, text: newText.trim() }];
+    return;
   }
+  // Calcular el rango temporal total (desde el primer segment hasta el último)
+  const firstStart = state.voice_segments[0].start || 0;
+  const lastEnd = state.voice_segments[state.voice_segments.length - 1].end || (firstStart + 30);
+  // Reemplazar TODO por un solo segment con el texto editado completo
+  state.voice_segments = [{
+    start: firstStart,
+    end: lastEnd,
+    text: newText.trim(),
+  }];
 }
 
 // ═══════════════════════════════════════════════════════════════════
