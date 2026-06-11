@@ -266,7 +266,7 @@
 <script>
 // ── CONFIG ─────────────────────────────────────────────────────────
 const STEPS = [
-  { id: 1, label: "Videos + Datos" },
+  { id: 1, label: "Datos + Videos" },
   { id: 2, label: "Audio" },
   { id: 3, label: "Tu reel" },
 ];
@@ -3123,7 +3123,7 @@ async function applyEditorChanges() {
 function render() {
   renderStepper();
   const c = document.getElementById("step-content");
-  if (state.step === 1) { c.innerHTML = renderStep1() + renderStep2(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); }
+  if (state.step === 1) { c.innerHTML = renderStep2() + renderStep1(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); }
   if (state.step === 2) c.innerHTML = renderStep3();
   if (state.step === 3) c.innerHTML = renderStep4();
   const existing = document.getElementById("editor-overlay");
