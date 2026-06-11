@@ -268,7 +268,7 @@
 const STEPS = [
   { id: 1, label: "Datos" },
   { id: 2, label: "Videos" },
-  { id: 3, label: "Audio" },
+  { id: 3, label: "Audio + cierre" },
   { id: 4, label: "Tu reel" },
 ];
 
@@ -1070,27 +1070,38 @@ function renderStep1() {
       </button>`;
   }).join("");
   const naturalActive = !state.cinematic_filter;
+  // Filter cards COMPACTAS para la lista con scroll (una sola columna,
+  // padding reducido, label + descripción en una sola línea con truncado)
+  const filterCardsCompact = (state.cinematic_filters_catalog || []).map(f => {
+    const active = state.cinematic_filter === f.key;
+    return `
+      <button onclick="state.cinematic_filter = '${f.key}'; render()"
+              class="w-full text-left px-3 py-2 rounded-lg transition-all border ${active ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}">
+        <div class="text-xs font-semibold text-slate-900">${escapeHtml(f.label)}</div>
+        <div class="text-[10px] text-slate-500 truncate">${escapeHtml(f.description)}</div>
+      </button>`;
+  }).join("");
   const effectsBlock = `
     <details class="bg-white border border-slate-200 rounded-2xl mt-4 mb-4" ${state.cinematic_filter ? 'open' : ''}>
-      <summary class="flex items-center justify-between p-4 cursor-pointer">
+      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer">
         <div class="flex items-center gap-2">
-          <span class="text-lg">🎨</span>
+          <span class="text-base">🎨</span>
           <div>
-            <div class="text-sm font-semibold text-slate-900">Efectos cinematográficos (opcional)</div>
-            <div class="text-[11px] text-slate-500">${escapeHtml(currentLabel)}</div>
+            <div class="text-sm font-semibold text-slate-900">Efectos cinematográficos</div>
+            <div class="text-[10px] text-slate-500">${escapeHtml(currentLabel)}</div>
           </div>
         </div>
         <span class="chev text-slate-400">▾</span>
       </summary>
-      <div class="border-t border-slate-200 p-4">
-        <div class="text-xs text-slate-500 mb-3">Aplicá un estilo profesional a TODAS las tomas. Gratis, instantáneo.</div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div class="border-t border-slate-200 p-3">
+        <div class="text-[10px] text-slate-500 mb-2 px-1">Estilo profesional a TODAS las tomas.</div>
+        <div class="space-y-1.5 overflow-y-auto pr-1" style="max-height: 260px;">
           <button onclick="state.cinematic_filter = ''; render()"
-                  class="text-left p-3 rounded-xl transition-all border ${naturalActive ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}">
-            <div class="text-sm font-semibold text-slate-900">🎥 Natural</div>
-            <div class="text-[11px] text-slate-500 mt-0.5 leading-snug">Sin filtro — colores del video original</div>
+                  class="w-full text-left px-3 py-2 rounded-lg transition-all border ${naturalActive ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}">
+            <div class="text-xs font-semibold text-slate-900">🎥 Natural</div>
+            <div class="text-[10px] text-slate-500 truncate">Sin filtro — colores del video original</div>
           </button>
-          ${filterCards}
+          ${filterCardsCompact}
         </div>
       </div>
     </details>
@@ -1615,31 +1626,39 @@ function renderStep2() {
         ${state.custom_tagline ? `<div class="text-slate-400 text-xs">${escapeHtml(state.custom_tagline)}</div>` : ''}
         <div class="text-slate-500 text-[10px] mt-3">↑ Cierre del reel (preview)</div>
       </div>
-      <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-sm text-blue-900">🎵 La música y la voz se configuran en el <strong>paso 3 (Audio)</strong>.</div>
-      <details class="bg-white border border-slate-200 rounded-2xl mb-4" ${state.advanced_open ? 'open' : ''} ontoggle="state.advanced_open=this.open">
-        <summary class="px-5 py-4 flex items-center justify-between">
-          <div><div class="font-medium text-slate-900">Opciones avanzadas</div><div class="text-xs text-slate-500">Logo y textos personalizados del cierre</div></div>
-          <span class="chev text-slate-400">▾</span>
-        </summary>
-        <div class="border-t border-slate-200 p-5 space-y-5">
-          <div>
-            <div class="text-sm font-medium text-slate-900 mb-2">🏷️ Logo (opcional)</div>
-            ${state.logo_dataUrl
-              ? `<div class="flex items-center gap-3"><div class="bg-black p-2 rounded"><img src="${state.logo_dataUrl}" class="h-10 max-w-24 object-contain"/></div><button onclick="state.logo_file=null; state.logo_dataUrl=null; render()" class="text-red-500 text-xs">Quitar</button></div>`
-              : `<label class="inline-block px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded cursor-pointer">+ Subir logo (PNG)<input type="file" accept="image/png,image/jpeg" class="hidden" onchange="handleLogoUpload(event.target.files[0])"></label><span class="text-xs text-slate-500 ml-2">Aparece 2s antes del cierre</span>`}
-          </div>
-          <div>
-            <div class="text-sm font-medium text-slate-900 mb-2">💎 Personalizar cierre (opcional)</div>
-            <div class="space-y-2">
-              <input type="text" placeholder="Info (default: ${escapeAttr(`${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`)})" value="${escapeAttr(state.custom_cta_info)}" maxlength="60" oninput="state.custom_cta_info=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
-              <input type="text" placeholder="Precio (default: ${escapeAttr(p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar')})" value="${escapeAttr(state.custom_cta_precio)}" maxlength="30" oninput="state.custom_cta_precio=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
-              <input type="text" placeholder="Tagline final" value="${escapeAttr(state.custom_tagline)}" maxlength="40" oninput="state.custom_tagline=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
-            </div>
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-sm text-blue-900">🎵 Música, voz y personalización del cierre se configuran en el <strong>paso 3 (Audio + cierre)</strong>.</div>
+      <div class="text-xs text-slate-500 text-center">Continuá al paso de videos →</div>
+    </div>
+  `;
+}
+
+// Bloque reusable de "Opciones avanzadas" — logo + textos personalizados del cierre
+// Se renderiza en el paso 3 (Audio + cierre) al final.
+function renderCierreCustomization() {
+  const p = state.property;
+  return `
+    <details class="bg-white border border-slate-200 rounded-2xl mb-4 mt-4" ${state.advanced_open ? 'open' : ''} ontoggle="state.advanced_open=this.open">
+      <summary class="px-5 py-4 flex items-center justify-between cursor-pointer">
+        <div><div class="font-medium text-slate-900">Opciones avanzadas</div><div class="text-xs text-slate-500">Logo y textos personalizados del cierre</div></div>
+        <span class="chev text-slate-400">▾</span>
+      </summary>
+      <div class="border-t border-slate-200 p-5 space-y-5">
+        <div>
+          <div class="text-sm font-medium text-slate-900 mb-2">🏷️ Logo (opcional)</div>
+          ${state.logo_dataUrl
+            ? `<div class="flex items-center gap-3"><div class="bg-black p-2 rounded"><img src="${state.logo_dataUrl}" class="h-10 max-w-24 object-contain"/></div><button onclick="state.logo_file=null; state.logo_dataUrl=null; render()" class="text-red-500 text-xs">Quitar</button></div>`
+            : `<label class="inline-block px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded cursor-pointer">+ Subir logo (PNG)<input type="file" accept="image/png,image/jpeg" class="hidden" onchange="handleLogoUpload(event.target.files[0])"></label><span class="text-xs text-slate-500 ml-2">Aparece 2s antes del cierre</span>`}
+        </div>
+        <div>
+          <div class="text-sm font-medium text-slate-900 mb-2">💎 Personalizar cierre (opcional)</div>
+          <div class="space-y-2">
+            <input type="text" placeholder="Info (default: ${escapeAttr(`${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`)})" value="${escapeAttr(state.custom_cta_info)}" maxlength="60" oninput="state.custom_cta_info=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
+            <input type="text" placeholder="Precio (default: ${escapeAttr(p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar')})" value="${escapeAttr(state.custom_cta_precio)}" maxlength="30" oninput="state.custom_cta_precio=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
+            <input type="text" placeholder="Tagline final" value="${escapeAttr(state.custom_tagline)}" maxlength="40" oninput="state.custom_tagline=this.value; render()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
           </div>
         </div>
-      </details>
-      <div class="text-xs text-slate-500 text-center">Continuá al paso de audio →</div>
-    </div>
+      </div>
+    </details>
   `;
 }
 
@@ -1786,6 +1805,8 @@ function renderStep3() {
       ${subsToggle}
 
       ${state.voice_audio_file ? renderTranscriptEditor() : ''}
+
+      ${renderCierreCustomization()}
 
       <div class="text-xs text-slate-500 text-center mt-4">Cuando estés lista, continuá → "Generar mi reel"</div>
     </div>`;
