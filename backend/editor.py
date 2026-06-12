@@ -8,8 +8,8 @@ import json
 from pathlib import Path
 from typing import Optional
 
-# TÍTULOS del video → Montserrat Bold
-FONT_BOLD = "/usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf"
+# TÍTULOS del video → Cormorant Garamond Bold (serif elegante, misma del logo "GreatDeal")
+FONT_BOLD = "/usr/share/fonts/truetype/cormorant/CormorantGaramond-Bold.ttf"
 # SUBTÍTULOS de clip + CTA → Montserrat Regular
 FONT_REG  = "/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf"
 # Subtítulos hablados (Whisper) → Montserrat Regular (en subtitles.py ASS Style)
@@ -18,9 +18,9 @@ FONT_THIN = "/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf"
 # Fallbacks por si las fonts no se descargaron
 if not Path(FONT_BOLD).exists():
     fallbacks = [
-        "/usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf",
-        "/usr/share/fonts/truetype/montserrat/Montserrat-Black.ttf",
-        "/usr/share/fonts/truetype/inter/Inter-SemiBold.ttf",
+        "/usr/share/fonts/truetype/cormorant/CormorantGaramond-SemiBold.ttf",
+        "/usr/share/fonts/truetype/cormorant/CormorantGaramond-Medium.ttf",
+        "/usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     ]
     FONT_BOLD = next((f for f in fallbacks if Path(f).exists()), fallbacks[-1])
@@ -763,12 +763,13 @@ def process_clip_combined(input_path: str, output_path: str,
     if headline or subline:
         fade_out_start = max(0.1, effective_duration - 0.3)
         if headline:
-            # Título: Montserrat Bold 30px, BLANCA PELADO.
-            # Sin caja, sin sombra, sin contorno — solo la letra.
+            # Título: Cormorant Garamond Bold 38px, blanca PELADO.
+            # (Misma tipografía del logo "GreatDeal" — serif elegante luxury)
+            # Tamaño 38 porque los serif necesitan más píxeles para impactar.
             filters.append(
                 f"drawtext=fontfile={FONT_BOLD}:text='{_esc(headline)}':"
-                f"fontsize=30:fontcolor=white:"
-                f"x=(w-text_w)/2:y=(h-text_h)/2-22"
+                f"fontsize=38:fontcolor=white:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2-26"
             )
         if subline:
             # Subtítulo: Montserrat Regular 20px, blanco, sin sombra ni caja
