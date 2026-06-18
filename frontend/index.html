@@ -1203,21 +1203,15 @@ function pickRecorderMimeType() {
 }
 
 async function compressVideoFile(file, onProgress) {
-  // DESACTIVADO TEMPORALMENTE: la compresión client-side con MediaRecorder
-  // genera WebM con header EBML incompatible con FFmpeg server-side (Runway/reel
-  // procesamiento fallan con "EBML header parsing failed"). Mejor mandar el
-  // archivo original. Para uploads grandes en red móvil, usar WiFi.
-  // TODO: implementar compresión server-side o usar WebCodecs API
-  return file;
-
-  // ─── Código de compresión deshabilitado (mantener para futura ref) ───
-  // eslint-disable-next-line no-unreachable
+  // Comprime el video en el browser usando Canvas + MediaRecorder.
+  // Ahora REACTIVADA (Runway ya no se usa, el pipeline FFmpeg server tolera
+  // webm con +genpts+igndts). Reduce videos iPhone 4K de 150MB → ~15MB.
   const mime = pickRecorderMimeType();
   if (!mime || !HTMLCanvasElement.prototype.captureStream) {
-    return file; // fallback al original
+    return file; // browser viejo, sin soporte → mandar original
   }
-  if (file.size < 5 * 1024 * 1024) {
-    return file; // <5MB ya es razonable, no comprimir
+  if (file.size < 8 * 1024 * 1024) {
+    return file; // <8MB ya es razonable, no perdemos tiempo comprimiendo
   }
 
   return new Promise((resolve) => {
@@ -1364,21 +1358,28 @@ function hideCompressionOverlay() {
 async function handleSimpleUpload(files) {
   const arr = Array.from(files).filter(f => f.type.startsWith("video/"));
   if (arr.length === 0) return;
-  for (let i = 0; i < arr.length; i++) {
-    const f = arr[i];
-    const dataUrl = await new Promise((res) => {
-      const r = new FileReader();
-      r.onload = e => res(e.target.result);
-      r.readAsDataURL(f);
-    });
-    const suggestedTitle = suggestSimpleHeadline(state.simple_clips.length);
-    state.simple_clips.push({
-      id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      file: f, dataUrl, name: f.name,
-      headline: suggestedTitle, subline: "",
-    });
-    render();
-    setTimeout(initSimpleSortable, 50);
+  showCompressionOverlay(arr.length);
+  try {
+    for (let i = 0; i < arr.length; i++) {
+      updateCompressionOverlay(i + 1, arr.length, 0);
+      const f = arr[i];
+      const compressed = await compressVideoFile(f, (p) => updateCompressionOverlay(i + 1, arr.length, p));
+      const dataUrl = await new Promise((res) => {
+        const r = new FileReader();
+        r.onload = e => res(e.target.result);
+        r.readAsDataURL(compressed);
+      });
+      const suggestedTitle = suggestSimpleHeadline(state.simple_clips.length);
+      state.simple_clips.push({
+        id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        file: compressed, dataUrl, name: compressed.name,
+        headline: suggestedTitle, subline: "",
+      });
+      render();
+      setTimeout(initSimpleSortable, 50);
+    }
+  } finally {
+    hideCompressionOverlay();
   }
 }
 
@@ -1504,20 +1505,27 @@ async function handleSectionUpload(key, files) {
   const slotsLeft = cfg.maxClips - sec.clips.length;
   const arr = Array.from(files).filter(f => f.type.startsWith("video/")).slice(0, slotsLeft);
   if (arr.length === 0) return;
-  for (let i = 0; i < arr.length; i++) {
-    const f = arr[i];
-    const dataUrl = await new Promise((res) => {
-      const r = new FileReader();
-      r.onload = e => res(e.target.result);
-      r.readAsDataURL(f);
-    });
-    const suggestedTitle = suggestHeadline(key, sec.clips.length);
-    sec.clips.push({
-      id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      file: f, dataUrl, name: f.name,
-      headline: suggestedTitle, subline: "",
-    });
-    render();
+  showCompressionOverlay(arr.length);
+  try {
+    for (let i = 0; i < arr.length; i++) {
+      updateCompressionOverlay(i + 1, arr.length, 0);
+      const f = arr[i];
+      const compressed = await compressVideoFile(f, (p) => updateCompressionOverlay(i + 1, arr.length, p));
+      const dataUrl = await new Promise((res) => {
+        const r = new FileReader();
+        r.onload = e => res(e.target.result);
+        r.readAsDataURL(compressed);
+      });
+      const suggestedTitle = suggestHeadline(key, sec.clips.length);
+      sec.clips.push({
+        id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        file: compressed, dataUrl, name: compressed.name,
+        headline: suggestedTitle, subline: "",
+      });
+      render();
+    }
+  } finally {
+    hideCompressionOverlay();
   }
 }
 
@@ -2364,7 +2372,9 @@ async function reprocessFromCurrent() {
   // ── GUARDAR EL REEL ANTERIOR para poder volver ──
   if (state.job_download) {
     state.previous_reel = {
-      download: state.job_download,
+      // Usar file_url (URL persistente al archivo específico) en vez de
+      // download (URL del job que cambia con cada regenerate)
+      download: state.job_file_url || state.job_download,
       duration: state.job_duration,
       caption: state.caption_text,
       saved_at: Date.now(),
@@ -2428,6 +2438,9 @@ async function pollJobStatus() {
         state.job_error = j.error;
         state.job_duration = j.duration;
         state.job_download = j.download_url ? `${API_BASE}${j.download_url}` : null;
+        // URL persistente al archivo específico (no cambia con regenerate)
+        // — la usamos para guardar versiones anteriores
+        state.job_file_url = j.file_url ? `${API_BASE}${j.file_url}` : null;
         render();
         if (j.status === "done" || j.status === "error") break;
       } catch (e) {
@@ -2612,7 +2625,9 @@ async function applyEditAndRegenerate() {
   if (!state.job_id) return;
   if (state.job_download) {
     state.previous_reel = {
-      download: state.job_download,
+      // Usar file_url (URL persistente al archivo específico) en vez de
+      // download (URL del job que cambia con cada regenerate)
+      download: state.job_file_url || state.job_download,
       duration: state.job_duration,
       caption: state.caption_text,
       saved_at: Date.now(),
@@ -3306,13 +3321,22 @@ async function applyEditorChanges() {
 function render() {
   renderStepper();
   const c = document.getElementById("step-content");
+  // Si ya hay reel generado y estás navegando por pasos 1/2/3, agregamos
+  // un botón "Volver al reel" prominente arriba para acceso rápido
+  const backToReelBanner = (state.has_been_processed && state.step !== 4) ? `
+    <div class="mb-4">
+      <button onclick="state.step=4; render()" class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm" style="background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 16px rgba(201,168,106,0.25);">
+        <span>↩</span><span>Volver al reel listo</span>
+      </button>
+    </div>
+  ` : '';
   // Paso 1 = Datos (renderStep2 original)
   // Paso 2 = Videos (renderStep1 original)
   // Paso 3 = Audio (renderStep3 original)
   // Paso 4 = Tu reel (renderStep4 original)
-  if (state.step === 1) c.innerHTML = renderStep2();
-  if (state.step === 2) { c.innerHTML = renderStep1(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); }
-  if (state.step === 3) c.innerHTML = renderStep3();
+  if (state.step === 1) c.innerHTML = backToReelBanner + renderStep2();
+  if (state.step === 2) { c.innerHTML = backToReelBanner + renderStep1(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); }
+  if (state.step === 3) c.innerHTML = backToReelBanner + renderStep3();
   if (state.step === 4) c.innerHTML = renderStep4();
   const existing = document.getElementById("editor-overlay");
   if (state.editor_open) {

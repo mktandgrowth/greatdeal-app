@@ -645,6 +645,11 @@ async def get_job(job_id: str):
         job = JOBS.get(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
+    output_filename = None
+    if job["status"] == "done":
+        op = job.get("output_path", "")
+        if op:
+            output_filename = Path(op).name
     return {
         "id": job["id"],
         "status": job["status"],
@@ -656,6 +661,9 @@ async def get_job(job_id: str):
         "sections": job.get("sections"),
         "cta_data": job.get("cta_data"),
         "download_url": f"/api/jobs/{job_id}/download" if job["status"] == "done" else None,
+        # URL persistente al archivo específico (para versionado / "volver al anterior")
+        "output_filename": output_filename,
+        "file_url": f"/api/files/{output_filename}" if output_filename else None,
     }
 
 
@@ -672,6 +680,22 @@ async def download(job_id: str):
         raise HTTPException(500, "Output file missing")
     return FileResponse(path, media_type="video/mp4",
                         filename=f"greatdeal_reel_{job_id}.mp4")
+
+
+@app.get("/api/files/{filename}")
+async def download_file_by_name(filename: str):
+    """Sirve un archivo MP4 por su nombre exacto. Usado para acceder a
+    versiones anteriores de reels (cuando reprocess genera un archivo nuevo
+    y el viejo sigue en disco). Validación: solo nombres simples (sin path)."""
+    # Sanity check para prevenir path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(400, "Invalid filename")
+    if not filename.endswith(".mp4"):
+        raise HTTPException(400, "Only .mp4 files allowed")
+    path = OUTPUT_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, f"File not found: {filename}")
+    return FileResponse(str(path), media_type="video/mp4", filename=filename)
 
 
 @app.get("/api/jobs/{job_id}/subtitles")
