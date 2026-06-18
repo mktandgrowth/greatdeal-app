@@ -355,6 +355,7 @@ let state = {
   voice_segments: [],              // [{start, end, text}]
   voice_transcribing: false,
   voice_transcript_dirty: false,   // si el user editó después de transcribir
+  voice_audio_duration: 0,         // duración del audio en seg (se calcula al subir/grabar)
   voice_audio_file: null,
   voice_audio_url: null,
   voice_method: "none",
@@ -879,6 +880,67 @@ function recommendedChars(d) {
   return { min: Math.round(d * 12), ideal: Math.round(d * 14), max: Math.round(d * 16) };
 }
 
+// Recomendación de duración del audio según la duración del reel.
+// Ideal: el audio dura entre 80% y 100% de la duración del reel.
+// Tolerancia: ±15% del ideal.
+function recommendedAudioDuration(reelDur) {
+  const ideal = reelDur * 0.92;   // un poco menos que el reel completo
+  const min = reelDur * 0.70;     // si dura menos, queda silencio raro al final
+  const max = reelDur * 1.05;     // si dura más, se trunca al final del reel
+  return { min, ideal, max };
+}
+
+// Status de la duración del audio comparada con el reel:
+//   "ok"        → dentro del rango ideal (sin problema)
+//   "corto"     → mucho más corto que el reel (silencios al final)
+//   "muy_corto" → menos de la mitad
+//   "largo"     → un poco más largo (se trunca el final)
+//   "muy_largo" → mucho más largo (se pierde mucho del mensaje)
+function audioDurationStatus(audioDur, reelDur) {
+  if (!audioDur || !reelDur) return null;
+  const rec = recommendedAudioDuration(reelDur);
+  if (audioDur < reelDur * 0.40) return "muy_corto";
+  if (audioDur < rec.min) return "corto";
+  if (audioDur > reelDur * 1.30) return "muy_largo";
+  if (audioDur > rec.max) return "largo";
+  return "ok";
+}
+
+// Lee la duración de un File de audio (usa <audio> invisible)
+function calcAudioFileDuration(file) {
+  return new Promise((resolve) => {
+    try {
+      const audio = document.createElement("audio");
+      audio.preload = "metadata";
+      audio.src = URL.createObjectURL(file);
+      let resolved = false;
+      const cleanup = () => { try { URL.revokeObjectURL(audio.src); } catch (_) {} };
+      audio.onloadedmetadata = () => {
+        if (resolved) return;
+        resolved = true;
+        const dur = isFinite(audio.duration) ? audio.duration : 0;
+        cleanup();
+        resolve(dur);
+      };
+      audio.onerror = () => {
+        if (resolved) return;
+        resolved = true;
+        cleanup();
+        resolve(0);
+      };
+      // Failsafe timeout
+      setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        cleanup();
+        resolve(0);
+      }, 5000);
+    } catch (e) {
+      resolve(0);
+    }
+  });
+}
+
 // ── VOICE: recording + Eleven generation ───────────────────────────
 async function startRecording() {
   try {
@@ -900,6 +962,11 @@ async function startRecording() {
       state.voice_transcript = "";
       state.voice_segments = [];
       state.voice_transcript_dirty = false;
+      state.voice_audio_duration = 0;
+      calcAudioFileDuration(state.voice_audio_file).then(dur => {
+        state.voice_audio_duration = dur;
+        render();
+      });
       setTimeout(() => autoTranscribeVoiceAudio(), 100);
       render();
     };
@@ -1684,11 +1751,18 @@ function renderStep3() {
   const reelDur = estimateReelDuration();
   const chars = recommendedChars(reelDur);
   const currentChars = (state.voice_script || "").length;
+  const recAudio = recommendedAudioDuration(reelDur);
   const durBanner = `
-    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-center">
-      <div class="text-xs text-slate-500">Duración estimada del reel</div>
-      <div class="text-2xl font-bold text-slate-900">~${reelDur.toFixed(0)} seg</div>
-      <div class="text-xs text-slate-500">Para voz natural: <strong>${chars.min}–${chars.max} caracteres</strong></div>
+    <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-center">
+      <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Tu reel dura aprox</div>
+      <div class="text-2xl font-bold text-slate-900 mb-2">~${reelDur.toFixed(0)} seg</div>
+      <div class="text-xs text-slate-600 mb-1">
+        🎙️ <strong>Duración ideal del audio: ${recAudio.min.toFixed(0)}–${recAudio.max.toFixed(0)} seg</strong>
+        (recomendado: ~${recAudio.ideal.toFixed(0)}s)
+      </div>
+      <div class="text-[11px] text-slate-500">
+        Para voz IA: <strong>${chars.min}–${chars.max} caracteres</strong>
+      </div>
     </div>`;
   // Lista de presets: cada uno con radio button + label + botón ▶/⏹ individual
   const presetCards = state.music_presets_catalog.map(pr => {
@@ -1812,11 +1886,51 @@ function renderStep3() {
       </div>
       ${subsToggle}
 
-      ${state.voice_audio_file ? renderTranscriptEditor() : ''}
+      ${state.voice_audio_file ? renderAudioDurationAlert() + renderTranscriptEditor() : ''}
 
       ${renderCierreCustomization()}
 
       <div class="text-xs text-slate-500 text-center mt-4">Cuando estés lista, continuá → "Generar mi reel"</div>
+    </div>`;
+}
+
+// Banner de alerta sobre la duración del audio vs reel
+function renderAudioDurationAlert() {
+  const audioDur = state.voice_audio_duration;
+  if (!audioDur) return '';  // todavía no calculó
+  const reelDur = estimateReelDuration();
+  const status = audioDurationStatus(audioDur, reelDur);
+  if (status === 'ok') {
+    return `
+      <div class="rounded-xl p-3 mt-3 text-xs flex items-center gap-2" style="background: rgba(110, 196, 138, 0.10); border: 1px solid rgba(110, 196, 138, 0.35); color: var(--success);">
+        <span>✓</span>
+        <div><strong>Duración perfecta:</strong> ${audioDur.toFixed(1)}s — encaja bien con el reel de ${reelDur.toFixed(0)}s</div>
+      </div>`;
+  }
+  const styles = {
+    'muy_corto': { bg: 'rgba(229,118,118,0.10)', border: 'rgba(229,118,118,0.40)', color: 'var(--error)', icon: '⚠️',
+                    title: 'Audio MUY corto',
+                    msg: `Tu audio dura ${audioDur.toFixed(1)}s pero el reel dura ${reelDur.toFixed(0)}s. Va a quedar la mitad del reel en silencio. Te conviene grabar un audio más largo (~${recommendedAudioDuration(reelDur).ideal.toFixed(0)}s) o acortar los videos.` },
+    'corto':    { bg: 'rgba(229,180,118,0.10)', border: 'rgba(229,180,118,0.40)', color: 'var(--gold)', icon: '⚠️',
+                    title: 'Audio un poco corto',
+                    msg: `Tu audio dura ${audioDur.toFixed(1)}s y el reel dura ${reelDur.toFixed(0)}s. Va a quedar algo de silencio al final. Ideal: ~${recommendedAudioDuration(reelDur).ideal.toFixed(0)}s.` },
+    'largo':    { bg: 'rgba(229,180,118,0.10)', border: 'rgba(229,180,118,0.40)', color: 'var(--gold)', icon: '⚠️',
+                    title: 'Audio un poco largo',
+                    msg: `Tu audio dura ${audioDur.toFixed(1)}s pero el reel dura ${reelDur.toFixed(0)}s. Se va a cortar lo último que dices. Ideal: ~${recommendedAudioDuration(reelDur).ideal.toFixed(0)}s.` },
+    'muy_largo':{ bg: 'rgba(229,118,118,0.10)', border: 'rgba(229,118,118,0.40)', color: 'var(--error)', icon: '⚠️',
+                    title: 'Audio MUY largo',
+                    msg: `Tu audio dura ${audioDur.toFixed(1)}s pero el reel dura solo ${reelDur.toFixed(0)}s. Se va a cortar gran parte del mensaje. Te conviene grabar un audio más corto (~${recommendedAudioDuration(reelDur).ideal.toFixed(0)}s) o agregar más tomas al reel.` },
+  };
+  const s = styles[status];
+  return `
+    <div class="rounded-xl p-3 mt-3 text-xs" style="background: ${s.bg}; border: 1px solid ${s.border}; color: ${s.color};">
+      <div class="flex items-start gap-2">
+        <span class="text-base">${s.icon}</span>
+        <div>
+          <div class="font-bold mb-0.5">${s.title}</div>
+          <div style="color: var(--text-secondary); line-height: 1.4;">${s.msg}</div>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -2041,7 +2155,7 @@ async function applyVoiceToReel() {
   }
 }
 
-function handleVoiceUpload(file) {
+async function handleVoiceUpload(file) {
   if (!file) return;
   if (state.voice_audio_url) URL.revokeObjectURL(state.voice_audio_url);
   state.voice_audio_file = file;
@@ -2050,7 +2164,13 @@ function handleVoiceUpload(file) {
   state.voice_transcript = "";
   state.voice_segments = [];
   state.voice_transcript_dirty = false;
+  state.voice_audio_duration = 0;
   render();
+  // Calcular duración del audio en paralelo a la transcripción
+  calcAudioFileDuration(file).then(dur => {
+    state.voice_audio_duration = dur;
+    render();
+  });
   // Auto-transcribir el nuevo audio en background
   autoTranscribeVoiceAudio();
 }
