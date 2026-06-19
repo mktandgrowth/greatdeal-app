@@ -2272,8 +2272,20 @@ function renderStep4() {
           </div>
         ` : '<div class="mb-3"></div>'}
 
+        <!-- ✨ CTA principal: publicar en C2C marketplace (directo a properties-app) -->
+        <a href="https://properties-app-mktandgrowth-5238s-projects.vercel.app/?modo=publicar&videoUrl=${encodeURIComponent(state.job_file_url ? 'https://greatdeal-api.onrender.com' + state.job_file_url : (state.job_download || ''))}&caption=${encodeURIComponent(state.caption_text || '')}"
+           class="block w-full text-center px-5 py-4 rounded-xl font-bold text-base mb-2"
+           style="background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.25); transition: transform 0.15s, box-shadow 0.15s;"
+           onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 32px rgba(201,168,106,0.4)'"
+           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 8px 24px rgba(201,168,106,0.25)'">
+          🚀 Publicar en C2C marketplace →
+        </a>
+        <div class="text-center text-[11px] mb-3" style="color: var(--text-muted);">
+          Tu reel + datos de la propiedad se publican en el feed de C2C
+        </div>
+
         <div class="flex gap-2 mb-3">
-          <a href="${state.job_download}" download class="flex-1 text-center px-4 py-3 rounded-xl font-semibold text-sm" style="background: var(--gold); color: var(--bg-base);">⬇ Descargar MP4</a>
+          <a href="${state.job_download}" download class="flex-1 text-center px-4 py-3 rounded-xl font-medium text-sm" style="background: rgba(201,168,106,0.08); color: var(--gold); border: 1px solid var(--gold-border);">⬇ Solo descargar MP4</a>
           ${state.previous_reel ? `
           <button onclick="restorePreviousReel()" class="px-4 py-3 rounded-xl text-sm font-medium" style="background: rgba(201,168,106,0.08); color: var(--gold); border: 1px solid var(--gold-border);">↶ Anterior</button>
           ` : ''}
