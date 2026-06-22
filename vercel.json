@@ -1,8 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "version": 2,
-  "name": "greatdeal-frontend",
-  "public": false,
   "buildCommand": "echo 'No build needed - static HTML'",
   "outputDirectory": "frontend",
   "rewrites": [
