@@ -1181,6 +1181,70 @@ function goPrev() {
   }
 }
 
+// ─── PUBLISH TO C2C MARKETPLACE ─────────────────────────────────────────────
+// Envía la propiedad al backend que la inserta en Supabase (tabla properties),
+// para que aparezca automáticamente en el feed de /comprar.
+async function publishToMarketplace() {
+  const btn = document.getElementById('btn-publish');
+  if (!state.job_file_url && !state.job_download) {
+    alert("El reel todavía no está listo");
+    return;
+  }
+  // URL del video — preferimos la persistente (file_url), fallback a download
+  const videoUrl = state.job_file_url
+    ? `${API_BASE}${state.job_file_url}`
+    : state.job_download;
+
+  const p = state.property || {};
+  const payload = {
+    video_url: videoUrl,
+    type: p.tipo || "Casa",
+    operacion: "venta",
+    price: parseFloat(p.precio_uf) || null,
+    currency: "UF",
+    comuna: p.comuna || "",
+    beds: parseInt(p.dorms) || null,
+    baths: parseInt(p.banos) || null,
+    area: parseFloat(p.m2) || null,
+    title: `${p.tipo || "Propiedad"}${p.comuna ? " en " + p.comuna : ""}${p.m2 ? " · " + p.m2 + "m²" : ""}`,
+    description: state.caption_text || p.descripcion || "",
+  };
+
+  // UI loading state
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.style.cursor = 'wait';
+    btn.innerHTML = '⏳ Publicando…';
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`${res.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    // Éxito — redirige al feed
+    if (btn) btn.innerHTML = '✅ Publicado · Redirigiendo…';
+    setTimeout(() => {
+      window.location.href = data.feed_url || "https://greatdeal-platform.vercel.app/comprar";
+    }, 800);
+  } catch (e) {
+    alert("Error al publicar:\n" + e.message + "\n\nVerificá que Vale haya configurado SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Render.");
+    if (btn) {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+      btn.innerHTML = '🚀 Publicar en C2C marketplace →';
+    }
+  }
+}
+
 // Ir directo a un paso desde la pantalla del reel listo (botones "Volver a editar")
 function goToStep(step) {
   stopMusicPreviewIfPlaying();
@@ -2301,14 +2365,14 @@ function renderStep4() {
           </div>
         ` : '<div class="mb-3"></div>'}
 
-        <!-- ✨ CTA principal: publicar en C2C marketplace (directo a properties-app) -->
-        <a href="https://properties-app-mktandgrowth-5238s-projects.vercel.app/?modo=publicar&videoUrl=${encodeURIComponent(state.job_file_url ? 'https://greatdeal-api.onrender.com' + state.job_file_url : (state.job_download || ''))}&caption=${encodeURIComponent(state.caption_text || '')}"
+        <!-- ✨ CTA principal: publicar en C2C marketplace (vía Supabase) -->
+        <button onclick="publishToMarketplace()" id="btn-publish"
            class="block w-full text-center px-5 py-4 rounded-xl font-bold text-base mb-2"
-           style="background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.25); transition: transform 0.15s, box-shadow 0.15s;"
+           style="background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.25); transition: transform 0.15s, box-shadow 0.15s; border: none; cursor: pointer; font-family: inherit;"
            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 32px rgba(201,168,106,0.4)'"
            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 8px 24px rgba(201,168,106,0.25)'">
           🚀 Publicar en C2C marketplace →
-        </a>
+        </button>
         <div class="text-center text-[11px] mb-3" style="color: var(--text-muted);">
           Tu reel + datos de la propiedad se publican en el feed de C2C
         </div>

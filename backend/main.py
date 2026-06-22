@@ -79,6 +79,98 @@ async def health_head():
     return JSONResponse({})
 
 
+# ─── PUBLISH TO C2C MARKETPLACE ──────────────────────────────────────────
+# Inserta una propiedad en la tabla `properties` de Supabase (de properties-app)
+# para que aparezca automáticamente en el feed de /comprar.
+#
+# Requiere env vars en Render:
+#   SUPABASE_URL                   ej: https://xxxx.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY      key 'service_role' (NO la anon — bypassa RLS)
+#
+# Schema esperado (tabla properties en properties-app):
+#   type, operacion, price, currency, comuna, beds, baths, area,
+#   title, description, video_url, thumbnail_url
+@app.post("/api/publish")
+async def publish_to_marketplace(payload: dict = Body(...)):
+    """Publica la propiedad recién generada en el feed de C2C properties."""
+    import requests
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not supabase_url or not supabase_key:
+        raise HTTPException(
+            500,
+            "Supabase no configurada — falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en Render env vars",
+        )
+
+    video_url = payload.get("video_url")
+    if not video_url:
+        raise HTTPException(400, "Falta video_url en el payload")
+
+    # Helpers de coerción segura
+    def _f(v):
+        try:
+            return float(v) if v not in (None, "", "null") else None
+        except (TypeError, ValueError):
+            return None
+
+    def _i(v):
+        try:
+            return int(float(v)) if v not in (None, "", "null") else None
+        except (TypeError, ValueError):
+            return None
+
+    row = {
+        "type":          (payload.get("type") or "Casa").strip()[:40],
+        "operacion":     (payload.get("operacion") or "venta").lower().strip(),
+        "price":         _f(payload.get("price")),
+        "currency":      (payload.get("currency") or "UF").strip()[:8],
+        "comuna":        (payload.get("comuna") or "").strip()[:80],
+        "beds":          _i(payload.get("beds")),
+        "baths":         _i(payload.get("baths")),
+        "area":          _f(payload.get("area")),
+        "title":         (payload.get("title") or "").strip()[:140],
+        "description":   (payload.get("description") or "").strip(),
+        "video_url":     video_url,
+        "thumbnail_url": payload.get("thumbnail_url"),
+    }
+    # Saca claves con valor None para no pisar defaults de la DB
+    row = {k: v for k, v in row.items() if v is not None}
+
+    try:
+        res = requests.post(
+            f"{supabase_url}/rest/v1/properties",
+            headers={
+                "apikey": supabase_key,
+                "Authorization": f"Bearer {supabase_key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=representation",
+            },
+            json=row,
+            timeout=15,
+        )
+    except Exception as e:
+        raise HTTPException(502, f"No se pudo contactar Supabase: {e}")
+
+    if res.status_code not in (200, 201):
+        raise HTTPException(
+            500,
+            f"Supabase rechazó el insert ({res.status_code}): {res.text[:300]}",
+        )
+
+    inserted = res.json()
+    prop_id = None
+    if isinstance(inserted, list) and inserted:
+        prop_id = inserted[0].get("id")
+    elif isinstance(inserted, dict):
+        prop_id = inserted.get("id")
+
+    return {
+        "ok": True,
+        "id": prop_id,
+        "feed_url": "https://greatdeal-platform.vercel.app/comprar",
+    }
+
+
 @app.get("/api/voices")
 async def voices():
     return {"voices": list_voices()}
