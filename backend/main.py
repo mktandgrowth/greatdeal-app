@@ -120,18 +120,24 @@ async def publish_to_marketplace(payload: dict = Body(...)):
             return None
 
     row = {
-        "type":          (payload.get("type") or "Casa").strip()[:40],
-        "operacion":     (payload.get("operacion") or "venta").lower().strip(),
-        "price":         _f(payload.get("price")),
-        "currency":      (payload.get("currency") or "UF").strip()[:8],
-        "comuna":        (payload.get("comuna") or "").strip()[:80],
-        "beds":          _i(payload.get("beds")),
-        "baths":         _i(payload.get("baths")),
-        "area":          _f(payload.get("area")),
-        "title":         (payload.get("title") or "").strip()[:140],
-        "description":   (payload.get("description") or "").strip(),
-        "video_url":     video_url,
-        "thumbnail_url": payload.get("thumbnail_url"),
+        "type":            (payload.get("type") or "Casa").strip()[:40],
+        "operacion":       (payload.get("operacion") or "venta").lower().strip(),
+        "price":           _f(payload.get("price")),
+        "currency":        (payload.get("currency") or "UF").strip()[:8],
+        "comuna":          (payload.get("comuna") or "").strip()[:80],
+        "beds":            _i(payload.get("beds")),
+        "baths":           _i(payload.get("baths")),
+        "area":            _f(payload.get("area")),
+        "title":           (payload.get("title") or "").strip()[:140],
+        "description":     (payload.get("description") or "").strip(),
+        "video_url":       video_url,
+        "thumbnail_url":   payload.get("thumbnail_url"),
+        # NUEVOS campos para ubicación en Google Maps + contacto
+        "loc":             (payload.get("loc") or "").strip()[:200],         # dirección completa
+        "vanity_location": (payload.get("vanity_location") or "").strip()[:120],  # nombre amigable
+        "lat":             _f(payload.get("lat")),
+        "lng":             _f(payload.get("lng")),
+        "contact_wa":      (payload.get("contact_wa") or "").strip()[:30],
     }
     # Saca claves con valor None para no pisar defaults de la DB
     row = {k: v for k, v in row.items() if v is not None}

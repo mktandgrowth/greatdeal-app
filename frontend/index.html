@@ -1182,35 +1182,73 @@ function goPrev() {
 }
 
 // ─── PUBLISH TO C2C MARKETPLACE ─────────────────────────────────────────────
-// Envía la propiedad al backend que la inserta en Supabase (tabla properties),
-// para que aparezca automáticamente en el feed de /comprar.
-async function publishToMarketplace() {
-  const btn = document.getElementById('btn-publish');
+// Abre modal donde el user completa la ficha final (ubicación, precio,
+// descripción, contacto) y publica en Supabase via backend.
+function openPublishModal() {
   if (!state.job_file_url && !state.job_download) {
     alert("El reel todavía no está listo");
     return;
   }
-  // URL del video — preferimos la persistente (file_url), fallback a download
+  const modal = document.getElementById('publish-modal');
+  if (modal) modal.style.display = 'flex';
+
+  // Pre-llenar campos con datos existentes
+  const p = state.property || {};
+  document.getElementById('pf-loc').value         = p.loc || '';
+  document.getElementById('pf-precio').value      = p.precio_uf || '';
+  document.getElementById('pf-desc').value        = state.caption_text || p.descripcion || '';
+  document.getElementById('pf-wa').value          = p.contact_wa || '';
+}
+
+function closePublishModal() {
+  const modal = document.getElementById('publish-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitPublish() {
+  const btn = document.getElementById('btn-submit-publish');
+  const loc    = document.getElementById('pf-loc').value.trim();
+  const precio = document.getElementById('pf-precio').value.trim();
+  const desc   = document.getElementById('pf-desc').value.trim();
+  const wa     = document.getElementById('pf-wa').value.trim();
+
+  // Validación mínima
+  if (!loc) { alert("Falta la dirección de la propiedad"); document.getElementById('pf-loc').focus(); return; }
+  if (!precio) { alert("Falta el precio"); document.getElementById('pf-precio').focus(); return; }
+  if (!wa) { alert("Falta el número de WhatsApp para contacto"); document.getElementById('pf-wa').focus(); return; }
+
+  // Guardar en state para próxima vez
+  state.property = state.property || {};
+  state.property.loc          = loc;
+  state.property.precio_uf    = precio;
+  state.property.descripcion  = desc;
+  state.property.contact_wa   = wa;
+  saveStateToLocal && saveStateToLocal();
+
+  // URL del video (persistente preferido)
   const videoUrl = state.job_file_url
     ? `${API_BASE}${state.job_file_url}`
     : state.job_download;
 
-  const p = state.property || {};
+  const p = state.property;
   const payload = {
-    video_url: videoUrl,
-    type: p.tipo || "Casa",
-    operacion: "venta",
-    price: parseFloat(p.precio_uf) || null,
-    currency: "UF",
-    comuna: p.comuna || "",
-    beds: parseInt(p.dorms) || null,
-    baths: parseInt(p.banos) || null,
-    area: parseFloat(p.m2) || null,
-    title: `${p.tipo || "Propiedad"}${p.comuna ? " en " + p.comuna : ""}${p.m2 ? " · " + p.m2 + "m²" : ""}`,
-    description: state.caption_text || p.descripcion || "",
+    video_url:        videoUrl,
+    type:             p.tipo || "Casa",
+    operacion:        "venta",
+    price:            parseFloat(precio) || null,
+    currency:         "UF",
+    comuna:           p.comuna || "",
+    beds:             parseInt(p.dorms) || null,
+    baths:            parseInt(p.banos) || null,
+    area:             parseFloat(p.m2) || null,
+    title:            `${p.tipo || "Propiedad"}${p.comuna ? " en " + p.comuna : ""}${p.m2 ? " · " + p.m2 + "m²" : ""}`,
+    description:      desc,
+    loc:              loc,
+    vanity_location:  loc, // por ahora mismo string; podemos refinar después
+    contact_wa:       wa,
+    // lat/lng quedan null por ahora — Google Places lo agregaremos en una próxima iter
   };
 
-  // UI loading state
   if (btn) {
     btn.disabled = true;
     btn.style.opacity = '0.6';
@@ -1229,18 +1267,17 @@ async function publishToMarketplace() {
       throw new Error(`${res.status}: ${errText.slice(0, 200)}`);
     }
     const data = await res.json();
-    // Éxito — redirige al feed
     if (btn) btn.innerHTML = '✅ Publicado · Redirigiendo…';
     setTimeout(() => {
       window.location.href = data.feed_url || "https://greatdeal-platform.vercel.app/comprar";
     }, 800);
   } catch (e) {
-    alert("Error al publicar:\n" + e.message + "\n\nVerificá que Vale haya configurado SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Render.");
+    alert("Error al publicar:\n" + e.message + "\n\nSi dice 'Supabase no configurada', falta agregar SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Render env vars.");
     if (btn) {
       btn.disabled = false;
       btn.style.opacity = '1';
       btn.style.cursor = 'pointer';
-      btn.innerHTML = '🚀 Publicar en C2C marketplace →';
+      btn.innerHTML = '🚀 Publicar en C2C marketplace';
     }
   }
 }
@@ -2365,13 +2402,13 @@ function renderStep4() {
           </div>
         ` : '<div class="mb-3"></div>'}
 
-        <!-- ✨ CTA principal: publicar en C2C marketplace (vía Supabase) -->
-        <button onclick="publishToMarketplace()" id="btn-publish"
+        <!-- ✨ CTA principal: completar ficha + publicar -->
+        <button onclick="openPublishModal()" id="btn-publish-open"
            class="block w-full text-center px-5 py-4 rounded-xl font-bold text-base mb-2"
            style="background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.25); transition: transform 0.15s, box-shadow 0.15s; border: none; cursor: pointer; font-family: inherit;"
            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 32px rgba(201,168,106,0.4)'"
            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 8px 24px rgba(201,168,106,0.25)'">
-          🚀 Publicar en C2C marketplace →
+          💼 Ahora pongámosle precio y publiquémoslo →
         </button>
         <div class="text-center text-[11px] mb-3" style="color: var(--text-muted);">
           Tu reel + datos de la propiedad se publican en el feed de C2C
@@ -3714,5 +3751,63 @@ document.addEventListener("DOMContentLoaded", async () => {
   setInterval(saveStateToStorage, 3000);
 });
 </script>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     MODAL PUBLICAR EN C2C — ficha final: ubicación + precio + descripción + contacto
+     Se abre con openPublishModal() desde el botón principal "Ahora pongámosle precio"
+     ════════════════════════════════════════════════════════════════════ -->
+<div id="publish-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:20px;">
+  <div onclick="event.stopPropagation()" style="background:var(--bg-card); border:1px solid var(--gold-border); border-radius:20px; max-width:500px; width:100%; max-height:90vh; overflow-y:auto; padding:28px 26px; box-shadow:0 30px 80px rgba(0,0,0,0.8);">
+
+    <div style="display:flex; align-items:start; justify-content:space-between; margin-bottom:6px;">
+      <h2 style="font-family:'Cormorant Garamond',serif; font-size:26px; font-weight:500; color:var(--text-primary); letter-spacing:-0.01em; margin:0; line-height:1.15;">Pongámosle precio<br><em style="color:var(--gold); font-weight:400;">y publiquemos</em></h2>
+      <button onclick="closePublishModal()" style="background:transparent; border:none; color:var(--text-muted); font-size:24px; cursor:pointer; padding:0; line-height:1;">×</button>
+    </div>
+    <p style="font-size:13px; color:var(--text-muted); margin:0 0 22px; line-height:1.5;">Completá la ficha y publicá en el feed de propiedades de C2C. Los compradores te van a contactar directo por WhatsApp.</p>
+
+    <!-- 💡 CTA al asistente Valentina (opcional) -->
+    <a href="https://greatdeal-platform.vercel.app/tasar?view=vendedor" target="_blank" rel="noopener" style="display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:12px; background:rgba(201,168,106,0.06); border:1px solid var(--gold-border); text-decoration:none; margin-bottom:20px;">
+      <span style="font-size:22px;">✨</span>
+      <div style="flex:1;">
+        <div style="color:var(--gold); font-size:13px; font-weight:600; letter-spacing:0.02em;">¿No sabés cuánto vale?</div>
+        <div style="color:var(--text-secondary); font-size:11px; margin-top:2px;">Tasá gratis con Valentina · IA con datos reales del mercado</div>
+      </div>
+      <span style="color:var(--gold); font-size:14px;">→</span>
+    </a>
+
+    <!-- FORM -->
+    <div style="display:flex; flex-direction:column; gap:14px;">
+
+      <div>
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Dirección completa *</label>
+        <input id="pf-loc" type="text" placeholder="Ej: Av. Las Condes 7100, Las Condes, Santiago" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        <div style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Aparece en el mapa del feed para los compradores</div>
+      </div>
+
+      <div>
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Precio (UF) *</label>
+        <input id="pf-precio" type="number" inputmode="decimal" placeholder="Ej: 8500" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+      </div>
+
+      <div>
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Descripción</label>
+        <textarea id="pf-desc" rows="4" placeholder="Detalles de la propiedad (ya viene pre-llenada con el copy IA, podés editar)" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none; resize:vertical;"></textarea>
+      </div>
+
+      <div>
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">WhatsApp de contacto *</label>
+        <input id="pf-wa" type="tel" placeholder="+56 9 1234 5678" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        <div style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Los interesados te escriben directo, sin intermediarios</div>
+      </div>
+    </div>
+
+    <!-- BUTTONS -->
+    <div style="display:flex; gap:10px; margin-top:24px;">
+      <button onclick="closePublishModal()" style="flex:1; padding:13px; border-radius:12px; background:transparent; border:1px solid var(--border-subtle); color:var(--text-secondary); font-size:13px; font-weight:500; cursor:pointer; font-family:inherit;">Cancelar</button>
+      <button onclick="submitPublish()" id="btn-submit-publish" style="flex:2; padding:13px; border-radius:12px; background:linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); border:none; color:var(--bg-base); font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; box-shadow:0 6px 20px rgba(201,168,106,0.3);">🚀 Publicar en C2C marketplace</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
