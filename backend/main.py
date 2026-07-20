@@ -79,6 +79,115 @@ async def health_head():
     return JSONResponse({})
 
 
+# ─── UPLOAD READY-MADE REEL ──────────────────────────────────────────────
+# El user puede subir un MP4 YA EDITADO (evita el wizard). El video se guarda
+# en outputs/ como cualquier reel procesado y devolvemos la URL persistente
+# para que después se publique en el marketplace.
+@app.post("/api/upload-ready-reel")
+async def upload_ready_reel(file: UploadFile = File(...)):
+    """Sube un reel ya editado (MP4). Devuelve URL persistente."""
+    if not file.filename:
+        raise HTTPException(400, "Archivo sin nombre")
+    # Validación mínima de tipo
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in [".mp4", ".mov", ".m4v", ".webm"]:
+        raise HTTPException(400, f"Formato no soportado ({ext}). Usar MP4/MOV/WEBM.")
+
+    # Guardar en outputs/ con nombre único
+    out_name = f"ready_{uuid.uuid4().hex[:12]}.mp4"
+    out_path = OUTPUT_DIR / out_name
+    try:
+        with open(out_path, "wb") as buf:
+            shutil.copyfileobj(file.file, buf)
+    except Exception as e:
+        raise HTTPException(500, f"No se pudo guardar el archivo: {e}")
+
+    size_mb = out_path.stat().st_size / (1024 * 1024)
+    if size_mb > 100:
+        out_path.unlink(missing_ok=True)
+        raise HTTPException(400, f"Archivo muy grande ({size_mb:.1f} MB). Máx 100 MB.")
+
+    file_url = f"/api/files/{out_name}"
+    return {"ok": True, "file_url": file_url, "size_mb": round(size_mb, 2)}
+
+
+# ─── CONTENT MODERATION (frames del video) ───────────────────────────────
+# Recibe hasta 5 frames del video en base64 y usa OpenAI GPT-4o-mini con
+# visión para decidir si el contenido es apropiado para el marketplace.
+# Bloquea: desnudos, violencia, contenido explícito, ilegal.
+@app.post("/api/moderate")
+async def moderate_content(payload: dict = Body(...)):
+    """Modera frames de un video con OpenAI Vision. Devuelve {safe, reason}."""
+    import requests as reqs
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if not openai_key:
+        # Si no hay OpenAI configurada, permitir por default (fail-open) pero avisar
+        return {"safe": True, "reason": "moderación no configurada (OPENAI_API_KEY faltante)"}
+
+    frames = payload.get("frames", [])
+    if not frames or not isinstance(frames, list):
+        raise HTTPException(400, "Falta array de frames en base64")
+    if len(frames) > 6:
+        frames = frames[:6]
+
+    # Construir mensaje para GPT-4o-mini con visión
+    content = [
+        {
+            "type": "text",
+            "text": (
+                "Analizá estos frames de un video para un marketplace inmobiliario chileno "
+                "(C2C, público general incluyendo familias). Es SEGURO publicar SOLO si:\n"
+                "- No hay desnudos ni contenido sexual\n"
+                "- No hay violencia gráfica ni armas apuntando\n"
+                "- No hay drogas ilegales\n"
+                "- No hay incitación al odio ni discriminación\n"
+                "- No hay contenido claramente ilegal\n\n"
+                "Es OK: casas, departamentos, muebles, gente vestida caminando, mascotas, "
+                "vistas, paisajes, planos arquitectónicos.\n\n"
+                "Respondé SOLO con JSON en este formato exacto:\n"
+                '{"safe": true} si es OK, o {"safe": false, "reason": "razón corta"} si no.'
+            ),
+        }
+    ]
+    for b64 in frames:
+        # Aceptar data URL o base64 pelado
+        url = b64 if b64.startswith("data:") else f"data:image/jpeg;base64,{b64}"
+        content.append({"type": "image_url", "image_url": {"url": url, "detail": "low"}})
+
+    try:
+        res = reqs.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {openai_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": content}],
+                "max_tokens": 100,
+                "response_format": {"type": "json_object"},
+            },
+            timeout=25,
+        )
+    except Exception as e:
+        # Fail-open ante error de red (no bloquear al user)
+        return {"safe": True, "reason": f"error contactando moderación: {e}"}
+
+    if res.status_code != 200:
+        return {"safe": True, "reason": f"moderación respondió {res.status_code}"}
+
+    try:
+        out = res.json()
+        text = out["choices"][0]["message"]["content"]
+        parsed = json.loads(text)
+        return {
+            "safe": bool(parsed.get("safe", True)),
+            "reason": parsed.get("reason", ""),
+        }
+    except Exception:
+        return {"safe": True, "reason": "moderación no pudo parsear respuesta"}
+
+
 # ─── PUBLISH TO C2C MARKETPLACE ──────────────────────────────────────────
 # Inserta una propiedad en la tabla `properties` de Supabase (de properties-app)
 # para que aparezca automáticamente en el feed de /comprar.

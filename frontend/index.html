@@ -446,6 +446,8 @@ function escapeHtml(s) { return String(s || "").replace(/&/g, "&amp;").replace(/
 function escapeAttr(s) { return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;"); }
 
 function totalClipsCount() {
+  // ready_reel: si ya se subió el video, cuenta como 1 (permite avanzar)
+  if (state.upload_mode === "ready_reel") return state.job_file_url ? 1 : 0;
   if (state.upload_mode === "simple") return state.simple_clips.length;
   return SECTION_ORDER.reduce((acc, k) => acc + state.sections[k].clips.length, 0);
 }
@@ -1127,11 +1129,17 @@ function renderStepper() {
   const next = document.getElementById("btn-next");
   if (state.step === 4) {
     const isProc = state.job_status && state.job_status !== "done" && state.job_status !== "error";
-    if (isProc) { next.textContent = "Procesando…"; next.disabled = true; }
+    if (state.upload_mode === "ready_reel") {
+      next.textContent = "💼 Ponerle precio y publicar →"; next.disabled = false;
+    } else if (isProc) { next.textContent = "Procesando…"; next.disabled = true; }
     else if (!state.has_been_processed) { next.textContent = "Generar mi reel →"; next.disabled = false; }
     else { next.textContent = "↻ Regenerar con cambios"; next.disabled = false; }
   } else if (state.step === 2) {
-    next.textContent = "Continuar →";
+    if (state.upload_mode === "ready_reel") {
+      next.textContent = state.job_file_url ? "Ir a mi reel →" : "Subí un video primero";
+    } else {
+      next.textContent = "Continuar →";
+    }
     next.disabled = totalClipsCount() === 0;
   } else {
     next.textContent = "Continuar →";
@@ -1155,6 +1163,12 @@ function stopMusicPreviewIfPlaying() {
 
 function goNext() {
   if (state.step === 2 && totalClipsCount() === 0) { alert("Subí al menos un video"); return; }
+  // Modo "ready_reel": desde paso 2 saltamos directo a paso 4 (audio+cierre no aplica),
+  // y desde paso 4 abrimos el modal de publicar (nada que procesar/regenerar).
+  if (state.upload_mode === "ready_reel") {
+    if (state.step === 2) { state.step = 4; render(); return; }
+    if (state.step === 4) { openPublishModal(); return; }
+  }
   if (state.step === 4 && !state.has_been_processed) { processReel(); return; }
   if (state.step === 4 && state.has_been_processed) { reprocessFromCurrent(); return; }
   if (state.step < STEPS.length) {
@@ -1294,25 +1308,199 @@ function goToStep(step) {
 
 // ── STEP 1: VIDEOS ─────────────────────────────────────────────────
 function renderStep1() {
-  // Toggle eliminado: forzamos modo "guided" (en cada sección ya está la opción
-  // de subir videos existentes).
-  if (state.upload_mode !== "guided") state.upload_mode = "guided";
-  const modeToggle = '';
-  const aiToggle = '';
-  const content = renderGuidedSections();
-  // Efectos cinematográficos eliminados de este paso — ahora viven SOLO en
-  // el paso 4 (Tu reel) donde hay preview CSS en vivo. Ahí sí tiene sentido.
-  const effectsBlock = '';
+  // 2 modos: "guided" (armar reel con IA a partir de clips) y "ready_reel" (subir MP4 ya editado)
+  if (state.upload_mode !== "guided" && state.upload_mode !== "ready_reel") state.upload_mode = "guided";
+
+  const isReady = state.upload_mode === "ready_reel";
+  const modeToggle = `
+    <div class="flex gap-2 mb-5 p-1 rounded-2xl" style="background: rgba(201,168,106,0.06); border: 1px solid var(--border-subtle);">
+      <button onclick="switchUploadMode('guided')"
+        class="flex-1 px-4 py-3 rounded-xl text-sm font-medium transition-all"
+        style="${!isReady ? 'background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 12px rgba(201,168,106,0.25);' : 'background: transparent; color: var(--text-secondary);'}">
+        🎬 Armar mi reel con IA
+      </button>
+      <button onclick="switchUploadMode('ready_reel')"
+        class="flex-1 px-4 py-3 rounded-xl text-sm font-medium transition-all"
+        style="${isReady ? 'background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 12px rgba(201,168,106,0.25);' : 'background: transparent; color: var(--text-secondary);'}">
+        📤 Ya tengo mi reel listo
+      </button>
+    </div>
+  `;
+
+  const content = isReady ? renderReadyReelUpload() : renderGuidedSections();
+
   return `
     <div class="fade-in">
       <h1 class="text-2xl font-bold text-slate-900 mb-1 text-center">Tus videos</h1>
-      <p class="text-slate-600 mb-5 text-center text-sm">Elegí cómo querés cargar los videos de la propiedad</p>
+      <p class="text-slate-600 mb-5 text-center text-sm">${isReady ? 'Subí tu video ya editado y lo publicamos en el marketplace' : 'Elegí cómo querés cargar los videos de la propiedad'}</p>
       ${modeToggle}
-      ${aiToggle}
       ${content}
-      ${effectsBlock}
     </div>
   `;
+}
+
+// ─── UI para modo "ya tengo mi reel listo" ──────────────────────────────
+function renderReadyReelUpload() {
+  const uploading = state.ready_reel_uploading;
+  const progress  = state.ready_reel_progress || '';
+  const error     = state.ready_reel_error || '';
+  const uploaded  = state.job_file_url && state.upload_mode === "ready_reel";
+
+  if (uploaded) {
+    return `
+      <div class="rounded-2xl p-6 text-center" style="background: rgba(110,196,138,0.08); border: 1px solid #6ec48a;">
+        <div class="text-4xl mb-2">✅</div>
+        <div class="font-semibold text-slate-900 mb-1">Reel subido y aprobado</div>
+        <div class="text-sm text-slate-600 mb-4">Ya podés continuar al paso final para publicarlo.</div>
+        <video src="${state.job_download}" controls class="w-full rounded-xl mb-4" style="max-height:60vh; background:black;"></video>
+        <button onclick="state.job_file_url=null; state.job_download=null; state.has_been_processed=false; render();" class="text-xs text-slate-500 underline">Cambiar por otro video</button>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="rounded-2xl p-6 mb-4" style="background: var(--bg-card); border: 1px solid var(--border-subtle);">
+      <div class="text-center">
+        <div class="text-5xl mb-3">📤</div>
+        <div class="font-semibold text-slate-900 mb-1">Subí tu reel editado</div>
+        <div class="text-sm text-slate-500 mb-5">MP4/MOV, máx 100 MB · máx 60 seg recomendado</div>
+
+        ${uploading ? `
+          <div class="rounded-xl p-6 mb-4" style="background: rgba(201,168,106,0.08); border: 1px solid var(--gold-border);">
+            <div class="spinner w-8 h-8 border-4 rounded-full mx-auto mb-3"></div>
+            <div class="text-sm font-medium text-slate-900">${escapeHtml(progress)}</div>
+          </div>
+        ` : `
+          <label class="inline-flex items-center gap-2 px-6 py-3 rounded-xl cursor-pointer font-semibold"
+            style="background: var(--gold); color: var(--bg-base); box-shadow: 0 6px 20px rgba(201,168,106,0.3);">
+            📤 Seleccionar video
+            <input type="file" accept="video/mp4,video/quicktime,video/webm" class="hidden"
+              onchange="handleReadyReelUpload(event.target.files[0])">
+          </label>
+        `}
+
+        ${error ? `
+          <div class="mt-4 p-3 rounded-xl text-sm" style="background: rgba(229,118,118,0.1); border: 1px solid #e57676; color: #c04a4a;">
+            ⚠️ ${escapeHtml(error)}
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="mt-5 pt-5 border-t" style="border-color: var(--border-subtle);">
+        <div class="text-xs uppercase tracking-wider mb-2" style="color: var(--gold);">🛡 Moderación automática</div>
+        <div class="text-xs text-slate-500 leading-relaxed">
+          Todos los videos pasan por un filtro con IA que verifica que no haya desnudos, violencia o contenido ilegal antes de publicarse en el feed.
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── Handler: subir video ya editado + moderar + saltar a paso 4 ─────────
+async function handleReadyReelUpload(file) {
+  if (!file) return;
+
+  // Reset error
+  state.ready_reel_error = '';
+
+  // Validaciones rápidas
+  if (file.size > 100 * 1024 * 1024) {
+    state.ready_reel_error = `El archivo pesa ${(file.size/1024/1024).toFixed(1)} MB · máximo 100 MB`;
+    render();
+    return;
+  }
+
+  state.ready_reel_uploading = true;
+  state.ready_reel_progress = 'Extrayendo frames para moderación…';
+  render();
+
+  try {
+    // 1) Extraer 3 frames del video con canvas
+    const frames = await extractVideoFrames(file, 3);
+    state.ready_reel_progress = 'Verificando contenido con IA…';
+    render();
+
+    // 2) Moderar los frames
+    const modRes = await fetch(API('/api/moderate'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ frames })
+    });
+    const mod = await modRes.json();
+    if (mod.safe === false) {
+      state.ready_reel_uploading = false;
+      state.ready_reel_error = `Rechazado: ${mod.reason || 'contenido no apto para el marketplace'}. Probá con otro video.`;
+      render();
+      return;
+    }
+
+    // 3) Subir el video al backend
+    state.ready_reel_progress = 'Subiendo video…';
+    render();
+    const fd = new FormData();
+    fd.append('file', file);
+    const upRes = await fetch(API('/api/upload-ready-reel'), { method: 'POST', body: fd });
+    if (!upRes.ok) {
+      const errText = await upRes.text();
+      throw new Error(`Backend rechazó: ${errText.slice(0,150)}`);
+    }
+    const up = await upRes.json();
+
+    // 4) Marcar estado como "reel listo" y saltar a paso 4
+    state.job_file_url = up.file_url;
+    state.job_download = `${API_BASE}${up.file_url}`;
+    state.has_been_processed = true;
+    state.ready_reel_uploading = false;
+    state.ready_reel_progress = '';
+    state.step = 4;
+    saveStateToStorage && saveStateToStorage();
+    render();
+  } catch (e) {
+    state.ready_reel_uploading = false;
+    state.ready_reel_error = `Error: ${e.message}`;
+    render();
+  }
+}
+
+// Extrae N frames uniformemente distribuidos del video, devuelve base64 JPEG
+async function extractVideoFrames(file, n = 3) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const vid = document.createElement('video');
+    vid.preload = 'metadata';
+    vid.muted = true;
+    vid.playsInline = true;
+    vid.src = url;
+
+    const frames = [];
+    let idx = 0;
+    let timestamps = [];
+
+    vid.onloadedmetadata = () => {
+      const dur = vid.duration || 10;
+      // 3 frames: 20%, 50%, 80% del video
+      timestamps = Array.from({length: n}, (_, i) => dur * (0.2 + 0.6 * i / Math.max(1, n-1)));
+      vid.currentTime = timestamps[0];
+    };
+    vid.onseeked = () => {
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(400 / vid.videoWidth, 400 / vid.videoHeight, 1);
+      canvas.width  = Math.round(vid.videoWidth * scale);
+      canvas.height = Math.round(vid.videoHeight * scale);
+      canvas.getContext('2d').drawImage(vid, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      // Solo la parte base64 (sin prefijo data:image/jpeg;base64,)
+      frames.push(dataUrl.split(',')[1]);
+      idx++;
+      if (idx < timestamps.length) {
+        vid.currentTime = timestamps[idx];
+      } else {
+        URL.revokeObjectURL(url);
+        resolve(frames);
+      }
+    };
+    vid.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer el video')); };
+  });
 }
 
 function renderSimpleUpload() {
