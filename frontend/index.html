@@ -1219,6 +1219,18 @@ function closePublishModal() {
   if (modal) modal.style.display = 'none';
 }
 
+// Al elegir "B · Ya tengo mi precio definido", mostrar el input y ocultar el botón A
+function showManualPricing() {
+  const wrap = document.getElementById('pf-precio-wrap');
+  const btn  = document.getElementById('pf-btn-manual');
+  if (wrap) wrap.style.display = 'block';
+  if (btn)  {
+    btn.style.borderColor = 'var(--gold)';
+    btn.style.background  = 'rgba(201,168,106,0.06)';
+  }
+  setTimeout(() => document.getElementById('pf-precio')?.focus(), 100);
+}
+
 async function submitPublish() {
   const btn = document.getElementById('btn-submit-publish');
   const loc    = document.getElementById('pf-loc').value.trim();
@@ -3998,17 +4010,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     <!-- FORM -->
     <div style="display:flex; flex-direction:column; gap:14px;">
 
-      <!-- 1. DIRECCIÓN (calle) -->
+      <!-- 1. DIRECCIÓN -->
       <div>
         <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Dirección *</label>
-        <input id="pf-loc" type="text" placeholder="Ej: Av. Las Condes" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        <input id="pf-loc" type="text" placeholder="Ej: Av. Las Condes 7100, Las Condes" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
         <div style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Aparece en el mapa del feed para los compradores</div>
       </div>
 
-      <!-- 2. NÚMERO (dept/casa) -->
+      <!-- 2. NÚMERO DE WHATSAPP -->
       <div>
-        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Número *</label>
-        <input id="pf-numero" type="text" placeholder="Ej: 7100 (opcional: dep 302)" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Número de WhatsApp *</label>
+        <input id="pf-wa" type="tel" placeholder="+56 9 1234 5678" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        <div style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Los interesados te escriben directo, sin intermediarios</div>
       </div>
 
       <!-- 3. PRECIO — con 2 opciones A/B -->
@@ -4042,9 +4055,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         </button>
 
         <!-- Input precio (aparece al elegir B) -->
-        <div id="pf-precio-wrap" style="display:none; margin-top:12px;">
+        <div id="pf-precio-wrap" style="display:none; margin-top:14px; padding:14px; border-radius:12px; background:rgba(201,168,106,0.04); border:1px solid var(--gold-border);">
           <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--gold); margin-bottom:6px; font-weight:600;">Precio (UF) *</label>
           <input id="pf-precio" type="number" inputmode="decimal" placeholder="Ej: 8500" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1.5px solid var(--gold-border); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+          <div style="font-size:10.5px; color:var(--text-faint); margin-top:6px;">1 UF ≈ $39.000 CLP · aparece como valor referencial en tu ficha</div>
         </div>
       </div>
 
@@ -4052,13 +4066,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       <div>
         <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Descripción</label>
         <textarea id="pf-desc" rows="4" placeholder="Detalles de la propiedad (viene pre-llenada con el copy IA, podés editar)" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none; resize:vertical;"></textarea>
-      </div>
-
-      <!-- 5. WHATSAPP -->
-      <div>
-        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">WhatsApp de contacto *</label>
-        <input id="pf-wa" type="tel" placeholder="+56 9 1234 5678" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
-        <div style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Los interesados te escriben directo, sin intermediarios</div>
       </div>
     </div>
 
