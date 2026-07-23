@@ -85,7 +85,8 @@ async def health_head():
 # para que después se publique en el marketplace.
 @app.post("/api/upload-ready-reel")
 async def upload_ready_reel(file: UploadFile = File(...)):
-    """Sube un reel ya editado (MP4). Devuelve URL persistente."""
+    """Sube un reel ya editado (MP4) a Supabase Storage (persistente). Devuelve URL pública."""
+    import requests
     if not file.filename:
         raise HTTPException(400, "Archivo sin nombre")
     # Validación mínima de tipo
@@ -93,22 +94,59 @@ async def upload_ready_reel(file: UploadFile = File(...)):
     if ext not in [".mp4", ".mov", ".m4v", ".webm"]:
         raise HTTPException(400, f"Formato no soportado ({ext}). Usar MP4/MOV/WEBM.")
 
-    # Guardar en outputs/ con nombre único
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    bucket = os.environ.get("SUPABASE_BUCKET_REELS", "reels")
+
+    # Leer todo el archivo a memoria (con límite)
+    try:
+        data = file.file.read()
+    except Exception as e:
+        raise HTTPException(500, f"No se pudo leer el archivo: {e}")
+
+    size_mb = len(data) / (1024 * 1024)
+    if size_mb > 300:
+        raise HTTPException(400, f"Archivo muy grande ({size_mb:.1f} MB). Máx 300 MB.")
+
     out_name = f"ready_{uuid.uuid4().hex[:12]}.mp4"
+
+    # Si hay Supabase configurada → subir a Storage (persistente, público)
+    if supabase_url and supabase_key:
+        try:
+            upload_url = f"{supabase_url}/storage/v1/object/{bucket}/{out_name}"
+            r = requests.post(
+                upload_url,
+                headers={
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {supabase_key}",
+                    "Content-Type": file.content_type or "video/mp4",
+                    "x-upsert": "true",
+                },
+                data=data,
+                timeout=90,
+            )
+            if r.status_code not in (200, 201):
+                print(f"[upload-ready] Supabase Storage rechazó: {r.status_code} {r.text[:400]}", flush=True)
+                raise HTTPException(500, f"Supabase Storage rechazó el upload ({r.status_code}): {r.text[:300]}")
+            public_url = f"{supabase_url}/storage/v1/object/public/{bucket}/{out_name}"
+            print(f"[upload-ready] Subido a Supabase Storage → {public_url}", flush=True)
+            return {"ok": True, "file_url": public_url, "size_mb": round(size_mb, 2), "storage": "supabase"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"[upload-ready] Error subiendo a Supabase Storage: {e}", flush=True)
+            # Fallback a disco local si falla Supabase
+            pass
+
+    # Fallback: guardar en disco local (efímero en Render — se pierde en redeploy)
     out_path = OUTPUT_DIR / out_name
     try:
         with open(out_path, "wb") as buf:
-            shutil.copyfileobj(file.file, buf)
+            buf.write(data)
     except Exception as e:
         raise HTTPException(500, f"No se pudo guardar el archivo: {e}")
-
-    size_mb = out_path.stat().st_size / (1024 * 1024)
-    if size_mb > 300:
-        out_path.unlink(missing_ok=True)
-        raise HTTPException(400, f"Archivo muy grande ({size_mb:.1f} MB). Máx 300 MB.")
-
     file_url = f"/api/files/{out_name}"
-    return {"ok": True, "file_url": file_url, "size_mb": round(size_mb, 2)}
+    return {"ok": True, "file_url": file_url, "size_mb": round(size_mb, 2), "storage": "local", "warning": "guardado en disco efímero — se pierde en redeploy"}
 
 
 # ─── CONTENT MODERATION (frames del video) ───────────────────────────────
@@ -214,6 +252,75 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     video_url = payload.get("video_url")
     if not video_url:
         raise HTTPException(400, "Falta video_url en el payload")
+
+    # ─── Si el video vive en el disco EFÍMERO de este backend, migrarlo a Supabase Storage ──
+    # Esto asegura que la publicación no se rompa cuando Render redeployee (borra outputs/).
+    _bucket = os.environ.get("SUPABASE_BUCKET_REELS", "reels")
+
+    def _is_local_video(url: str) -> bool:
+        """True si la URL apunta a un archivo servido por este backend (relativo o absoluto)."""
+        if not url: return False
+        u = url.strip()
+        if u.startswith("/api/files/"): return True
+        try:
+            from urllib.parse import urlparse
+            host = urlparse(u).netloc
+            return "greatdeal-api" in host or "onrender.com" in host
+        except Exception:
+            return False
+
+    def _migrate_video_to_storage(url: str) -> str | None:
+        """Descarga el video del backend local y lo sube a Supabase Storage. Devuelve URL pública."""
+        import requests as _req
+        sb_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+        sb_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        if not sb_url or not sb_key:
+            return None
+        # Reconstruir URL absoluta si vino como path relativo
+        abs_url = url
+        if url.startswith("/"):
+            # Usar host de este backend (leído del payload o env)
+            base = os.environ.get("BACKEND_PUBLIC_URL", "https://greatdeal-api.onrender.com").rstrip("/")
+            abs_url = f"{base}{url}"
+        # Descargar
+        try:
+            resp = _req.get(abs_url, stream=True, timeout=120)
+            if resp.status_code != 200:
+                print(f"[publish][migrate] no se pudo descargar {abs_url}: {resp.status_code}", flush=True)
+                return None
+            data = resp.content
+        except Exception as e:
+            print(f"[publish][migrate] error descargando {abs_url}: {e}", flush=True)
+            return None
+        # Subir a Supabase Storage
+        new_name = f"pub_{uuid.uuid4().hex[:12]}.mp4"
+        try:
+            up = _req.post(
+                f"{sb_url}/storage/v1/object/{_bucket}/{new_name}",
+                headers={
+                    "apikey": sb_key,
+                    "Authorization": f"Bearer {sb_key}",
+                    "Content-Type": "video/mp4",
+                    "x-upsert": "true",
+                },
+                data=data,
+                timeout=120,
+            )
+            if up.status_code not in (200, 201):
+                print(f"[publish][migrate] Storage rechazó ({up.status_code}): {up.text[:300]}", flush=True)
+                return None
+            public = f"{sb_url}/storage/v1/object/public/{_bucket}/{new_name}"
+            print(f"[publish][migrate] {url} → {public}", flush=True)
+            return public
+        except Exception as e:
+            print(f"[publish][migrate] error subiendo a Storage: {e}", flush=True)
+            return None
+
+    if _is_local_video(video_url):
+        migrated = _migrate_video_to_storage(video_url)
+        if migrated:
+            video_url = migrated
+        # Si falla la migración, seguimos con la URL original (mejor publicar roto que no publicar)
 
     # Helpers de coerción segura
     def _f(v):
