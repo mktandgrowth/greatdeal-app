@@ -334,12 +334,20 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     elif isinstance(inserted, dict):
         prop_id = inserted.get("id")
 
-    # Feed URL incluye el ID de la propiedad recién publicada para que properties-app
-    # pueda hacer scroll a ese reel y/o mostrar un toast de bienvenida.
+    # Feed URL incluye el ID de la propiedad recién publicada + owner_id para que
+    # properties-app (a) muestre toast de bienvenida (b) reconozca al vendedor sin auth.
     feed_url = "https://properties-app-mktandgrowth-5238s-projects.vercel.app/?tab=reels"
     if prop_id:
         feed_url += f"&justPublished={prop_id}"
-    return {"ok": True, "id": prop_id, "feed_url": feed_url}
+    if owner_id_resolved:
+        feed_url += f"&owner={owner_id_resolved}"
+    return {
+        "ok": True,
+        "id": prop_id,
+        "owner_id": owner_id_resolved,
+        "owner_name": owner_name,
+        "feed_url": feed_url,
+    }
 
 
 @app.get("/api/voices")
