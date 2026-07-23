@@ -239,6 +239,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     contact_wa_norm = _norm_wa(contact_wa_raw)
     owner_name = (payload.get("owner_name") or "").strip()[:80] or "Vendedor"
     owner_id_resolved = None
+    profile_debug = {"wa_norm": contact_wa_norm, "name": owner_name, "found": None, "created": None, "error": None}
 
     supabase_headers = {
         "apikey": supabase_key,
@@ -247,17 +248,23 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     }
 
     if contact_wa_norm:
+        import uuid as _uuid
         try:
             # Buscar profile con ese WA (normalizado)
             search_url = f"{supabase_url}/rest/v1/profiles?wa=eq.{contact_wa_norm}&select=id,name&limit=1"
             r_find = requests.get(search_url, headers=supabase_headers, timeout=10)
+            print(f"[publish][profile] SEARCH status={r_find.status_code} body={r_find.text[:300]}", flush=True)
             found = r_find.json() if r_find.ok else []
             if found and len(found) > 0:
                 owner_id_resolved = found[0].get("id")
+                profile_debug["found"] = owner_id_resolved
                 print(f"[publish] reusing profile {owner_id_resolved} for wa {contact_wa_norm}", flush=True)
             else:
-                # Crear profile nuevo
+                # Crear profile nuevo. `profiles.id` normalmente es un UUID FK a auth.users.
+                # Como acá no tenemos auth, generamos uno nuevo (Supabase acepta cualquier UUID válido).
+                new_id = str(_uuid.uuid4())
                 new_profile = {
+                    "id": new_id,
                     "wa": contact_wa_norm,
                     "name": owner_name,
                     "verified": False,
@@ -268,16 +275,23 @@ async def publish_to_marketplace(payload: dict = Body(...)):
                     json=new_profile,
                     timeout=10,
                 )
+                print(f"[publish][profile] CREATE status={r_new.status_code} body={r_new.text[:400]} sent={new_profile}", flush=True)
                 if r_new.ok:
                     created = r_new.json()
                     if isinstance(created, list) and created:
                         owner_id_resolved = created[0].get("id")
                     elif isinstance(created, dict):
                         owner_id_resolved = created.get("id")
+                    else:
+                        # Fallback: use el UUID que generamos
+                        owner_id_resolved = new_id
+                    profile_debug["created"] = owner_id_resolved
                     print(f"[publish] created profile {owner_id_resolved} for wa {contact_wa_norm} name={owner_name}", flush=True)
                 else:
-                    print(f"[publish] profile create failed ({r_new.status_code}): {r_new.text[:200]}", flush=True)
+                    profile_debug["error"] = f"HTTP {r_new.status_code}: {r_new.text[:200]}"
+                    print(f"[publish] profile create failed ({r_new.status_code}): {r_new.text[:400]}", flush=True)
         except Exception as e:
+            profile_debug["error"] = str(e)
             print(f"[publish] profile upsert failed: {e}", flush=True)
             # No es fatal — seguimos sin owner_id (nullable)
 
@@ -347,6 +361,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         "owner_id": owner_id_resolved,
         "owner_name": owner_name,
         "feed_url": feed_url,
+        "_profile_debug": profile_debug,  # temporal para debuggear el upsert de profile
     }
 
 
