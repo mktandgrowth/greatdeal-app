@@ -1249,7 +1249,7 @@ async function submitPublish() {
   state.property.precio_uf    = precio;
   state.property.descripcion  = desc;
   state.property.contact_wa   = wa;
-  saveStateToLocal && saveStateToLocal();
+  try { typeof saveStateToStorage === 'function' && saveStateToStorage(); } catch(_) {}
 
   // URL del video (persistente preferido)
   const videoUrl = state.job_file_url
