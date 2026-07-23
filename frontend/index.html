@@ -1208,10 +1208,14 @@ function openPublishModal() {
 
   // Pre-llenar campos con datos existentes
   const p = state.property || {};
+  const savedName = (() => { try { return localStorage.getItem('c2c_owner_name') || ''; } catch(_) { return ''; }})();
+  const savedWa   = (() => { try { return localStorage.getItem('c2c_owner_wa') || '';   } catch(_) { return ''; }})();
   document.getElementById('pf-loc').value         = p.loc || '';
   document.getElementById('pf-precio').value      = p.precio_uf || '';
   document.getElementById('pf-desc').value        = state.caption_text || p.descripcion || '';
-  document.getElementById('pf-wa').value          = p.contact_wa || '';
+  document.getElementById('pf-wa').value          = p.contact_wa || savedWa;
+  const nameEl = document.getElementById('pf-name');
+  if (nameEl) nameEl.value = p.owner_name || savedName;
 }
 
 function closePublishModal() {
@@ -1237,11 +1241,13 @@ async function submitPublish() {
   const precio = document.getElementById('pf-precio').value.trim();
   const desc   = document.getElementById('pf-desc').value.trim();
   const wa     = document.getElementById('pf-wa').value.trim();
+  const name   = document.getElementById('pf-name')?.value.trim() || "";
 
   // Validación mínima
   if (!loc) { alert("Falta la dirección de la propiedad"); document.getElementById('pf-loc').focus(); return; }
-  if (!precio) { alert("Falta el precio"); document.getElementById('pf-precio').focus(); return; }
+  if (!name) { alert("Falta tu nombre"); document.getElementById('pf-name')?.focus(); return; }
   if (!wa) { alert("Falta el número de WhatsApp para contacto"); document.getElementById('pf-wa').focus(); return; }
+  if (!precio) { alert("Falta el precio"); document.getElementById('pf-precio').focus(); return; }
 
   // Guardar en state para próxima vez
   state.property = state.property || {};
@@ -1249,6 +1255,12 @@ async function submitPublish() {
   state.property.precio_uf    = precio;
   state.property.descripcion  = desc;
   state.property.contact_wa   = wa;
+  state.property.owner_name   = name;
+  // También guardar en localStorage independiente (persiste entre reels)
+  try {
+    localStorage.setItem('c2c_owner_name', name);
+    localStorage.setItem('c2c_owner_wa', wa);
+  } catch(_) {}
   try { typeof saveStateToStorage === 'function' && saveStateToStorage(); } catch(_) {}
 
   // URL del video (persistente preferido)
@@ -1272,6 +1284,7 @@ async function submitPublish() {
     loc:              loc,
     vanity_location:  loc, // por ahora mismo string; podemos refinar después
     contact_wa:       wa,
+    owner_name:       name, // usado por backend para upsert de profile
     // lat/lng quedan null por ahora — Google Places lo agregaremos en una próxima iter
   };
 
@@ -1304,6 +1317,18 @@ async function submitPublish() {
     }
     const data = await res.json();
     console.log('[publish] éxito:', data);
+    // Guardar el ID de esta publicación en localStorage para que después el user
+    // pueda ver "mis publicaciones" (sin necesidad de estar logueado)
+    try {
+      const key = 'c2c_my_published_ids';
+      const list = JSON.parse(localStorage.getItem(key) || '[]');
+      if (data.id && !list.includes(data.id)) {
+        list.push(data.id);
+        localStorage.setItem(key, JSON.stringify(list));
+      }
+    } catch(_) {}
+    // Marcar como "publicando" para evitar el prompt "podés perder cambios"
+    state.publish_in_progress = true;
     if (btn) btn.innerHTML = '✅ Publicado · Redirigiendo…';
     setTimeout(() => {
       window.location.href = data.feed_url || "https://greatdeal-platform.vercel.app/comprar";
@@ -3943,6 +3968,8 @@ const _origRender = window.render;
 
 // ── PREVENIR NAVEGACIÓN ACCIDENTAL (back gesture en móvil) ────────
 function hasUnsavedWork() {
+  // No alertar si estamos en medio de publicar (el redirect NO es "salir sin guardar")
+  if (state.publish_in_progress) return false;
   return totalClipsCount() > 0 ||
          (state.job_id && !state.has_been_processed) ||
          state.property.m2 || state.property.dorms;
@@ -4017,11 +4044,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         <div style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Aparece en el mapa del feed para los compradores</div>
       </div>
 
-      <!-- 2. NÚMERO DE WHATSAPP -->
-      <div>
-        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Número de WhatsApp *</label>
-        <input id="pf-wa" type="tel" placeholder="+56 9 1234 5678" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
-        <div style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Los interesados te escriben directo, sin intermediarios</div>
+      <!-- 2. TU NOMBRE + WHATSAPP (crean tu usuario automáticamente) -->
+      <div style="display:grid; grid-template-columns:1fr 1.4fr; gap:10px;">
+        <div>
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Tu nombre *</label>
+          <input id="pf-name" type="text" placeholder="Ej: Valentina" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        </div>
+        <div>
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Número de WhatsApp *</label>
+          <input id="pf-wa" type="tel" placeholder="+56 9 1234 5678" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        </div>
+      </div>
+      <div style="font-size:10.5px; color:var(--text-faint); margin-top:-8px;">
+        Cada número de WhatsApp es un usuario único. Si ya publicaste con este número, se suma a tu perfil automáticamente.
       </div>
 
       <!-- 3. PRECIO — con 2 opciones A/B -->

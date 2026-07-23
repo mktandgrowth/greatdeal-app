@@ -228,6 +228,59 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         except (TypeError, ValueError):
             return None
 
+    def _norm_wa(v):
+        """Normaliza número de WhatsApp: solo dígitos (así +56 9 1234 y 56912344 son iguales)."""
+        if not v: return ""
+        return "".join(ch for ch in str(v) if ch.isdigit())
+
+    # ─── UPSERT PROFILE por WhatsApp (cada número = un usuario único) ──────
+    # Si ya hay un profile con ese WA, usamos su owner_id. Si no, lo creamos.
+    contact_wa_raw = (payload.get("contact_wa") or "").strip()[:30]
+    contact_wa_norm = _norm_wa(contact_wa_raw)
+    owner_name = (payload.get("owner_name") or "").strip()[:80] or "Vendedor"
+    owner_id_resolved = None
+
+    supabase_headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+    }
+
+    if contact_wa_norm:
+        try:
+            # Buscar profile con ese WA (normalizado)
+            search_url = f"{supabase_url}/rest/v1/profiles?wa=eq.{contact_wa_norm}&select=id,name&limit=1"
+            r_find = requests.get(search_url, headers=supabase_headers, timeout=10)
+            found = r_find.json() if r_find.ok else []
+            if found and len(found) > 0:
+                owner_id_resolved = found[0].get("id")
+                print(f"[publish] reusing profile {owner_id_resolved} for wa {contact_wa_norm}", flush=True)
+            else:
+                # Crear profile nuevo
+                new_profile = {
+                    "wa": contact_wa_norm,
+                    "name": owner_name,
+                    "verified": False,
+                }
+                r_new = requests.post(
+                    f"{supabase_url}/rest/v1/profiles",
+                    headers={**supabase_headers, "Prefer": "return=representation"},
+                    json=new_profile,
+                    timeout=10,
+                )
+                if r_new.ok:
+                    created = r_new.json()
+                    if isinstance(created, list) and created:
+                        owner_id_resolved = created[0].get("id")
+                    elif isinstance(created, dict):
+                        owner_id_resolved = created.get("id")
+                    print(f"[publish] created profile {owner_id_resolved} for wa {contact_wa_norm} name={owner_name}", flush=True)
+                else:
+                    print(f"[publish] profile create failed ({r_new.status_code}): {r_new.text[:200]}", flush=True)
+        except Exception as e:
+            print(f"[publish] profile upsert failed: {e}", flush=True)
+            # No es fatal — seguimos sin owner_id (nullable)
+
     row = {
         "type":            (payload.get("type") or "Casa").strip()[:40],
         "operacion":       (payload.get("operacion") or "venta").lower().strip(),
@@ -246,8 +299,9 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         "vanity_location": (payload.get("vanity_location") or "").strip()[:120],  # nombre amigable
         "lat":             _f(payload.get("lat")),
         "lng":             _f(payload.get("lng")),
-        "contact_wa":      (payload.get("contact_wa") or "").strip()[:30],
-        "status":          "published",   # explícito para asegurar que salga en el feed
+        "contact_wa":      contact_wa_norm,   # número normalizado (solo dígitos)
+        "owner_id":        owner_id_resolved, # linkeado por WA (o null si falló)
+        "status":          "published",       # explícito para asegurar que salga en el feed
     }
     # Saca claves con valor None para no pisar defaults de la DB
     row = {k: v for k, v in row.items() if v is not None}
