@@ -269,7 +269,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     if res.status_code not in (200, 201):
         raise HTTPException(
             500,
-            f"Supabase rechazó el insert ({res.status_code}): {res.text[:300]}",
+            f"Supabase rechazó el insert ({res.status_code}): {res.text[:1500]}",
         )
 
     inserted = res.json()
