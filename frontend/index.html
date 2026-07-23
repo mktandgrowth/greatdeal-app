@@ -1270,23 +1270,39 @@ async function submitPublish() {
     btn.innerHTML = '⏳ Publicando…';
   }
 
+  console.log('[publish] enviando payload:', payload);
+
+  // Timeout de 90s (Render puede estar frío la primera vez, tarda en despertar)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
+
   try {
     const res = await fetch(`${API_BASE}/api/publish`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
+    console.log('[publish] respuesta status:', res.status);
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`${res.status}: ${errText.slice(0, 200)}`);
+      console.error('[publish] error body:', errText);
+      throw new Error(`HTTP ${res.status}\n${errText.slice(0, 300)}`);
     }
     const data = await res.json();
+    console.log('[publish] éxito:', data);
     if (btn) btn.innerHTML = '✅ Publicado · Redirigiendo…';
     setTimeout(() => {
       window.location.href = data.feed_url || "https://greatdeal-platform.vercel.app/comprar";
     }, 800);
   } catch (e) {
-    alert("Error al publicar:\n" + e.message + "\n\nSi dice 'Supabase no configurada', falta agregar SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Render env vars.");
+    clearTimeout(timeoutId);
+    console.error('[publish] fallo:', e);
+    const msg = e.name === 'AbortError'
+      ? 'El backend no respondió en 90 segundos. Puede estar durmiendo (Render se suspende sin uso). Reintentá en 30 seg.'
+      : e.message;
+    alert("❌ Error al publicar:\n\n" + msg + "\n\n────────────\nSi dice 'Supabase no configurada', falta agregar SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Render env vars.");
     if (btn) {
       btn.disabled = false;
       btn.style.opacity = '1';
@@ -3979,35 +3995,66 @@ document.addEventListener("DOMContentLoaded", async () => {
     </div>
     <p style="font-size:13px; color:var(--text-muted); margin:0 0 22px; line-height:1.5;">Completá la ficha y publicá en el feed de propiedades de C2C. Los compradores te van a contactar directo por WhatsApp.</p>
 
-    <!-- 💡 CTA al asistente Valentina (opcional) -->
-    <a href="https://greatdeal-platform.vercel.app/tasar?view=vendedor" target="_blank" rel="noopener" style="display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:12px; background:rgba(201,168,106,0.06); border:1px solid var(--gold-border); text-decoration:none; margin-bottom:20px;">
-      <span style="font-size:22px;">✨</span>
-      <div style="flex:1;">
-        <div style="color:var(--gold); font-size:13px; font-weight:600; letter-spacing:0.02em;">¿No sabés cuánto vale?</div>
-        <div style="color:var(--text-secondary); font-size:11px; margin-top:2px;">Tasá gratis con Valentina · IA con datos reales del mercado</div>
-      </div>
-      <span style="color:var(--gold); font-size:14px;">→</span>
-    </a>
-
     <!-- FORM -->
     <div style="display:flex; flex-direction:column; gap:14px;">
 
+      <!-- 1. DIRECCIÓN (calle) -->
       <div>
-        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Dirección completa *</label>
-        <input id="pf-loc" type="text" placeholder="Ej: Av. Las Condes 7100, Las Condes, Santiago" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Dirección *</label>
+        <input id="pf-loc" type="text" placeholder="Ej: Av. Las Condes" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
         <div style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Aparece en el mapa del feed para los compradores</div>
       </div>
 
+      <!-- 2. NÚMERO (dept/casa) -->
       <div>
-        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Precio (UF) *</label>
-        <input id="pf-precio" type="number" inputmode="decimal" placeholder="Ej: 8500" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Número *</label>
+        <input id="pf-numero" type="text" placeholder="Ej: 7100 (opcional: dep 302)" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
       </div>
 
+      <!-- 3. PRECIO — con 2 opciones A/B -->
+      <div id="pf-pricing-block">
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:10px; font-weight:600;">¿Ya sabés qué precio ponerle?</label>
+
+        <!-- Opción A: usar tasador -->
+        <a href="https://greatdeal-platform.vercel.app/tasar?view=vendedor" target="_blank" rel="noopener"
+           style="display:flex; align-items:flex-start; gap:12px; padding:14px; border-radius:12px; background:rgba(201,168,106,0.06); border:1.5px solid var(--gold-border); text-decoration:none; margin-bottom:10px; transition:all 0.2s;"
+           onmouseover="this.style.background='rgba(201,168,106,0.12)'"
+           onmouseout="this.style.background='rgba(201,168,106,0.06)'">
+          <span style="font-size:22px;">✨</span>
+          <div style="flex:1;">
+            <div style="color:var(--gold); font-size:13px; font-weight:600; letter-spacing:0.02em;">A · Usá nuestro tasador</div>
+            <div style="color:var(--text-secondary); font-size:11px; margin-top:2px; line-height:1.4;">Valentina te asesora GRATIS con datos reales del mercado. Volvés acá con el precio definido.</div>
+          </div>
+          <span style="color:var(--gold); font-size:14px; align-self:center;">→</span>
+        </a>
+
+        <!-- Opción B: precio manual -->
+        <button type="button" onclick="showManualPricing()"
+           id="pf-btn-manual"
+           style="display:flex; align-items:flex-start; gap:12px; padding:14px; border-radius:12px; background:var(--bg-input); border:1.5px solid var(--border-subtle); cursor:pointer; text-align:left; width:100%; font-family:inherit; transition:all 0.2s;"
+           onmouseover="this.style.borderColor='var(--gold-border)'"
+           onmouseout="this.style.borderColor='var(--border-subtle)'">
+          <span style="font-size:22px;">💰</span>
+          <div style="flex:1;">
+            <div style="color:var(--text-primary); font-size:13px; font-weight:600; letter-spacing:0.02em;">B · Ya tengo mi precio definido</div>
+            <div style="color:var(--text-muted); font-size:11px; margin-top:2px; line-height:1.4;">No necesito ayuda, pongo el precio directo.</div>
+          </div>
+        </button>
+
+        <!-- Input precio (aparece al elegir B) -->
+        <div id="pf-precio-wrap" style="display:none; margin-top:12px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--gold); margin-bottom:6px; font-weight:600;">Precio (UF) *</label>
+          <input id="pf-precio" type="number" inputmode="decimal" placeholder="Ej: 8500" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1.5px solid var(--gold-border); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        </div>
+      </div>
+
+      <!-- 4. DESCRIPCIÓN -->
       <div>
         <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Descripción</label>
-        <textarea id="pf-desc" rows="4" placeholder="Detalles de la propiedad (ya viene pre-llenada con el copy IA, podés editar)" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none; resize:vertical;"></textarea>
+        <textarea id="pf-desc" rows="4" placeholder="Detalles de la propiedad (viene pre-llenada con el copy IA, podés editar)" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none; resize:vertical;"></textarea>
       </div>
 
+      <!-- 5. WHATSAPP -->
       <div>
         <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">WhatsApp de contacto *</label>
         <input id="pf-wa" type="tel" placeholder="+56 9 1234 5678" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">

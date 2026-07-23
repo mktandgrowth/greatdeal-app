@@ -282,7 +282,8 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     return {
         "ok": True,
         "id": prop_id,
-        "feed_url": "https://greatdeal-platform.vercel.app/comprar",
+        # Redirige directo al tab Reels de properties-app (nuevo reel visible ahí)
+        "feed_url": "https://properties-app-mktandgrowth-5238s-projects.vercel.app/?tab=reels",
     }
 
 
