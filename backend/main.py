@@ -103,9 +103,9 @@ async def upload_ready_reel(file: UploadFile = File(...)):
         raise HTTPException(500, f"No se pudo guardar el archivo: {e}")
 
     size_mb = out_path.stat().st_size / (1024 * 1024)
-    if size_mb > 100:
+    if size_mb > 300:
         out_path.unlink(missing_ok=True)
-        raise HTTPException(400, f"Archivo muy grande ({size_mb:.1f} MB). Máx 100 MB.")
+        raise HTTPException(400, f"Archivo muy grande ({size_mb:.1f} MB). Máx 300 MB.")
 
     file_url = f"/api/files/{out_name}"
     return {"ok": True, "file_url": file_url, "size_mb": round(size_mb, 2)}
