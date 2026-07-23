@@ -1313,16 +1313,43 @@ function renderStep1() {
 
   const isReady = state.upload_mode === "ready_reel";
   const modeToggle = `
-    <div class="flex gap-2 mb-5 p-1 rounded-2xl" style="background: rgba(201,168,106,0.06); border: 1px solid var(--border-subtle);">
-      <button onclick="switchUploadMode('guided')"
-        class="flex-1 px-4 py-3 rounded-xl text-sm font-medium transition-all"
-        style="${!isReady ? 'background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 12px rgba(201,168,106,0.25);' : 'background: transparent; color: var(--text-secondary);'}">
-        🎬 Armar mi reel con IA
-      </button>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
       <button onclick="switchUploadMode('ready_reel')"
-        class="flex-1 px-4 py-3 rounded-xl text-sm font-medium transition-all"
-        style="${isReady ? 'background: var(--gold); color: var(--bg-base); box-shadow: 0 4px 12px rgba(201,168,106,0.25);' : 'background: transparent; color: var(--text-secondary);'}">
-        📤 Ya tengo mi reel listo
+        class="text-left p-5 rounded-2xl transition-all relative overflow-hidden"
+        style="${isReady
+          ? 'background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.35); transform: translateY(-2px);'
+          : 'background: var(--bg-card); color: var(--text-primary); border: 1.5px solid var(--gold-border);'}">
+        <div class="flex items-start gap-3">
+          <div class="text-3xl">📤</div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1">
+              <div class="font-bold text-base">Ya tengo mi reel listo</div>
+              <span class="text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider"
+                style="${isReady ? 'background: rgba(10,10,11,0.15); color: var(--bg-base);' : 'background: rgba(201,168,106,0.15); color: var(--gold);'}">
+                más rápido
+              </span>
+            </div>
+            <div class="text-xs leading-relaxed" style="${isReady ? 'opacity: 0.75;' : 'color: var(--text-secondary);'}">
+              Subí tu MP4 editado · verificamos que sea apto y lo publicamos directo en el marketplace.
+            </div>
+          </div>
+        </div>
+      </button>
+
+      <button onclick="switchUploadMode('guided')"
+        class="text-left p-5 rounded-2xl transition-all"
+        style="${!isReady
+          ? 'background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.35); transform: translateY(-2px);'
+          : 'background: var(--bg-card); color: var(--text-primary); border: 1.5px solid var(--border-subtle);'}">
+        <div class="flex items-start gap-3">
+          <div class="text-3xl">🎬</div>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-base mb-1">Armar mi reel con IA</div>
+            <div class="text-xs leading-relaxed" style="${!isReady ? 'opacity: 0.75;' : 'color: var(--text-secondary);'}">
+              Subís clips por sección · elegís música y voz · te generamos el reel profesional.
+            </div>
+          </div>
+        </div>
       </button>
     </div>
   `;
@@ -1421,7 +1448,7 @@ async function handleReadyReelUpload(file) {
     render();
 
     // 2) Moderar los frames
-    const modRes = await fetch(API('/api/moderate'), {
+    const modRes = await fetch(API('/moderate'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ frames })
@@ -1439,7 +1466,7 @@ async function handleReadyReelUpload(file) {
     render();
     const fd = new FormData();
     fd.append('file', file);
-    const upRes = await fetch(API('/api/upload-ready-reel'), { method: 'POST', body: fd });
+    const upRes = await fetch(API('/upload-ready-reel'), { method: 'POST', body: fd });
     if (!upRes.ok) {
       const errText = await upRes.text();
       throw new Error(`Backend rechazó: ${errText.slice(0,150)}`);
@@ -2015,7 +2042,6 @@ function renderStep2() {
 
       <div class="bg-black rounded-2xl p-6 mb-4 text-center">
         <div class="text-white text-sm mb-3">${escapeHtml(previewInfo)}</div>
-        <div class="bg-white/95 px-4 py-2 rounded inline-block mb-3"><div class="text-black text-base font-bold">${escapeHtml(previewPrecio)}</div></div>
         ${state.custom_tagline ? `<div class="text-slate-400 text-xs">${escapeHtml(state.custom_tagline)}</div>` : ''}
         <div class="text-slate-500 text-[10px] mt-3">↑ Cierre del reel (preview)</div>
       </div>

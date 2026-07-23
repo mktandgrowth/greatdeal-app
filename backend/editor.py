@@ -451,11 +451,6 @@ MUSIC_PRESETS = {
         "description": "Piano cálido y luminoso — casas familiares, hogareño",
         "url": "https://assets.mixkit.co/music/preview/mixkit-warm-piano-of-joy-3015.mp3",
     },
-    "happy_summer": {
-        "label": "☀️ Verano alegre",
-        "description": "Ukulele alegre — casas de playa, propiedades luminosas",
-        "url": "https://assets.mixkit.co/music/preview/mixkit-summer-fun-13.mp3",
-    },
     "corporate_inspiring": {
         "label": "💼 Corporate inspiracional",
         "description": "Inspiracional motivacional — comercial, inversión, oficinas",
@@ -466,26 +461,9 @@ MUSIC_PRESETS = {
         "description": "Inspiracional emotivo — primera casa, sueño cumplido",
         "url": "https://assets.mixkit.co/music/preview/mixkit-dreaming-big-31.mp3",
     },
-    "lofi_chill": {
-        "label": "🌙 Lo-fi chill",
-        "description": "Lo-fi relajado — vibe joven, scroll-friendly, moderno",
-        "url": "https://assets.mixkit.co/music/preview/mixkit-relaxing-in-paradise-533.mp3",
-    },
-    "tech_house": {
-        "label": "⚡ Tech house",
-        "description": "Beat moderno — deptos urbanos, propiedades jóvenes",
-        "url": "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3",
-    },
-    "urban_hiphop": {
-        "label": "🏙️ Urban hip-hop",
-        "description": "Beat hip-hop suave — lofts, deptos modernos, ciudad",
-        "url": "https://assets.mixkit.co/music/preview/mixkit-deep-urban-623.mp3",
-    },
-    "chill_hiphop": {
-        "label": "🎧 Chill hip-hop",
-        "description": "Hip-hop relajado — vibes modernas, casual",
-        "url": "https://assets.mixkit.co/music/preview/mixkit-hip-hop-02-738.mp3",
-    },
+    # ── Presets deshabilitados temporalmente (falta MP3 bundled → caían al sintetizador ("pitido")):
+    #   happy_summer · lofi_chill · tech_house · urban_hiphop · chill_hiphop
+    # Volver a habilitarlos después de subir sus MP3 a backend/music/
 }
 
 
