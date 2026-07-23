@@ -365,6 +365,87 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     }
 
 
+# ─── Buyer / signup profile upsert ─────────────────────────────────────────
+# Endpoint minimal para crear/encontrar un profile a partir del WA + nombre.
+# Usado por properties-app cuando un comprador quiere "crear cuenta" (nombre + WA + código skippable).
+@app.post("/api/profile/upsert")
+async def profile_upsert(payload: dict = Body(...)):
+    """Upsert profile por WhatsApp. Retorna owner_id (para guardar como guestOwnerId en el cliente)."""
+    import requests, uuid as _uuid
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not supabase_url or not supabase_key:
+        raise HTTPException(500, "Supabase no configurada")
+
+    def _norm_wa(v):
+        if not v: return ""
+        return "".join(ch for ch in str(v) if ch.isdigit())
+
+    wa_raw = (payload.get("wa") or payload.get("phone") or "").strip()[:30]
+    wa_norm = _norm_wa(wa_raw)
+    name = (payload.get("name") or "").strip()[:80] or "Usuario"
+    # code es opcional / skippable por ahora — cuando activemos SMS lo validamos acá
+    code = (payload.get("code") or "").strip()[:10]
+
+    if not wa_norm:
+        raise HTTPException(400, "Falta el número de WhatsApp")
+
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+    }
+
+    owner_id = None
+    debug = {"wa_norm": wa_norm, "name": name, "found": None, "created": None, "error": None, "code_provided": bool(code)}
+
+    try:
+        # Buscar
+        r_find = requests.get(
+            f"{supabase_url}/rest/v1/profiles?wa=eq.{wa_norm}&select=id,name&limit=1",
+            headers=headers, timeout=10,
+        )
+        found = r_find.json() if r_find.ok else []
+        if found and len(found) > 0:
+            owner_id = found[0].get("id")
+            debug["found"] = owner_id
+            # Actualizar nombre si vino distinto (silencioso)
+            try:
+                requests.patch(
+                    f"{supabase_url}/rest/v1/profiles?id=eq.{owner_id}",
+                    headers=headers, json={"name": name}, timeout=8,
+                )
+            except Exception:
+                pass
+        else:
+            new_id = str(_uuid.uuid4())
+            r_new = requests.post(
+                f"{supabase_url}/rest/v1/profiles",
+                headers={**headers, "Prefer": "return=representation"},
+                json={"id": new_id, "wa": wa_norm, "name": name, "verified": False},
+                timeout=10,
+            )
+            if r_new.ok:
+                created = r_new.json()
+                if isinstance(created, list) and created:
+                    owner_id = created[0].get("id")
+                elif isinstance(created, dict):
+                    owner_id = created.get("id")
+                else:
+                    owner_id = new_id
+                debug["created"] = owner_id
+            else:
+                debug["error"] = f"HTTP {r_new.status_code}: {r_new.text[:200]}"
+                raise HTTPException(500, f"No se pudo crear el profile: {r_new.text[:200]}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug["error"] = str(e)
+        raise HTTPException(502, f"Error contactando Supabase: {e}")
+
+    return {"ok": True, "owner_id": owner_id, "name": name, "wa": wa_norm, "_debug": debug}
+
+
 @app.get("/api/voices")
 async def voices():
     return {"voices": list_voices()}
