@@ -247,6 +247,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         "lat":             _f(payload.get("lat")),
         "lng":             _f(payload.get("lng")),
         "contact_wa":      (payload.get("contact_wa") or "").strip()[:30],
+        "status":          "published",   # explícito para asegurar que salga en el feed
     }
     # Saca claves con valor None para no pisar defaults de la DB
     row = {k: v for k, v in row.items() if v is not None}
@@ -279,12 +280,12 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     elif isinstance(inserted, dict):
         prop_id = inserted.get("id")
 
-    return {
-        "ok": True,
-        "id": prop_id,
-        # Redirige directo al tab Reels de properties-app (nuevo reel visible ahí)
-        "feed_url": "https://properties-app-mktandgrowth-5238s-projects.vercel.app/?tab=reels",
-    }
+    # Feed URL incluye el ID de la propiedad recién publicada para que properties-app
+    # pueda hacer scroll a ese reel y/o mostrar un toast de bienvenida.
+    feed_url = "https://properties-app-mktandgrowth-5238s-projects.vercel.app/?tab=reels"
+    if prop_id:
+        feed_url += f"&justPublished={prop_id}"
+    return {"ok": True, "id": prop_id, "feed_url": feed_url}
 
 
 @app.get("/api/voices")
