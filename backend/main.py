@@ -472,6 +472,65 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     }
 
 
+# ─── Lead capture (marketing: "Tasa tu propiedad gratis") ─────────────────
+# Guarda un lead en la tabla `leads` de Supabase. Usado por el shell C2C
+# cuando alguien clickea la tarjeta "Tasa tu propiedad gratis" en el home.
+# El lead deja email + WA antes de entrar al tasador → estrategia de MKT.
+@app.post("/api/lead/capture")
+async def lead_capture(payload: dict = Body(...)):
+    """Guarda un lead en la tabla `leads` de Supabase."""
+    import requests, uuid as _uuid
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not supabase_url or not supabase_key:
+        raise HTTPException(500, "Supabase no configurada")
+
+    email = (payload.get("email") or "").strip().lower()[:120]
+    wa_raw = (payload.get("wa") or payload.get("phone") or "").strip()[:30]
+    wa = "".join(ch for ch in wa_raw if ch.isdigit())
+    source = (payload.get("source") or "unknown").strip()[:80]
+    intent = (payload.get("intent") or "").strip()[:40]
+    metadata = payload.get("metadata") or {}
+
+    # Validación básica
+    if not email or "@" not in email:
+        raise HTTPException(400, "Email inválido")
+    if not wa or len(wa) < 8:
+        raise HTTPException(400, "WhatsApp inválido")
+
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+    }
+
+    new_id = str(_uuid.uuid4())
+    row = {
+        "id": new_id,
+        "email": email,
+        "wa": wa,
+        "source": source,
+        "intent": intent,
+        "metadata": metadata if isinstance(metadata, dict) else {},
+    }
+    try:
+        r = requests.post(
+            f"{supabase_url}/rest/v1/leads",
+            headers={**headers, "Prefer": "return=representation"},
+            json=row,
+            timeout=10,
+        )
+        print(f"[lead/capture] status={r.status_code} body={r.text[:300]}", flush=True)
+        if r.status_code not in (200, 201):
+            raise HTTPException(500, f"Supabase rechazó el insert ({r.status_code}): {r.text[:300]}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Error contactando Supabase: {e}")
+
+    return {"ok": True, "id": new_id, "email": email, "wa": wa, "source": source}
+
+
 # ─── Buyer / signup profile upsert ─────────────────────────────────────────
 # Endpoint minimal para crear/encontrar un profile a partir del WA + nombre.
 # Usado por properties-app cuando un comprador quiere "crear cuenta" (nombre + WA + código skippable).
