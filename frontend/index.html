@@ -1125,7 +1125,10 @@ function renderStepper() {
   }).join("");
   document.getElementById("stepper").innerHTML = html;
 
-  document.getElementById("btn-prev").disabled = (state.step === 1);
+  // btn-prev ya no se deshabilita — en step 1 lleva al home C2C
+  const prevBtn = document.getElementById("btn-prev");
+  prevBtn.disabled = false;
+  prevBtn.textContent = state.step === 1 ? "← Volver al home" : "← Volver";
   const next = document.getElementById("btn-next");
   if (state.step === 4) {
     const isProc = state.job_status && state.job_status !== "done" && state.job_status !== "error";
@@ -1192,7 +1195,11 @@ function goPrev() {
     }
     state.step--;
     render();
+    return;
   }
+  // Step 1: no hay a dónde volver dentro del wizard → llevar al home C2C
+  stopMusicPreviewIfPlaying();
+  window.location.href = "https://c2cprops.com";
 }
 
 // ─── PUBLISH TO C2C MARKETPLACE ─────────────────────────────────────────────
