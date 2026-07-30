@@ -457,7 +457,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
 
     # Feed URL incluye el ID de la propiedad recién publicada + owner_id para que
     # properties-app (a) muestre toast de bienvenida (b) reconozca al vendedor sin auth.
-    feed_url = "https://properties-app-mktandgrowth-5238s-projects.vercel.app/?tab=reels"
+    feed_url = "https://c2cprops.com/comprar?tab=reels"
     if prop_id:
         feed_url += f"&justPublished={prop_id}"
     if owner_id_resolved:
