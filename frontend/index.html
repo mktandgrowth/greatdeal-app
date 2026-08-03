@@ -1521,8 +1521,10 @@ async function handleReadyReelUpload(file) {
       return;
     }
 
-    // 3) Subir el video al backend
-    state.ready_reel_progress = 'Subiendo video…';
+    // 3) Subir el video al backend (los >48 MB se comprimen en el servidor)
+    state.ready_reel_progress = file.size > 48 * 1024 * 1024
+      ? 'Subiendo video… como pesa más de 48 MB lo vamos a comprimir en el servidor (puede tardar 1-3 min, no cierres la página)'
+      : 'Subiendo video…';
     render();
     const fd = new FormData();
     fd.append('file', file);

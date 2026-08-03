@@ -108,6 +108,51 @@ async def upload_ready_reel(file: UploadFile = File(...)):
     if size_mb > 300:
         raise HTTPException(400, f"Archivo muy grande ({size_mb:.1f} MB). Máx 300 MB.")
 
+    content_type = file.content_type or "video/mp4"
+
+    # Supabase Storage (plan free) corta los uploads en ~50 MB ("Payload too
+    # large"). Si el reel pesa más, lo comprimimos acá con FFmpeg (H.264 +
+    # audio AAC intacto) antes de subirlo — el usuario puede mandar hasta
+    # 300 MB y nosotros lo dejamos en tamaño publicable.
+    SUPABASE_MAX_MB = float(os.environ.get("SUPABASE_MAX_MB", "48"))
+    if size_mb > SUPABASE_MAX_MB:
+        import subprocess, tempfile
+        tmp_in = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        tmp_in.write(data)
+        tmp_in.close()
+        tmp_out = tmp_in.name + "_opt.mp4"
+        cmd = [
+            "ffmpeg", "-y", "-i", tmp_in.name,
+            "-vf", "scale='min(720,iw)':-2",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            tmp_out,
+        ]
+        try:
+            print(f"[upload-ready] {size_mb:.1f} MB > {SUPABASE_MAX_MB:.0f} MB → comprimiendo con FFmpeg…", flush=True)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=600)
+            with open(tmp_out, "rb") as fh:
+                comp = fh.read()
+            if 50_000 < len(comp) < len(data):
+                data = comp
+                size_mb = len(data) / (1024 * 1024)
+                content_type = "video/mp4"
+                print(f"[upload-ready] Comprimido a {size_mb:.1f} MB", flush=True)
+        except Exception as e:
+            print(f"[upload-ready] FFmpeg falló ({e}) — se intenta subir el original", flush=True)
+        finally:
+            for _pth in (tmp_in.name, tmp_out):
+                try:
+                    os.unlink(_pth)
+                except Exception:
+                    pass
+        if size_mb > SUPABASE_MAX_MB:
+            raise HTTPException(
+                400,
+                f"El video sigue pesando {size_mb:.1f} MB tras comprimirlo; el almacenamiento acepta hasta {SUPABASE_MAX_MB:.0f} MB. Probá exportarlo en 720p o más corto.",
+            )
+
     out_name = f"ready_{uuid.uuid4().hex[:12]}.mp4"
 
     # Si hay Supabase configurada → subir a Storage (persistente, público)
@@ -119,7 +164,7 @@ async def upload_ready_reel(file: UploadFile = File(...)):
                 headers={
                     "apikey": supabase_key,
                     "Authorization": f"Bearer {supabase_key}",
-                    "Content-Type": file.content_type or "video/mp4",
+                    "Content-Type": content_type,
                     "x-upsert": "true",
                 },
                 data=data,
