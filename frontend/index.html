@@ -2088,8 +2088,11 @@ function renderCatastroBlock() {
         <input type="text" value="${escapeAttr(p.direccion || "")}" placeholder="Ej: Luis Carrera 2870" oninput="state.property.direccion=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
         <input type="text" value="${escapeAttr(p.depto || "")}" placeholder="Depto" oninput="state.property.depto=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
       </div>
-      <button onclick="buscarCatastro()" class="mt-2 px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-700">🔍 Buscar datos en el catastro</button>
-      <span class="text-[11px] text-slate-400 ml-2">rellena m², tipo y ROL automáticamente (completá también la comuna)</span>
+      <div class="grid grid-cols-[1fr_auto] gap-2 mt-2">
+        <input type="text" value="${escapeAttr(p.comuna || "")}" placeholder="Comuna · Ej: Vitacura" oninput="state.property.comuna=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <button onclick="buscarCatastro()" class="px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-700 whitespace-nowrap">🔍 Buscar en catastro</button>
+      </div>
+      <div class="text-[11px] text-slate-400 mt-1">Con la dirección y la comuna traemos m², tipo y ROL automáticamente desde el SII</div>
       ${panel}
     </div>`;
 }
@@ -2155,8 +2158,7 @@ function renderStep2() {
               <option ${p.tipo === 'Oficina' ? 'selected' : ''}>Oficina</option>
               <option ${p.tipo === 'Local' ? 'selected' : ''}>Local comercial</option>
             </select></div>
-          <div><label class="text-xs text-slate-500 block mb-1">Comuna</label>
-            <input type="text" value="${escapeAttr(p.comuna)}" placeholder="Ej: Las Condes" oninput="state.property.comuna=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+
         </div>
         <div class="grid grid-cols-3 gap-3">
           <div><label class="text-xs text-slate-500 block mb-1">m² construidos</label><input type="number" value="${escapeAttr(p.m2)}" placeholder="180" oninput="state.property.m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
