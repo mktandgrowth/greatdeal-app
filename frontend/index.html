@@ -243,10 +243,10 @@
       <a href="https://c2cprops.com/comprar" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Comprar</a>
       <a href="https://c2cprops.com/vender" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Vender</a>
       <div id="c2cAiDropdown" style="position: relative;">
-        <button onclick="event.stopPropagation(); document.getElementById('c2cAiDropdown').classList.toggle('is-open')" style="display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: rgba(201,168,106,0.04); border: 1px solid rgba(201,168,106,0.25); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; cursor: pointer; font-family: inherit;">
+        <button id="c2cAiDropdownBtn" type="button" style="display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: rgba(201,168,106,0.04); border: 1px solid rgba(201,168,106,0.25); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; cursor: pointer; font-family: inherit;">
           <span style="color: var(--gold); font-size: 12px;">✦</span> Mi asistente IA <span class="c2c-arrow" style="font-size: 10px; transition: transform 0.2s;">▾</span>
         </button>
-        <div class="c2c-dropdown-menu" style="position: absolute; top: calc(100% + 8px); right: 0; min-width: 260px; background: #0f0f10; border: 1px solid var(--border-subtle); border-radius: 14px; padding: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity 0.18s, transform 0.18s, visibility 0.18s; z-index: 50;">
+        <div class="c2c-dropdown-menu" style="position: absolute; top: calc(100% + 8px); right: 0; min-width: 280px; background: #0f0f10; border: 1px solid var(--border-subtle); border-radius: 14px; padding: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity 0.18s, transform 0.18s, visibility 0.18s; z-index: 9999;">
           <a href="https://c2cprops.com/tasar?view=comprador" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; text-decoration: none; color: var(--text-secondary);">
             <span style="font-size: 20px; line-height: 1;">🔍</span>
             <div>
@@ -261,19 +261,46 @@
               <div style="font-size: 11px; color: var(--text-muted);">Valentina tasa y te asesora gratis</div>
             </div>
           </a>
+          <a href="https://vender.c2cprops.com/?mode=editor" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; text-decoration: none; color: var(--text-secondary);">
+            <span style="font-size: 20px; line-height: 1;">🎬</span>
+            <div>
+              <div style="font-family: 'Cormorant Garamond', serif; font-size: 16px; font-weight: 500; color: var(--text-primary); margin-bottom: 2px;">Editor de videos</div>
+              <div style="font-size: 11px; color: var(--text-muted);">Armá tu reel con IA y descargalo</div>
+            </div>
+          </a>
         </div>
       </div>
     </nav>
     <style>
-      #c2cAiDropdown.is-open .c2c-dropdown-menu { opacity: 1; visibility: visible; transform: translateY(0); }
+      #c2cAiDropdown.is-open .c2c-dropdown-menu { opacity: 1 !important; visibility: visible !important; transform: translateY(0) !important; }
       #c2cAiDropdown.is-open .c2c-arrow { transform: rotate(180deg); }
       #c2cAiDropdown .c2c-dropdown-menu a:hover { background: rgba(201,168,106,0.06); }
     </style>
     <script>
-      document.addEventListener('click', function(e) {
-        var d = document.getElementById('c2cAiDropdown');
-        if (d && !d.contains(e.target)) d.classList.remove('is-open');
-      });
+      // Wire the dropdown reliably (addEventListener en vez de inline onclick, por si un render lo pisa)
+      (function() {
+        function wireDropdown() {
+          var btn = document.getElementById('c2cAiDropdownBtn');
+          var wrap = document.getElementById('c2cAiDropdown');
+          if (!btn || !wrap || btn.dataset.wired === '1') return;
+          btn.dataset.wired = '1';
+          btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            wrap.classList.toggle('is-open');
+          });
+        }
+        // Try wiring now and after DOM ready (por si el header aún no cargó)
+        wireDropdown();
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', wireDropdown);
+        }
+        // Cerrar al click afuera
+        document.addEventListener('click', function(e) {
+          var d = document.getElementById('c2cAiDropdown');
+          if (d && !d.contains(e.target)) d.classList.remove('is-open');
+        });
+      })();
     </script>
   </div>
 </header>
@@ -294,11 +321,14 @@
 
 <script>
 // ── CONFIG ─────────────────────────────────────────────────────────
+// Wizard consolidado en 3 pasos:
+// 1) Datos de la propiedad
+// 2) Video — 3 rutas: (A) reel listo, (B) armar con IA (incluye audio+cierre inline), (C) contratar grabación (formulario a Foco)
+// 3) Precio — modal de publicar (asterisco: si no lo tenés, Valentina lo tasa)
 const STEPS = [
   { id: 1, label: "Datos" },
-  { id: 2, label: "Videos" },
-  { id: 3, label: "Audio + cierre" },
-  { id: 4, label: "Tu reel" },
+  { id: 2, label: "Video" },
+  { id: 3, label: "Precio" },
 ];
 
 const SECTION_ORDER = ["entrada", "dormitorios", "banos", "areas", "exterior", "vista"];
@@ -1101,9 +1131,16 @@ function clearVoice() {
 
 // ── STEPPER + NAV ──────────────────────────────────────────────────
 function renderStepper() {
+  // Mapping visual: mantengo state.step interno de 1-4 pero muestro solo 3 pasos
+  //   state.step 1 → visual 1 (Datos)
+  //   state.step 2 o 3 → visual 2 (Video, con audio+cierre inline)
+  //   state.step 4 → visual 3 (Precio, incluye preview del reel)
+  const visualStep = state.step === 1 ? 1
+                   : (state.step === 2 || state.step === 3) ? 2
+                   : 3;
   const html = STEPS.map((s, i) => {
-    const active = state.step === s.id;
-    const done = state.step > s.id;
+    const active = visualStep === s.id;
+    const done = visualStep > s.id;
     let dotStyle, textStyle;
     if (active) {
       dotStyle = 'background: var(--gold); color: var(--bg-base); border: 1.5px solid var(--gold); box-shadow: 0 0 18px rgba(201,168,106,0.5);';
@@ -1148,6 +1185,14 @@ function renderStepper() {
     next.textContent = "Continuar →";
     next.disabled = false;
   }
+  // Modo "hire": el botón se oculta (el flow es dentro del form)
+  if (state.upload_mode === "hire" && state.step === 2) {
+    next.style.visibility = state.hire_sent ? "visible" : "hidden";
+    if (state.hire_sent) { next.textContent = "Volver al home →"; next.disabled = false; next.onclick = () => { window.location.href = "https://c2cprops.com"; }; }
+  } else {
+    next.style.visibility = "visible";
+    next.onclick = goNext;
+  }
 }
 
 // Detiene cualquier preview de música que esté sonando.
@@ -1165,7 +1210,13 @@ function stopMusicPreviewIfPlaying() {
 }
 
 function goNext() {
-  if (state.step === 2 && totalClipsCount() === 0) { alert("Subí al menos un video"); return; }
+  // Modo "hire" (contratar grabación): el flow termina en el paso 2 con el formulario enviado.
+  // Nada que hacer al presionar continuar — todo se maneja dentro del renderHireForm.
+  if (state.upload_mode === "hire") {
+    if (!state.hire_sent) { alert("Completá el formulario de arriba y tocá 'Enviar solicitud de grabación'."); }
+    return;
+  }
+  if (state.step === 2 && totalClipsCount() === 0 && state.upload_mode !== "ready_reel") { alert("Subí al menos un video"); return; }
   // Modo "ready_reel": desde paso 2 saltamos directo a paso 4 (audio+cierre no aplica),
   // y desde paso 4 abrimos el modal de publicar (nada que procesar/regenerar).
   if (state.upload_mode === "ready_reel") {
@@ -1174,7 +1225,8 @@ function goNext() {
   }
   if (state.step === 4 && !state.has_been_processed) { processReel(); return; }
   if (state.step === 4 && state.has_been_processed) { reprocessFromCurrent(); return; }
-  if (state.step < STEPS.length) {
+  // state.step interno va hasta 4, aunque visualmente sean 3 pasos
+  if (state.step < 4) {
     stopMusicPreviewIfPlaying();
     // Si avanza a paso 4 y ya tiene reel generado, activar el banner
     // "regenerar con cambios / mantener original"
@@ -1310,7 +1362,8 @@ function openPublishModal() {
     locEl.style.opacity = '0.7';
     if (locHint) locHint.innerHTML = '✓ Es la del paso 1 (' + (p.rol ? 'ROL ' + p.rol.split('-').slice(1).join('-') + ' · ' : '') + 'catastro) · <a href="#" onclick="var e=document.getElementById(\'pf-loc\'); e.readOnly=false; e.style.opacity=\'1\'; e.focus(); return false;" style="color:var(--gold);">corregir</a>';
   }
-  document.getElementById('pf-precio').value      = p.precio_uf || '';
+  // Precio: siempre vacío por default — el user decide (A: tasar con Valentina o B: poner precio manual)
+  document.getElementById('pf-precio').value      = '';
   // Descripción: si el user ya escribió una, la respetamos; si no, generamos el copy con la info del paso 1
   const existingDesc = (state.caption_text || p.descripcion || '').trim();
   document.getElementById('pf-desc').value        = existingDesc || buildAutoCopy(p);
@@ -1344,11 +1397,11 @@ async function submitPublish() {
   const wa     = document.getElementById('pf-wa').value.trim();
   const name   = document.getElementById('pf-name')?.value.trim() || "";
 
-  // Validación mínima
+  // Validación mínima — precio es OPCIONAL (si no lo tiene, Valentina lo tasa después)
   if (!loc) { alert("Falta la dirección de la propiedad"); document.getElementById('pf-loc').focus(); return; }
   if (!name) { alert("Falta tu nombre"); document.getElementById('pf-name')?.focus(); return; }
   if (!wa) { alert("Falta el número de WhatsApp para contacto"); document.getElementById('pf-wa').focus(); return; }
-  if (!precio) { alert("Falta el precio"); document.getElementById('pf-precio').focus(); return; }
+  // Nota: el precio NO es obligatorio — si el user prefiere que Valentina tase, dejamos precio null
 
   // Guardar en state para próxima vez
   state.property = state.property || {};
@@ -1467,42 +1520,43 @@ function goToStep(step) {
 
 // ── STEP 1: VIDEOS ─────────────────────────────────────────────────
 function renderStep1() {
-  // 3 estados: null (no elegido), "guided" (armar con IA), "ready_reel" (subir MP4 hecho)
+  // 4 estados: null (no elegido), "guided" (armar con IA), "ready_reel" (subir MP4 hecho), "hire" (contratar grabación)
   // Solo migramos a "guided" si YA hay clips subidos (para no perder trabajo del user)
   const hasClipsInProgress = state.sections && Object.values(state.sections).some(s => s.clips && s.clips.length > 0);
   if (!state.upload_mode && hasClipsInProgress) state.upload_mode = "guided";
-  if (state.upload_mode && state.upload_mode !== "guided" && state.upload_mode !== "ready_reel") state.upload_mode = null;
+  if (state.upload_mode && !["guided","ready_reel","hire"].includes(state.upload_mode)) state.upload_mode = null;
 
   const isReady = state.upload_mode === "ready_reel";
   const isGuided = state.upload_mode === "guided";
-  const isChosen = isReady || isGuided;
+  const isHire = state.upload_mode === "hire";
+  const isChosen = isReady || isGuided || isHire;
 
   const modeToggle = `
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
       <button onclick="switchUploadMode('ready_reel')"
-        class="text-left p-5 rounded-2xl transition-all relative overflow-hidden"
+        class="text-left p-4 rounded-2xl transition-all relative overflow-hidden"
         style="${isReady
           ? 'background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.35); transform: translateY(-2px);'
           : 'background: var(--bg-card); color: var(--text-primary); border: 1.5px solid var(--gold-border);'}">
         <div class="flex items-start gap-3">
           <div class="text-3xl">📤</div>
           <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 mb-1">
-              <div class="font-bold text-base">Ya tengo mi reel listo</div>
+            <div class="flex items-center gap-2 mb-1 flex-wrap">
+              <div class="font-bold text-base">Ya tengo mi reel</div>
               <span class="text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider"
                 style="${isReady ? 'background: rgba(10,10,11,0.15); color: var(--bg-base);' : 'background: rgba(201,168,106,0.15); color: var(--gold);'}">
                 más rápido
               </span>
             </div>
             <div class="text-xs leading-relaxed" style="${isReady ? 'opacity: 0.75;' : 'color: var(--text-secondary);'}">
-              Subí tu MP4 editado · verificamos que sea apto y lo publicamos directo en el marketplace.
+              Subí tu MP4 editado y lo publicamos directo.
             </div>
           </div>
         </div>
       </button>
 
       <button onclick="switchUploadMode('guided')"
-        class="text-left p-5 rounded-2xl transition-all"
+        class="text-left p-4 rounded-2xl transition-all"
         style="${isGuided
           ? 'background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.35); transform: translateY(-2px);'
           : 'background: var(--bg-card); color: var(--text-primary); border: 1.5px solid var(--border-subtle);'}">
@@ -1511,7 +1565,23 @@ function renderStep1() {
           <div class="flex-1 min-w-0">
             <div class="font-bold text-base mb-1">Armar mi reel con IA</div>
             <div class="text-xs leading-relaxed" style="${isGuided ? 'opacity: 0.75;' : 'color: var(--text-secondary);'}">
-              Subís clips por sección · elegís música y voz · te generamos el reel profesional.
+              Clips por sección, música y voz — te lo generamos.
+            </div>
+          </div>
+        </div>
+      </button>
+
+      <button onclick="switchUploadMode('hire')"
+        class="text-left p-4 rounded-2xl transition-all"
+        style="${isHire
+          ? 'background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.35); transform: translateY(-2px);'
+          : 'background: var(--bg-card); color: var(--text-primary); border: 1.5px solid var(--border-subtle);'}">
+        <div class="flex items-start gap-3">
+          <div class="text-3xl">📸</div>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-base mb-1">Contratar grabación</div>
+            <div class="text-xs leading-relaxed" style="${isHire ? 'opacity: 0.75;' : 'color: var(--text-secondary);'}">
+              Nuestro equipo va, graba y edita tu reel profesional.
             </div>
           </div>
         </div>
@@ -1525,6 +1595,8 @@ function renderStep1() {
     content = renderReadyReelUpload();
   } else if (isGuided) {
     content = renderGuidedSections();
+  } else if (isHire) {
+    content = renderHireForm();
   } else {
     content = `
       <div class="text-center py-10" style="color: var(--text-muted);">
@@ -1538,7 +1610,9 @@ function renderStep1() {
     ? 'Subí tu video ya editado y lo publicamos en el marketplace'
     : isGuided
       ? 'Cargá clips por sección y armamos el reel con IA'
-      : 'Elegí cómo querés cargar los videos de la propiedad';
+      : isHire
+        ? 'Nuestro equipo va a tu propiedad, graba y edita todo por vos'
+        : 'Elegí cómo querés cargar los videos de la propiedad';
 
   return `
     <div class="fade-in">
@@ -1551,6 +1625,133 @@ function renderStep1() {
 }
 
 // ─── UI para modo "ya tengo mi reel listo" ──────────────────────────────
+// ─── UI para modo "hire" (contratar grabación) ──────────────────────────────
+// Formulario que se envía al mail de Foco para coordinar la sesión de grabación.
+function renderHireForm() {
+  const p = state.property || {};
+  const h = state.hire_form || {};
+  if (state.hire_sent) {
+    return `
+      <div class="fade-in max-w-lg mx-auto text-center py-10">
+        <div class="text-5xl mb-3">✅</div>
+        <h2 class="text-xl font-bold mb-2" style="color: var(--text-primary);">Solicitud enviada</h2>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">Recibimos tu solicitud. Nuestro equipo te contactará por WhatsApp en las próximas horas para coordinar la grabación.</p>
+        <div class="text-xs" style="color: var(--text-muted);">Mientras tanto podés continuar con el paso 3 (precio) — publicaremos apenas tengamos el reel listo.</div>
+      </div>
+    `;
+  }
+  const savedName = (() => { try { return localStorage.getItem('c2c_owner_name') || ''; } catch(_) { return ''; }})();
+  const savedWa   = (() => { try { return localStorage.getItem('c2c_owner_wa')   || ''; } catch(_) { return ''; }})();
+  return `
+    <div class="fade-in max-w-lg mx-auto">
+      <div class="rounded-2xl p-5 mb-4" style="background: var(--bg-card); border: 1px solid var(--border-subtle);">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="text-3xl">📸</div>
+          <div>
+            <div class="font-bold text-base" style="color: var(--text-primary);">Servicio de grabación profesional</div>
+            <div class="text-xs mt-1" style="color: var(--text-secondary);">Vamos, grabamos con equipo profesional y editamos el reel por vos. Te contactamos para coordinar el día.</div>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs uppercase tracking-wider block mb-1 font-semibold" style="color: var(--text-secondary);">Nombre completo</label>
+            <input id="hire-name" type="text" value="${escapeAttr(h.name || savedName)}" placeholder="Ej: Vale González"
+              oninput="state.hire_form = {...(state.hire_form||{}), name: this.value}"
+              style="width:100%; padding:11px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+          </div>
+          <div>
+            <label class="text-xs uppercase tracking-wider block mb-1 font-semibold" style="color: var(--text-secondary);">WhatsApp</label>
+            <input id="hire-wa" type="tel" value="${escapeAttr(h.wa || savedWa)}" placeholder="+56 9 1234 5678"
+              oninput="state.hire_form = {...(state.hire_form||{}), wa: this.value}"
+              style="width:100%; padding:11px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+          </div>
+          <div>
+            <label class="text-xs uppercase tracking-wider block mb-1 font-semibold" style="color: var(--text-secondary);">Email</label>
+            <input id="hire-email" type="email" value="${escapeAttr(h.email || '')}" placeholder="tu@email.com"
+              oninput="state.hire_form = {...(state.hire_form||{}), email: this.value}"
+              style="width:100%; padding:11px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+          </div>
+          <div>
+            <label class="text-xs uppercase tracking-wider block mb-1 font-semibold" style="color: var(--text-secondary);">Dirección de la propiedad</label>
+            <input id="hire-loc" type="text" value="${escapeAttr(h.loc || p.direccion || p.loc || '')}" placeholder="Ej: Av. Vitacura 5000, Vitacura"
+              oninput="state.hire_form = {...(state.hire_form||{}), loc: this.value}"
+              style="width:100%; padding:11px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+          </div>
+          <div>
+            <label class="text-xs uppercase tracking-wider block mb-1 font-semibold" style="color: var(--text-secondary);">¿Cuándo te gustaría agendar?</label>
+            <input id="hire-when" type="text" value="${escapeAttr(h.when || '')}" placeholder="Ej: Lunes 15/8 en la tarde, o cualquier día esta semana"
+              oninput="state.hire_form = {...(state.hire_form||{}), when: this.value}"
+              style="width:100%; padding:11px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+          </div>
+          <div>
+            <label class="text-xs uppercase tracking-wider block mb-1 font-semibold" style="color: var(--text-secondary);">Comentarios <span class="text-xs" style="color: var(--text-muted); text-transform: none; letter-spacing: 0;">(opcional)</span></label>
+            <textarea id="hire-notes" rows="2" placeholder="Algo especial que quieras mencionar de la propiedad, accesos, etc."
+              oninput="state.hire_form = {...(state.hire_form||{}), notes: this.value}"
+              style="width:100%; padding:11px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none; resize:vertical;">${escapeHtml(h.notes || '')}</textarea>
+          </div>
+        </div>
+
+        ${state.hire_error ? `<div class="mt-3 p-3 rounded-lg text-sm" style="background: rgba(239,68,68,0.1); color: #fca5a5;">${escapeHtml(state.hire_error)}</div>` : ''}
+
+        <button onclick="submitHireRequest()" ${state.hire_sending ? 'disabled' : ''}
+          class="w-full mt-4 py-3 px-4 rounded-xl font-semibold text-sm transition"
+          style="background: var(--gold); color: var(--bg-base); border: none; cursor: ${state.hire_sending ? 'wait' : 'pointer'}; opacity: ${state.hire_sending ? 0.6 : 1};">
+          ${state.hire_sending ? '⏳ Enviando…' : '📩 Enviar solicitud de grabación'}
+        </button>
+
+        <div class="text-[11px] text-center mt-3" style="color: var(--text-muted);">
+          Recibimos tu solicitud y te contactamos por WhatsApp en las próximas horas para coordinar.
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function submitHireRequest() {
+  const h = state.hire_form || {};
+  const p = state.property || {};
+  state.hire_error = null;
+
+  const name = (h.name || '').trim();
+  const wa   = (h.wa   || '').trim();
+  const email= (h.email|| '').trim();
+  const loc  = (h.loc  || p.direccion || p.loc || '').trim();
+  const when = (h.when || '').trim();
+
+  if (!name)  { state.hire_error = "Falta tu nombre"; render(); return; }
+  if (!wa)    { state.hire_error = "Falta tu WhatsApp"; render(); return; }
+  if (!email) { state.hire_error = "Falta tu email"; render(); return; }
+  if (!loc)   { state.hire_error = "Falta la dirección"; render(); return; }
+  if (!when)  { state.hire_error = "Contanos cuándo te gustaría agendar"; render(); return; }
+
+  state.hire_sending = true; render();
+  try {
+    const res = await fetch(`${API_BASE}/api/hire-request`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name, wa, email, loc, when,
+        notes: (h.notes || '').trim(),
+        property: {
+          tipo: p.tipo, operacion: p.operacion, comuna: p.comuna,
+          m2: p.m2, dorms: p.dorms, banos: p.banos,
+        },
+      }),
+    });
+    if (!res.ok) throw new Error(`Server respondió ${res.status}`);
+    // Guardar contacto para próximos flujos
+    try { localStorage.setItem('c2c_owner_name', name); localStorage.setItem('c2c_owner_wa', wa); } catch(_){}
+    state.hire_sent = true;
+    state.hire_sending = false;
+    render();
+  } catch (e) {
+    state.hire_error = "No pudimos enviar la solicitud. Intentalo de nuevo o escribinos por WhatsApp.";
+    state.hire_sending = false;
+    render();
+  }
+}
+
 function renderReadyReelUpload() {
   const uploading = state.ready_reel_uploading;
   const progress  = state.ready_reel_progress || '';
@@ -2378,17 +2579,7 @@ function renderStep2() {
           </div>
         </div>
 
-        <!-- Precio -->
-        <div>
-          <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">Precio ${p.operacion === 'arriendo' ? '(mensual)' : ''} <span class="text-slate-400 normal-case font-normal">— podés dejarlo vacío y tasar con Valentina</span></label>
-          <div class="grid grid-cols-3 gap-2">
-            <input type="text" value="${escapeAttr(p.precio_uf)}" placeholder="${p.operacion === 'arriendo' ? '900.000' : '1500'}" oninput="state.property.precio_uf=this.value" class="col-span-2 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-            <select onchange="state.property.currency=this.value" class="w-full px-2 py-2 border border-slate-300 rounded-lg text-sm">
-              <option value="UF" ${(p.currency||'UF')==='UF'?'selected':''}>UF</option>
-              <option value="CLP" ${p.currency==='CLP'?'selected':''}>CLP</option>
-            </select>
-          </div>
-        </div>
+        <!-- Precio: se pregunta al final (modal publicar) — si no lo tenés, Valentina te ayuda a tasar -->
 
       </div>
 
@@ -2399,7 +2590,6 @@ function renderStep2() {
         ${state.custom_tagline ? `<div class="text-slate-400 text-xs">${escapeHtml(state.custom_tagline)}</div>` : ''}
         <div class="text-slate-500 text-[10px] mt-3">↑ Cierre del reel (preview)</div>
       </div>
-      <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-sm text-blue-900">🎵 Música, voz y personalización del cierre se configuran en el <strong>paso 3 (Audio + cierre)</strong>.</div>
       <div class="text-xs text-slate-500 text-center">Continuá al paso de videos →</div>
     </div>
   `;
@@ -4408,9 +4598,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         <!-- Input precio (aparece al elegir B) -->
         <div id="pf-precio-wrap" style="display:none; margin-top:14px; padding:14px; border-radius:12px; background:rgba(201,168,106,0.04); border:1px solid var(--gold-border);">
-          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--gold); margin-bottom:6px; font-weight:600;">Precio (UF) *</label>
-          <input id="pf-precio" type="number" inputmode="decimal" placeholder="Ej: 8500" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1.5px solid var(--gold-border); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
-          <div style="font-size:10.5px; color:var(--text-faint); margin-top:6px;">1 UF ≈ $39.000 CLP · aparece como valor referencial en tu ficha</div>
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--gold); margin-bottom:6px; font-weight:600;">Precio (UF)</label>
+          <input id="pf-precio" type="number" inputmode="decimal" placeholder="Ej: 8500 (opcional)" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1.5px solid var(--gold-border); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+          <div style="font-size:10.5px; color:var(--text-faint); margin-top:6px;">* Si preferís dejarlo vacío, <strong style="color:var(--gold);">Valentina revisará tu precio</strong> antes de publicar — sin costo.</div>
         </div>
       </div>
 

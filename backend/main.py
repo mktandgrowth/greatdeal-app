@@ -552,6 +552,108 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     }
 
 
+# ─── Hire request (contratar servicio de grabación profesional) ──────────
+# Cuando el vendedor elige "Contratar grabación" en el paso 2 del wizard,
+# esto guarda el pedido en Supabase (tabla `hire_requests`) y — si tenemos
+# SMTP configurado — dispara un mail al equipo (Foco). Sin SMTP igual guarda
+# la fila para que Vale/Foco lo vean en el dashboard.
+@app.post("/api/hire-request")
+async def hire_request(payload: dict = Body(...)):
+    """Guarda una solicitud de grabación profesional + notifica por email."""
+    import requests, uuid as _uuid
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+    name = (payload.get("name") or "").strip()[:120]
+    wa_raw = (payload.get("wa") or "").strip()[:30]
+    wa = "".join(ch for ch in wa_raw if ch.isdigit())
+    email = (payload.get("email") or "").strip().lower()[:120]
+    loc = (payload.get("loc") or "").strip()[:300]
+    when = (payload.get("when") or "").strip()[:200]
+    notes = (payload.get("notes") or "").strip()[:800]
+    property_data = payload.get("property") or {}
+
+    # Validación mínima
+    if not name or not wa or not email or not loc or not when:
+        raise HTTPException(400, "Faltan campos: nombre, WhatsApp, email, dirección o fecha")
+
+    new_id = str(_uuid.uuid4())
+
+    # Guardar en Supabase (tabla `hire_requests` — Vale debe crearla con el SQL de abajo)
+    if supabase_url and supabase_key:
+        try:
+            row = {
+                "id": new_id,
+                "name": name, "wa": wa, "email": email,
+                "loc": loc, "preferred_time": when,
+                "notes": notes,
+                "property_data": property_data,
+                "status": "new",
+            }
+            r = requests.post(
+                f"{supabase_url}/rest/v1/hire_requests",
+                headers={
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {supabase_key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation",
+                },
+                json=row, timeout=10,
+            )
+            print(f"[hire] insert status={r.status_code} body={r.text[:300]}", flush=True)
+            # No fallamos si Supabase rechaza — igual mandamos el mail (fallback)
+        except Exception as e:
+            print(f"[hire] insert error: {e}", flush=True)
+
+    # Enviar email al equipo (Foco). SMTP se configura por env vars.
+    smtp_host = os.environ.get("SMTP_HOST", "")
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    to_email = os.environ.get("HIRE_NOTIFY_EMAIL", "foco@mktandgrowth.com")
+    email_sent = False
+
+    if smtp_host and smtp_user and smtp_pass:
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+
+            subject = f"[C2C] Nueva solicitud de grabación — {name}"
+            body_html = f"""
+            <html><body style="font-family: Arial, sans-serif; color: #222;">
+              <h2 style="color: #A6601C;">📸 Nueva solicitud de grabación C2C</h2>
+              <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
+                <tr><td style="padding: 8px; font-weight: bold; width: 130px;">Nombre:</td><td style="padding: 8px;">{name}</td></tr>
+                <tr><td style="padding: 8px; font-weight: bold;">WhatsApp:</td><td style="padding: 8px;"><a href="https://wa.me/{wa}">+{wa}</a></td></tr>
+                <tr><td style="padding: 8px; font-weight: bold;">Email:</td><td style="padding: 8px;">{email}</td></tr>
+                <tr><td style="padding: 8px; font-weight: bold;">Dirección:</td><td style="padding: 8px;">{loc}</td></tr>
+                <tr><td style="padding: 8px; font-weight: bold;">Cuándo:</td><td style="padding: 8px;">{when}</td></tr>
+                {"<tr><td style='padding:8px; font-weight:bold;'>Notas:</td><td style='padding:8px;'>"+notes+"</td></tr>" if notes else ""}
+              </table>
+              {"<h3 style='margin-top:20px;'>Datos de la propiedad</h3><pre style='background:#f5f5f5; padding:10px; border-radius:6px;'>"+str(property_data)+"</pre>" if property_data else ""}
+              <p style="margin-top: 20px; color: #888; font-size: 12px;">ID: {new_id}</p>
+            </body></html>
+            """
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = smtp_user
+            msg["To"] = to_email
+            msg["Reply-To"] = email
+            msg.attach(MIMEText(body_html, "html"))
+
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as s:
+                s.starttls()
+                s.login(smtp_user, smtp_pass)
+                s.sendmail(smtp_user, [to_email], msg.as_string())
+            email_sent = True
+            print(f"[hire] email enviado a {to_email}", flush=True)
+        except Exception as e:
+            print(f"[hire] error enviando email: {e}", flush=True)
+
+    return {"ok": True, "id": new_id, "email_sent": email_sent}
+
+
 # ─── Lead capture (marketing: "Tasa tu propiedad gratis") ─────────────────
 # Guarda un lead en la tabla `leads` de Supabase. Usado por el shell C2C
 # cuando alguien clickea la tarjeta "Tasa tu propiedad gratis" en el home.
