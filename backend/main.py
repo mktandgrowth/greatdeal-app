@@ -402,6 +402,15 @@ async def publish_to_marketplace(payload: dict = Body(...)):
             print(f"[publish] profile upsert failed: {e}", flush=True)
             # No es fatal — seguimos sin owner_id (nullable)
 
+    # Sanitize features (array de strings validados)
+    _valid_features = {"terraza", "piscina", "quincho", "jardin", "bodega", "gimnasio"}
+    _raw_features = payload.get("features") or []
+    features_clean = [f for f in _raw_features if isinstance(f, str) and f in _valid_features]
+
+    # Sanitize condition
+    _cond_raw = (payload.get("condition") or "").lower().strip()
+    condition_clean = _cond_raw if _cond_raw in ("nuevo", "usado") else None
+
     row = {
         "type":            (payload.get("type") or "Casa").strip()[:40],
         "operacion":       (payload.get("operacion") or "venta").lower().strip(),
@@ -411,6 +420,11 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         "beds":            _i(payload.get("beds")),
         "baths":           _i(payload.get("baths")),
         "area":            _f(payload.get("area")),
+        # Nuevos campos para que los filtros del feed comprador funcionen
+        "terreno_m2":      _f(payload.get("terreno_m2")),
+        "parking":         _i(payload.get("parking")),
+        "condition":       condition_clean,       # "nuevo" | "usado" | null
+        "features":        features_clean,        # array (jsonb en Supabase)
         "title":           (payload.get("title") or "").strip()[:140],
         "description":     (payload.get("description") or "").strip(),
         "video_url":       video_url,

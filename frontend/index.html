@@ -357,7 +357,7 @@ let state = {
   upload_mode: "guided",
   sections: emptySections(),
   simple_clips: [],
-  property: { tipo: "Casa", comuna: "", m2: "", dorms: "", banos: "", precio_uf: "", descripcion: "" },
+  property: { tipo: "Casa", operacion: "venta", comuna: "", m2: "", terreno_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
   advanced_open: false,
   enhance_ai: false,
   auto_subtitles: true,  // por default ON: si hay voz, los subtítulos se quieren siempre
@@ -425,7 +425,7 @@ function resetAll() {
   const voices = state.eleven_voices;
   state = {
     step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [],
-    property: { tipo: "Casa", comuna: "", m2: "", dorms: "", banos: "", precio_uf: "", descripcion: "" },
+    property: { tipo: "Casa", operacion: "venta", comuna: "", m2: "", terreno_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
     advanced_open: false, enhance_ai: false, auto_subtitles: true,
     music_preset: "cinematic_view", music_file: null, music_presets_catalog: catalog,
     voice_audio_file: null, voice_audio_url: null, voice_method: "none",
@@ -1205,6 +1205,86 @@ function goPrev() {
 // ─── PUBLISH TO C2C MARKETPLACE ─────────────────────────────────────────────
 // Abre modal donde el user completa la ficha final (ubicación, precio,
 // descripción, contacto) y publica en Supabase via backend.
+// Genera un copy estructurado tipo Instagram usando los datos del paso 1.
+// Formato solicitado por Vale:
+//   VENTA / ARRIENDO
+//   <hook descriptivo con tipo + condición + sector>
+//
+//   A) Características
+//     • 5 dormitorios
+//     • 4 baños
+//     • 169 m² útiles
+//     • 179 m² totales
+//
+//   B) UF 20.800
+//   <descripción libre del vendedor>
+//
+//   ✔ Feature 1
+//   ✔ Feature 2
+//   📩 CTA
+function buildAutoCopy(p) {
+  const parts = [];
+  const tipo = p.tipo || 'Propiedad';
+  const comuna = p.comuna || '';
+  const cond = p.condition === 'nuevo' ? 'nuevo' : p.condition === 'usado' ? 'remodelado' : '';
+
+  // Encabezado grande: VENTA / ARRIENDO
+  const opLabel = p.operacion === 'arriendo' ? 'ARRIENDO' : 'VENTA';
+  parts.push(opLabel);
+
+  // Hook: tipo + estado + sector
+  const hookBits = [tipo];
+  if (cond) hookBits.push(cond);
+  if (comuna) hookBits.push(`en ${comuna}`);
+  parts.push(hookBits.join(' '));
+  parts.push('');
+
+  // A) Características
+  parts.push('A) Características');
+  parts.push('');
+  if (p.dorms) parts.push(`• ${p.dorms} ${Number(p.dorms) === 1 ? 'dormitorio' : 'dormitorios'}`);
+  if (p.banos) parts.push(`• ${p.banos} ${Number(p.banos) === 1 ? 'baño' : 'baños'}`);
+  if (p.m2) parts.push(`• ${p.m2} m² útiles`);
+  if (p.terreno_m2) parts.push(`• ${p.terreno_m2} m² totales`);
+  if (p.parking) parts.push(`• ${p.parking} ${Number(p.parking) === 1 ? 'estacionamiento' : 'estacionamientos'}`);
+  parts.push('');
+
+  // B) Precio
+  if (p.precio_uf) {
+    const curr = p.currency || 'UF';
+    const suffix = p.operacion === 'arriendo' ? ' / mes' : '';
+    parts.push(`B) ${curr} ${p.precio_uf}${suffix}`);
+  } else {
+    parts.push('B) Precio a convenir');
+  }
+
+  // Descripción libre del vendedor
+  if (p.descripcion && p.descripcion.trim()) {
+    parts.push(p.descripcion.trim());
+  }
+  parts.push('');
+
+  // Features con ✔
+  const featureMap = {
+    terraza: 'Terraza',
+    piscina: 'Piscina',
+    quincho: 'Quincho',
+    jardin: 'Jardín',
+    bodega: 'Bodega',
+    gimnasio: 'Gimnasio',
+  };
+  if (p.features && p.features.length) {
+    p.features.forEach(f => {
+      if (featureMap[f]) parts.push(`✔ ${featureMap[f]}`);
+    });
+    parts.push('');
+  }
+
+  parts.push('📩 Escribinos por WhatsApp para más info');
+
+  return parts.join('\n');
+}
+
 function openPublishModal() {
   if (!state.job_file_url && !state.job_download) {
     alert("El reel todavía no está listo");
@@ -1219,7 +1299,9 @@ function openPublishModal() {
   const savedWa   = (() => { try { return localStorage.getItem('c2c_owner_wa') || '';   } catch(_) { return ''; }})();
   document.getElementById('pf-loc').value         = p.loc || '';
   document.getElementById('pf-precio').value      = p.precio_uf || '';
-  document.getElementById('pf-desc').value        = state.caption_text || p.descripcion || '';
+  // Descripción: si el user ya escribió una, la respetamos; si no, generamos el copy con la info del paso 1
+  const existingDesc = (state.caption_text || p.descripcion || '').trim();
+  document.getElementById('pf-desc').value        = existingDesc || buildAutoCopy(p);
   document.getElementById('pf-wa').value          = p.contact_wa || savedWa;
   const nameEl = document.getElementById('pf-name');
   if (nameEl) nameEl.value = p.owner_name || savedName;
@@ -1279,13 +1361,18 @@ async function submitPublish() {
   const payload = {
     video_url:        videoUrl,
     type:             p.tipo || "Casa",
-    operacion:        "venta",
+    operacion:        p.operacion || "venta",
     price:            parseFloat(precio) || null,
-    currency:         "UF",
+    currency:         p.currency || "UF",
     comuna:           p.comuna || "",
     beds:             parseInt(p.dorms) || null,
     baths:            parseInt(p.banos) || null,
     area:             parseFloat(p.m2) || null,
+    // Nuevos campos (para filtros del feed comprador)
+    terreno_m2:       parseFloat(p.terreno_m2) || null,
+    parking:          parseInt(p.parking) || null,
+    condition:        p.condition || null,      // "nuevo" | "usado" | null
+    features:         Array.isArray(p.features) ? p.features : [],  // array de strings
     title:            `${p.tipo || "Propiedad"}${p.comuna ? " en " + p.comuna : ""}${p.m2 ? " · " + p.m2 + "m²" : ""}`,
     description:      desc,
     loc:              loc,
@@ -1368,10 +1455,16 @@ function goToStep(step) {
 
 // ── STEP 1: VIDEOS ─────────────────────────────────────────────────
 function renderStep1() {
-  // 2 modos: "guided" (armar reel con IA a partir de clips) y "ready_reel" (subir MP4 ya editado)
-  if (state.upload_mode !== "guided" && state.upload_mode !== "ready_reel") state.upload_mode = "guided";
+  // 3 estados: null (no elegido), "guided" (armar con IA), "ready_reel" (subir MP4 hecho)
+  // Solo migramos a "guided" si YA hay clips subidos (para no perder trabajo del user)
+  const hasClipsInProgress = state.sections && Object.values(state.sections).some(s => s.clips && s.clips.length > 0);
+  if (!state.upload_mode && hasClipsInProgress) state.upload_mode = "guided";
+  if (state.upload_mode && state.upload_mode !== "guided" && state.upload_mode !== "ready_reel") state.upload_mode = null;
 
   const isReady = state.upload_mode === "ready_reel";
+  const isGuided = state.upload_mode === "guided";
+  const isChosen = isReady || isGuided;
+
   const modeToggle = `
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
       <button onclick="switchUploadMode('ready_reel')"
@@ -1398,14 +1491,14 @@ function renderStep1() {
 
       <button onclick="switchUploadMode('guided')"
         class="text-left p-5 rounded-2xl transition-all"
-        style="${!isReady
+        style="${isGuided
           ? 'background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.35); transform: translateY(-2px);'
           : 'background: var(--bg-card); color: var(--text-primary); border: 1.5px solid var(--border-subtle);'}">
         <div class="flex items-start gap-3">
           <div class="text-3xl">🎬</div>
           <div class="flex-1 min-w-0">
             <div class="font-bold text-base mb-1">Armar mi reel con IA</div>
-            <div class="text-xs leading-relaxed" style="${!isReady ? 'opacity: 0.75;' : 'color: var(--text-secondary);'}">
+            <div class="text-xs leading-relaxed" style="${isGuided ? 'opacity: 0.75;' : 'color: var(--text-secondary);'}">
               Subís clips por sección · elegís música y voz · te generamos el reel profesional.
             </div>
           </div>
@@ -1414,12 +1507,31 @@ function renderStep1() {
     </div>
   `;
 
-  const content = isReady ? renderReadyReelUpload() : renderGuidedSections();
+  // Sin elección aún → hint sutil, sin contenido pesado
+  let content = "";
+  if (isReady) {
+    content = renderReadyReelUpload();
+  } else if (isGuided) {
+    content = renderGuidedSections();
+  } else {
+    content = `
+      <div class="text-center py-10" style="color: var(--text-muted);">
+        <div class="text-2xl mb-2 opacity-60">↑</div>
+        <p class="text-sm">Elegí una opción arriba para continuar</p>
+      </div>
+    `;
+  }
+
+  const subtitle = isReady
+    ? 'Subí tu video ya editado y lo publicamos en el marketplace'
+    : isGuided
+      ? 'Cargá clips por sección y armamos el reel con IA'
+      : 'Elegí cómo querés cargar los videos de la propiedad';
 
   return `
     <div class="fade-in">
       <h1 class="text-2xl font-bold text-slate-900 mb-1 text-center">Tus videos</h1>
-      <p class="text-slate-600 mb-5 text-center text-sm">${isReady ? 'Subí tu video ya editado y lo publicamos en el marketplace' : 'Elegí cómo querés cargar los videos de la propiedad'}</p>
+      <p class="text-slate-600 mb-5 text-center text-sm">${subtitle}</p>
       ${modeToggle}
       ${content}
     </div>
@@ -2056,49 +2168,138 @@ function renderStep2() {
       <h1 class="text-2xl font-bold text-slate-900 mb-1">Datos de la propiedad</h1>
       <p class="text-slate-600 mb-6">Con esto armamos el cierre del reel automáticamente.</p>
 
-      <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4 space-y-3">
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4 space-y-4">
+
+        <!-- Operación (venta / arriendo) -->
+        <div>
+          <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">¿Qué querés hacer?</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" onclick="state.property.operacion='venta'; render()"
+              style="padding:12px; border-radius:10px; font-size:14px; font-weight:500; border:1.5px solid ${p.operacion==='venta'?'var(--gold)':'var(--border-subtle)'}; background:${p.operacion==='venta'?'var(--gold)':'transparent'}; color:${p.operacion==='venta'?'var(--bg-base)':'var(--text-primary)'}; cursor:pointer;">
+              🏷️ Vender
+            </button>
+            <button type="button" onclick="state.property.operacion='arriendo'; render()"
+              style="padding:12px; border-radius:10px; font-size:14px; font-weight:500; border:1.5px solid ${p.operacion==='arriendo'?'var(--gold)':'var(--border-subtle)'}; background:${p.operacion==='arriendo'?'var(--gold)':'transparent'}; color:${p.operacion==='arriendo'?'var(--bg-base)':'var(--text-primary)'}; cursor:pointer;">
+              🔑 Arrendar
+            </button>
+          </div>
+        </div>
+
+        <!-- Tipo + Comuna -->
         <div class="grid grid-cols-2 gap-3">
           <div><label class="text-xs text-slate-500 block mb-1">Tipo</label>
             <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.property.tipo=this.value">
               <option ${p.tipo === 'Casa' ? 'selected' : ''}>Casa</option>
               <option ${p.tipo === 'Departamento' ? 'selected' : ''}>Departamento</option>
+              <option ${p.tipo === 'Sitio' ? 'selected' : ''}>Sitio</option>
               <option ${p.tipo === 'Parcela' ? 'selected' : ''}>Parcela</option>
               <option ${p.tipo === 'Oficina' ? 'selected' : ''}>Oficina</option>
-              <option ${p.tipo === 'Local' ? 'selected' : ''}>Local comercial</option>
+              <option ${p.tipo === 'Industrial' ? 'selected' : ''}>Industrial</option>
             </select></div>
           <div><label class="text-xs text-slate-500 block mb-1">Comuna</label>
             <input type="text" value="${escapeAttr(p.comuna)}" placeholder="Ej: Las Condes" oninput="state.property.comuna=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
         </div>
-        <div class="grid grid-cols-3 gap-3">
-          <div><label class="text-xs text-slate-500 block mb-1">m² construidos</label><input type="number" value="${escapeAttr(p.m2)}" placeholder="180" oninput="state.property.m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
-          <div><label class="text-xs text-slate-500 block mb-1">Dormitorios</label><input type="number" value="${escapeAttr(p.dorms)}" placeholder="3" oninput="state.property.dorms=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
-          <div><label class="text-xs text-slate-500 block mb-1">Baños</label><input type="number" value="${escapeAttr(p.banos)}" placeholder="2" oninput="state.property.banos=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+
+        <!-- Superficies -->
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="text-xs text-slate-500 block mb-1">m² útiles / construidos</label>
+            <input type="number" value="${escapeAttr(p.m2)}" placeholder="180" oninput="state.property.m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+          <div><label class="text-xs text-slate-500 block mb-1">m² terreno <span class="text-slate-400">(opcional)</span></label>
+            <input type="number" value="${escapeAttr(p.terreno_m2)}" placeholder="300" oninput="state.property.terreno_m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
         </div>
-        <div><label class="text-xs text-slate-500 block mb-1">Precio (UF)</label><input type="text" value="${escapeAttr(p.precio_uf)}" placeholder="1500" oninput="state.property.precio_uf=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+
+        <!-- Dormitorios (chips) -->
+        <div>
+          <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">Dormitorios</label>
+          <div class="flex flex-wrap gap-2">
+            ${["","1","2","3","4","5"].map(v => `
+              <button type="button" onclick="state.property.dorms='${v}'; render()"
+                style="padding:8px 16px; border-radius:999px; font-size:13px; font-weight:500; border:1px solid ${String(p.dorms)===v?'var(--gold)':'var(--border-subtle)'}; background:${String(p.dorms)===v?'var(--gold)':'transparent'}; color:${String(p.dorms)===v?'var(--bg-base)':'var(--text-primary)'}; cursor:pointer;">
+                ${v==="" ? "Indiferente" : v==="5" ? "5+" : v}
+              </button>
+            `).join("")}
+          </div>
+        </div>
+
+        <!-- Baños (chips) -->
+        <div>
+          <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">Baños</label>
+          <div class="flex flex-wrap gap-2">
+            ${["","1","2","3","4"].map(v => `
+              <button type="button" onclick="state.property.banos='${v}'; render()"
+                style="padding:8px 16px; border-radius:999px; font-size:13px; font-weight:500; border:1px solid ${String(p.banos)===v?'var(--gold)':'var(--border-subtle)'}; background:${String(p.banos)===v?'var(--gold)':'transparent'}; color:${String(p.banos)===v?'var(--bg-base)':'var(--text-primary)'}; cursor:pointer;">
+                ${v==="" ? "Indiferente" : v==="4" ? "4+" : v}
+              </button>
+            `).join("")}
+          </div>
+        </div>
+
+        <!-- Estacionamientos (chips) -->
+        <div>
+          <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">Estacionamientos</label>
+          <div class="flex flex-wrap gap-2">
+            ${["","1","2","3"].map(v => `
+              <button type="button" onclick="state.property.parking='${v}'; render()"
+                style="padding:8px 16px; border-radius:999px; font-size:13px; font-weight:500; border:1px solid ${String(p.parking)===v?'var(--gold)':'var(--border-subtle)'}; background:${String(p.parking)===v?'var(--gold)':'transparent'}; color:${String(p.parking)===v?'var(--bg-base)':'var(--text-primary)'}; cursor:pointer;">
+                ${v==="" ? "Ninguno" : v==="3" ? "3+" : v}
+              </button>
+            `).join("")}
+          </div>
+        </div>
+
+        <!-- Características (checkboxes) -->
+        <div>
+          <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">Características</label>
+          <div class="grid grid-cols-2 gap-2">
+            ${[
+              {k:"terraza", ic:"🏠", l:"Terraza"},
+              {k:"piscina", ic:"🏊", l:"Piscina"},
+              {k:"quincho", ic:"🍖", l:"Quincho"},
+              {k:"jardin",  ic:"🌳", l:"Jardín"},
+              {k:"bodega",  ic:"📦", l:"Bodega"},
+              {k:"gimnasio",ic:"💪", l:"Gimnasio"},
+            ].map(f => {
+              const on = (p.features||[]).includes(f.k);
+              return `
+                <button type="button" onclick="(function(){ const fs=state.property.features||[]; const i=fs.indexOf('${f.k}'); if(i>=0) fs.splice(i,1); else fs.push('${f.k}'); state.property.features=fs; render(); })()"
+                  style="display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:10px; font-size:13px; border:1px solid ${on?'var(--gold)':'var(--border-subtle)'}; background:${on?'rgba(201,168,106,0.15)':'transparent'}; color:var(--text-primary); cursor:pointer; text-align:left;">
+                  <span style="font-size:16px;">${f.ic}</span>
+                  <span style="flex:1;">${f.l}</span>
+                  ${on ? `<span style="color:var(--gold); font-size:12px; font-weight:600;">✓</span>` : ``}
+                </button>
+              `;
+            }).join("")}
+          </div>
+        </div>
+
+        <!-- Estado (chips) -->
+        <div>
+          <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">Estado</label>
+          <div class="flex flex-wrap gap-2">
+            ${[{v:"",l:"Indiferente"},{v:"nuevo",l:"Nuevo"},{v:"usado",l:"Usado"}].map(o => `
+              <button type="button" onclick="state.property.condition='${o.v}'; render()"
+                style="padding:8px 20px; border-radius:999px; font-size:13px; font-weight:500; border:1px solid ${(p.condition||'')===o.v?'var(--gold)':'var(--border-subtle)'}; background:${(p.condition||'')===o.v?'var(--gold)':'transparent'}; color:${(p.condition||'')===o.v?'var(--bg-base)':'var(--text-primary)'}; cursor:pointer;">
+                ${o.l}
+              </button>
+            `).join("")}
+          </div>
+        </div>
+
+        <!-- Precio -->
+        <div>
+          <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">Precio ${p.operacion === 'arriendo' ? '(mensual)' : ''} <span class="text-slate-400 normal-case font-normal">— podés dejarlo vacío y tasar con Valentina</span></label>
+          <div class="grid grid-cols-3 gap-2">
+            <input type="text" value="${escapeAttr(p.precio_uf)}" placeholder="${p.operacion === 'arriendo' ? '900.000' : '1500'}" oninput="state.property.precio_uf=this.value" class="col-span-2 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <select onchange="state.property.currency=this.value" class="w-full px-2 py-2 border border-slate-300 rounded-lg text-sm">
+              <option value="UF" ${(p.currency||'UF')==='UF'?'selected':''}>UF</option>
+              <option value="CLP" ${p.currency==='CLP'?'selected':''}>CLP</option>
+            </select>
+          </div>
+        </div>
+
       </div>
 
-      <div class="bg-white border-2 border-purple-200 rounded-2xl p-5 mb-4">
-        <div class="flex items-center justify-between mb-2">
-          <div class="flex items-center">
-            <span class="text-xl mr-2">📝</span>
-            <h3 class="font-bold text-slate-900">Detalles de la propiedad</h3>
-          </div>
-          ${state.is_recording_desc
-            ? `<button onclick="stopRecordingDescription()" class="px-3 py-1.5 bg-red-500 text-white rounded text-xs font-medium animate-pulse">⏹ Detener</button>`
-            : `<button onclick="startRecordingDescription()" class="px-3 py-1.5 bg-purple-600 text-white rounded text-xs font-medium hover:bg-purple-700">🎤 Grabar</button>`}
-        </div>
-        <p class="text-xs text-slate-500 mb-2">
-          Escribí o grabá un mini texto contando lo más interesante de la propiedad.
-          Lo vamos a usar para sugerirte el guion de voz IA y el caption del reel.
-        </p>
-        <textarea rows="3" maxlength="500"
-                  oninput="state.property.descripcion=this.value"
-                  placeholder="Ej: Hermosa casa familiar en Las Condes con vista a la cordillera, recién remodelada, cocina equipada, gran terraza con quincho..."
-                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">${escapeHtml(p.descripcion || '')}</textarea>
-        <div class="text-[11px] text-slate-500 mt-1">${(p.descripcion || '').length}/500 caracteres</div>
-        ${state.is_recording_desc ? `<div class="mt-2 text-xs text-red-600 flex items-center gap-1"><div class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div> Grabando — hablá ahora, cuando termines tocá Detener</div>` : ''}
-        ${state.desc_transcribing ? `<div class="mt-2 text-xs text-purple-600">⏳ Transcribiendo audio…</div>` : ''}
-      </div>
+      <!-- Descripción movida al modal de publicar (evita pedirla 2 veces) -->
 
       <div class="bg-black rounded-2xl p-6 mb-4 text-center">
         <div class="text-white text-sm mb-3">${escapeHtml(previewInfo)}</div>
@@ -2584,6 +2785,22 @@ function renderStep4() {
   const isDone = state.job_status === "done";
   const isError = state.job_status === "error";
   const isProc = state.job_status && !isDone && !isError;
+
+  // Auto-arrancar la generación al llegar al step 4 si nada ha corrido antes.
+  // Solo aplica al modo "guided" (armar con IA). El modo "ready_reel" salta directo a publicar.
+  if (!state.job_status && !state.has_been_processed && !state.auto_processing_started && state.upload_mode === "guided") {
+    state.auto_processing_started = true;
+    // Disparamos processReel() en el siguiente tick para que React/render termine primero
+    setTimeout(() => { try { processReel(); } catch(e) { console.error("Auto processReel failed:", e); } }, 50);
+    // Mientras arranca, mostramos el spinner directamente (no la pantalla "Listo para generar")
+    return `
+      <div class="fade-in max-w-md mx-auto text-center pt-12">
+        <div class="spinner w-12 h-12 border-4 border-slate-200 border-t-slate-900 rounded-full mx-auto mb-6"></div>
+        <h1 class="text-2xl font-bold text-slate-900 mb-2">Creando tu reel</h1>
+        <p class="text-slate-600 mb-6">Editando los videos, agregando música y armando el cierre.${state.enhance_ai ? ' Aplicando mejora IA.' : ''} Toma 1-2 minutos.</p>
+      </div>`;
+  }
+
   if (isProc || state.job_status === "uploading") {
     return `
       <div class="fade-in max-w-md mx-auto text-center pt-12">
