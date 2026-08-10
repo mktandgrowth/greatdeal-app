@@ -357,7 +357,7 @@ let state = {
   upload_mode: "guided",
   sections: emptySections(),
   simple_clips: [],
-  property: { tipo: "Casa", operacion: "venta", comuna: "", m2: "", terreno_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
+  property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
   advanced_open: false,
   enhance_ai: false,
   auto_subtitles: true,  // por default ON: si hay voz, los subtítulos se quieren siempre
@@ -425,7 +425,7 @@ function resetAll() {
   const voices = state.eleven_voices;
   state = {
     step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [],
-    property: { tipo: "Casa", operacion: "venta", comuna: "", m2: "", terreno_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
+    property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
     advanced_open: false, enhance_ai: false, auto_subtitles: true,
     music_preset: "cinematic_view", music_file: null, music_presets_catalog: catalog,
     voice_audio_file: null, voice_audio_url: null, voice_method: "none",
@@ -1297,7 +1297,19 @@ function openPublishModal() {
   const p = state.property || {};
   const savedName = (() => { try { return localStorage.getItem('c2c_owner_name') || ''; } catch(_) { return ''; }})();
   const savedWa   = (() => { try { return localStorage.getItem('c2c_owner_wa') || '';   } catch(_) { return ''; }})();
-  document.getElementById('pf-loc').value         = p.loc || '';
+  // Dirección: ya la tenemos del paso "Datos de la propiedad" (catastro) — no repreguntar
+  const dirCompleta = p.loc || [
+    p.direccion ? p.direccion + (p.depto ? ' depto ' + p.depto : '') : '',
+    p.comuna || ''
+  ].filter(Boolean).join(', ');
+  const locEl = document.getElementById('pf-loc');
+  locEl.value = dirCompleta;
+  const locHint = document.getElementById('pf-loc-hint');
+  if (dirCompleta) {
+    locEl.readOnly = true;
+    locEl.style.opacity = '0.7';
+    if (locHint) locHint.innerHTML = '✓ Es la del paso 1 (' + (p.rol ? 'ROL ' + p.rol.split('-').slice(1).join('-') + ' · ' : '') + 'catastro) · <a href="#" onclick="var e=document.getElementById(\'pf-loc\'); e.readOnly=false; e.style.opacity=\'1\'; e.focus(); return false;" style="color:var(--gold);">corregir</a>';
+  }
   document.getElementById('pf-precio').value      = p.precio_uf || '';
   // Descripción: si el user ya escribió una, la respetamos; si no, generamos el copy con la info del paso 1
   const existingDesc = (state.caption_text || p.descripcion || '').trim();
@@ -1633,8 +1645,10 @@ async function handleReadyReelUpload(file) {
       return;
     }
 
-    // 3) Subir el video al backend
-    state.ready_reel_progress = 'Subiendo video…';
+    // 3) Subir el video al backend (los >48 MB se comprimen en el servidor)
+    state.ready_reel_progress = file.size > 48 * 1024 * 1024
+      ? 'Subiendo video… como pesa más de 48 MB lo vamos a comprimir en el servidor (puede tardar 1-3 min, no cierres la página)'
+      : 'Subiendo video…';
     render();
     const fd = new FormData();
     fd.append('file', file);
@@ -2118,6 +2132,83 @@ function removeSectionClip(key, idx) {
   render();
 }
 
+// ── CATASTRO (SII vía Data Inmobiliaria, API del tasador C2C) ──────
+// Busca la propiedad por dirección+comuna y permite confirmar la ficha:
+// rellena m² y tipo automáticamente y guarda el ROL en la publicación.
+const CATASTRO_API = "https://tasar.c2cprops.com/api/predio";
+function rolCortoCat(r) { const p = String(r || "").split("-"); return p.length >= 3 ? p.slice(1).join("-") : (r || ""); }
+async function buscarCatastro() {
+  const p = state.property;
+  if (!p.direccion || !p.comuna) { state.cat = { status: "error", msg: "Escribí la dirección y la comuna primero." }; render(); return; }
+  state.cat = { status: "loading" }; render();
+  try {
+    const r = await fetch(CATASTRO_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ direccion: p.direccion, comuna: p.comuna, depto: p.depto || "" }) });
+    const j = await r.json();
+    const cands = j.candidatos || [];
+    if (!cands.length) state.cat = { status: "error", msg: j.mensaje || "No encontré la propiedad en el catastro. Podés cargar los datos a mano." };
+    else if (cands.length === 1) state.cat = { status: "ficha", ficha: cands[0] };
+    else state.cat = { status: "candidatos", candidatos: cands.slice(0, 8) };
+  } catch (e) { state.cat = { status: "error", msg: "No pude conectar con el catastro. Cargá los datos a mano." }; }
+  render();
+}
+function elegirCandidatoCat(i) { const c = ((state.cat && state.cat.candidatos) || [])[i]; if (c) state.cat = { status: "ficha", ficha: c }; render(); }
+function aplicarCatastro() {
+  const fch = state.cat && state.cat.ficha; if (!fch) return;
+  const p = state.property;
+  if (fch.m2_construido) p.m2 = String(fch.m2_construido);
+  p.rol = fch.rol || "";
+  const d = " " + String(fch.direccion || "").toUpperCase().replace(/\s+/g, " ") + " ";
+  if (/ (DP|DEPTO|DPTO) /.test(d) || fch.es_copropiedad) p.tipo = "Departamento";
+  else if (/ (OF|OFIC) /.test(d)) p.tipo = "Oficina";
+  else if (/ (LC|LOC|LOCAL) /.test(d)) p.tipo = "Local comercial";
+  else if ((fch.m2_construido || 0) > 0) p.tipo = "Casa";
+  state.cat = { status: "ok", ficha: fch };
+  render();
+}
+function renderCatastroBlock() {
+  const p = state.property;
+  const c = state.cat;
+  let panel = "";
+  if (c && c.status === "loading") panel = `<div class="text-xs text-slate-500 mt-2">⏳ Buscando en el catastro…</div>`;
+  if (c && c.status === "error") panel = `<div class="text-xs text-red-600 mt-2">${escapeHtml(c.msg)}</div>`;
+  if (c && c.status === "candidatos") panel = `
+    <div class="mt-2 space-y-1">
+      <div class="text-xs text-slate-600 font-medium">Encontré ${c.candidatos.length} unidades — elegí la tuya:</div>
+      ${c.candidatos.map((x, i) => `<button onclick="elegirCandidatoCat(${i})" class="w-full text-left px-3 py-2 border border-slate-200 rounded-lg text-xs hover:border-amber-400 hover:bg-amber-50">${escapeHtml(x.direccion || "")} · ${x.m2_construido || "?"} m² · ROL ${escapeHtml(rolCortoCat(x.rol))}</button>`).join("")}
+    </div>`;
+  if (c && c.status === "ficha") { const fch = c.ficha; panel = `
+    <div class="mt-2 border border-emerald-200 bg-emerald-50 rounded-xl p-3">
+      <div class="text-xs font-semibold text-emerald-900 mb-1">📋 Datos del catastro (SII) — confirmá que es tu propiedad:</div>
+      <div class="text-xs text-slate-700 leading-relaxed">
+        <strong>${escapeHtml(fch.direccion || "")}</strong><br>
+        ROL ${escapeHtml(rolCortoCat(fch.rol))} · ${fch.m2_construido ? fch.m2_construido + " m² construidos" : ""}${fch.m2_terreno ? " · " + fch.m2_terreno + " m² terreno" : ""}${fch.ano_construccion ? " · año " + fch.ano_construccion : ""}${fch.avaluo_total_clp ? "<br>Avalúo fiscal $" + Number(fch.avaluo_total_clp).toLocaleString("es-CL") : ""}
+      </div>
+      <div class="flex gap-2 mt-2">
+        <button onclick="aplicarCatastro()" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700">✓ Sí, usar estos datos</button>
+        <button onclick="state.cat=null; render()" class="px-3 py-1.5 border border-slate-300 text-slate-600 rounded-lg text-xs">No es esta</button>
+      </div>
+    </div>`; }
+  if (c && c.status === "ok") panel = `
+    <div class="mt-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+      ✓ Datos aplicados desde el catastro — ROL ${escapeHtml(rolCortoCat(c.ficha.rol))} · ${c.ficha.m2_construido || "?"} m²
+      <button onclick="state.cat=null; render()" class="ml-2 underline text-slate-500">cambiar</button>
+    </div>`;
+  return `
+    <div>
+      <label class="text-xs text-slate-500 block mb-1">Dirección de la propiedad *</label>
+      <div class="grid grid-cols-[1fr_90px] gap-2">
+        <input type="text" value="${escapeAttr(p.direccion || "")}" placeholder="Ej: Luis Carrera 2870" oninput="state.property.direccion=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <input type="text" value="${escapeAttr(p.depto || "")}" placeholder="Depto" oninput="state.property.depto=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+      </div>
+      <div class="grid grid-cols-[1fr_auto] gap-2 mt-2">
+        <input type="text" value="${escapeAttr(p.comuna || "")}" placeholder="Comuna · Ej: Vitacura" oninput="state.property.comuna=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <button onclick="buscarCatastro()" class="px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-700 whitespace-nowrap">🔍 Buscar en catastro</button>
+      </div>
+      <div class="text-[11px] text-slate-400 mt-1">Con la dirección y la comuna traemos m², tipo y ROL automáticamente desde el SII</div>
+      ${panel}
+    </div>`;
+}
+
 // ── STEP 2: DATOS + AVANZADO ───────────────────────────────────────
 function renderStep2() {
   const p = state.property;
@@ -2170,7 +2261,7 @@ function renderStep2() {
 
       <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4 space-y-4">
 
-        <!-- Operación (venta / arriendo) -->
+        <!-- Operación (venta / arriendo) — mío -->
         <div>
           <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">¿Qué querés hacer?</label>
           <div class="grid grid-cols-2 gap-2">
@@ -2185,6 +2276,9 @@ function renderStep2() {
           </div>
         </div>
 
+        <!-- Búsqueda catastral SII (dirección con autocomplete) — Foco -->
+        ${renderCatastroBlock()}
+
         <!-- Tipo + Comuna -->
         <div class="grid grid-cols-2 gap-3">
           <div><label class="text-xs text-slate-500 block mb-1">Tipo</label>
@@ -2196,8 +2290,7 @@ function renderStep2() {
               <option ${p.tipo === 'Oficina' ? 'selected' : ''}>Oficina</option>
               <option ${p.tipo === 'Industrial' ? 'selected' : ''}>Industrial</option>
             </select></div>
-          <div><label class="text-xs text-slate-500 block mb-1">Comuna</label>
-            <input type="text" value="${escapeAttr(p.comuna)}" placeholder="Ej: Las Condes" oninput="state.property.comuna=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+
         </div>
 
         <!-- Superficies -->
@@ -4265,7 +4358,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       <div>
         <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Dirección *</label>
         <input id="pf-loc" type="text" placeholder="Ej: Av. Las Condes 7100, Las Condes" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
-        <div style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Aparece en el mapa del feed para los compradores</div>
+        <div id="pf-loc-hint" style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Aparece en el mapa del feed para los compradores</div>
       </div>
 
       <!-- 2. TU NOMBRE + WHATSAPP (crean tu usuario automáticamente) -->

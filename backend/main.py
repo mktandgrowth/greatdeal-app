@@ -98,38 +98,103 @@ async def upload_ready_reel(file: UploadFile = File(...)):
     supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
     bucket = os.environ.get("SUPABASE_BUCKET_REELS", "reels")
 
-    # Leer todo el archivo a memoria (con límite)
+    # Guardar el archivo a DISCO por chunks — nunca entero en RAM: los videos
+    # de 100-300 MB reventaban la memoria del server (512 MB en Render free),
+    # FFmpeg moría por OOM y el fallback intentaba subir el original gigante
+    # (eso era el 500 "Internal" de Supabase). Ahora todo es streaming.
+    import subprocess, tempfile, shutil
+    tmp_in = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    size = 0
     try:
-        data = file.file.read()
+        while True:
+            chunk = file.file.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > 300 * 1024 * 1024:
+                raise HTTPException(400, "Archivo muy grande. Máx 300 MB.")
+            tmp_in.write(chunk)
+    except HTTPException:
+        tmp_in.close()
+        os.unlink(tmp_in.name)
+        raise
     except Exception as e:
+        tmp_in.close()
+        os.unlink(tmp_in.name)
         raise HTTPException(500, f"No se pudo leer el archivo: {e}")
+    tmp_in.close()
+    size_mb = size / (1024 * 1024)
 
-    size_mb = len(data) / (1024 * 1024)
-    if size_mb > 300:
-        raise HTTPException(400, f"Archivo muy grande ({size_mb:.1f} MB). Máx 300 MB.")
+    content_type = file.content_type or "video/mp4"
+    upload_path = tmp_in.name
+    tmp_out = tmp_in.name + "_opt.mp4"
+
+    # Supabase Storage (plan free) corta los uploads en ~50 MB. Si el reel pesa
+    # más, lo comprimimos con FFmpeg (H.264 720p + audio AAC intacto).
+    SUPABASE_MAX_MB = float(os.environ.get("SUPABASE_MAX_MB", "48"))
+    if size_mb > SUPABASE_MAX_MB:
+        cmd = [
+            "ffmpeg", "-y", "-i", tmp_in.name,
+            "-vf", "scale='min(720,iw)':-2",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            "-threads", "2",
+            tmp_out,
+        ]
+        try:
+            print(f"[upload-ready] {size_mb:.1f} MB > {SUPABASE_MAX_MB:.0f} MB → comprimiendo con FFmpeg…", flush=True)
+            proc = subprocess.run(cmd, capture_output=True, timeout=600)
+            if proc.returncode != 0:
+                raise RuntimeError((proc.stderr or b"").decode(errors="ignore")[-400:])
+            comp_size = os.path.getsize(tmp_out)
+            if comp_size > 50_000:
+                upload_path = tmp_out
+                size_mb = comp_size / (1024 * 1024)
+                content_type = "video/mp4"
+                print(f"[upload-ready] Comprimido a {size_mb:.1f} MB", flush=True)
+        except Exception as e:
+            print(f"[upload-ready] FFmpeg falló: {e}", flush=True)
+        if size_mb > SUPABASE_MAX_MB:
+            for _pth in (tmp_in.name, tmp_out):
+                try:
+                    os.unlink(_pth)
+                except Exception:
+                    pass
+            raise HTTPException(400, f"No pude comprimir el video en el servidor (queda en {size_mb:.0f} MB y el almacenamiento acepta {SUPABASE_MAX_MB:.0f} MB). Exportalo en 720p o más corto e intentá de nuevo.")
 
     out_name = f"ready_{uuid.uuid4().hex[:12]}.mp4"
 
-    # Si hay Supabase configurada → subir a Storage (persistente, público)
+    def _cleanup():
+        for _pth in (tmp_in.name, tmp_out):
+            try:
+                os.unlink(_pth)
+            except Exception:
+                pass
+
+    # Si hay Supabase configurada → subir a Storage por STREAMING desde disco
     if supabase_url and supabase_key:
         try:
             upload_url = f"{supabase_url}/storage/v1/object/{bucket}/{out_name}"
-            r = requests.post(
-                upload_url,
-                headers={
-                    "apikey": supabase_key,
-                    "Authorization": f"Bearer {supabase_key}",
-                    "Content-Type": file.content_type or "video/mp4",
-                    "x-upsert": "true",
-                },
-                data=data,
-                timeout=90,
-            )
+            with open(upload_path, "rb") as fh:
+                r = requests.post(
+                    upload_url,
+                    headers={
+                        "apikey": supabase_key,
+                        "Authorization": f"Bearer {supabase_key}",
+                        "Content-Type": content_type,
+                        "x-upsert": "true",
+                    },
+                    data=fh,
+                    timeout=180,
+                )
             if r.status_code not in (200, 201):
                 print(f"[upload-ready] Supabase Storage rechazó: {r.status_code} {r.text[:400]}", flush=True)
+                _cleanup()
                 raise HTTPException(500, f"Supabase Storage rechazó el upload ({r.status_code}): {r.text[:300]}")
             public_url = f"{supabase_url}/storage/v1/object/public/{bucket}/{out_name}"
             print(f"[upload-ready] Subido a Supabase Storage → {public_url}", flush=True)
+            _cleanup()
             return {"ok": True, "file_url": public_url, "size_mb": round(size_mb, 2), "storage": "supabase"}
         except HTTPException:
             raise
@@ -141,10 +206,11 @@ async def upload_ready_reel(file: UploadFile = File(...)):
     # Fallback: guardar en disco local (efímero en Render — se pierde en redeploy)
     out_path = OUTPUT_DIR / out_name
     try:
-        with open(out_path, "wb") as buf:
-            buf.write(data)
+        shutil.move(upload_path, out_path)
     except Exception as e:
+        _cleanup()
         raise HTTPException(500, f"No se pudo guardar el archivo: {e}")
+    _cleanup()
     file_url = f"/api/files/{out_name}"
     return {"ok": True, "file_url": file_url, "size_mb": round(size_mb, 2), "storage": "local", "warning": "guardado en disco efímero — se pierde en redeploy"}
 
