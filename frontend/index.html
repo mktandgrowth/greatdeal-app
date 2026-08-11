@@ -1386,6 +1386,8 @@ function openPublishModal() {
     if (p.direccion) q.set('direccion', p.direccion);
     if (p.depto) q.set('depto', p.depto);
     if (p.comuna) q.set('comuna', p.comuna);
+    if (parseInt(p.dorms) > 0) q.set('dorms', String(parseInt(p.dorms)));
+    if (parseInt(p.banos) > 0) q.set('banos', String(parseInt(p.banos)));
     tasarLink.href = 'https://tasar.c2cprops.com/?' + q.toString();
   }
 }
@@ -1529,10 +1531,29 @@ async function submitPublish() {
     } catch(_) {}
     // Marcar como "publicando" para evitar el prompt "podés perder cambios"
     state.publish_in_progress = true;
-    if (btn) btn.innerHTML = '✅ Publicado · Redirigiendo…';
-    setTimeout(() => {
-      window.location.href = data.feed_url || "https://c2cprops.com/comprar";
-    }, 800);
+    // Pantalla de éxito en el mismo modal (NO redirigir al feed del comprador,
+    // que puede pedir inicio de sesión y confunde al vendedor recién publicado)
+    const feedUrl = data.feed_url || "https://c2cprops.com/comprar";
+    const metodoTxt = ({
+      whatsapp: 'Los interesados te contactarán por <b>WhatsApp</b>.',
+      telefono: 'Los interesados te contactarán por <b>teléfono</b>.',
+      email: 'Los interesados te contactarán por <b>mail</b>.',
+      ejecutivo: 'Un <b>ejecutivo C2C</b> se pondrá en contacto contigo para acompañarte en la venta.',
+    })[method] || '';
+    const card = document.querySelector('#publish-modal > div');
+    if (card) {
+      card.innerHTML = `
+        <div style="text-align:center; padding:18px 6px;">
+          <div style="font-size:52px; line-height:1;">✅</div>
+          <h2 style="font-family:'Playfair Display',serif; font-size:24px; margin:14px 0 6px; color:var(--text-primary);">¡Tu propiedad quedó publicada!</h2>
+          <p style="font-size:14px; color:var(--text-secondary); margin:0 0 4px;">Ya está visible en el marketplace de C2C.</p>
+          <p style="font-size:13.5px; color:var(--text-secondary); margin:10px 0 22px;">${metodoTxt}</p>
+          <a href="${feedUrl}" style="display:block; width:100%; padding:14px; border-radius:12px; background:var(--gold); color:var(--bg-base); font-weight:700; font-size:14.5px; text-decoration:none; margin-bottom:10px;">Ver mi publicación en el marketplace</a>
+          <button type="button" onclick="document.getElementById('publish-modal').style.display='none'" style="width:100%; padding:12px; border-radius:12px; border:1px solid var(--border-subtle); background:transparent; color:var(--text-secondary); font-size:13.5px; cursor:pointer;">Cerrar</button>
+        </div>`;
+    } else {
+      window.location.href = feedUrl;
+    }
   } catch (e) {
     clearTimeout(timeoutId);
     console.error('[publish] fallo:', e);
@@ -2611,7 +2632,7 @@ function renderStep2() {
         <div>
           <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">Estado</label>
           <div class="flex flex-wrap gap-2">
-            ${[{v:"",l:"Indiferente"},{v:"nuevo",l:"Nuevo"},{v:"usado",l:"Usado"}].map(o => `
+            ${[{v:"nuevo",l:"Nuevo"},{v:"usado",l:"Usado"}].map(o => `
               <button type="button" onclick="state.property.condition='${o.v}'; render()"
                 style="padding:8px 20px; border-radius:999px; font-size:13px; font-weight:500; border:1px solid ${(p.condition||'')===o.v?'var(--gold)':'var(--border-subtle)'}; background:${(p.condition||'')===o.v?'var(--gold)':'transparent'}; color:${(p.condition||'')===o.v?'var(--bg-base)':'var(--text-primary)'}; cursor:pointer;">
                 ${o.l}
