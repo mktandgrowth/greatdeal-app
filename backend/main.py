@@ -501,6 +501,9 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         "lat":             _f(payload.get("lat")),
         "lng":             _f(payload.get("lng")),
         "contact_wa":      contact_wa_norm,   # número normalizado (solo dígitos)
+        # Método de contacto elegido: whatsapp | telefono | email | ejecutivo
+        "contact_method":  (payload.get("contact_method") or "whatsapp").lower().strip()[:20],
+        "contact_email":   ((payload.get("contact_email") or "").strip()[:120] or None),
         "owner_id":        owner_id_resolved, # linkeado por WA (o null si falló)
         "status":          "published",       # explícito para asegurar que salga en el feed
     }
