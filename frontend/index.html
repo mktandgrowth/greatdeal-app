@@ -1373,14 +1373,38 @@ function openPublishModal() {
 
   // "Usá nuestro tasador": llevar la dirección ya ingresada para que Valentina
   // tase de inmediato, sin volver a preguntarla (deep-link a tasar.c2cprops.com)
+  // Método de contacto: restaurar el último elegido (default WhatsApp)
+  let savedMethod = 'whatsapp';
+  try { savedMethod = localStorage.getItem('c2c_contact_method') || 'whatsapp'; } catch (_) {}
+  setContactMethod(savedMethod);
+  const emailEl = document.getElementById('pf-email');
+  if (emailEl) { try { emailEl.value = localStorage.getItem('c2c_owner_email') || ''; } catch (_) {} }
+
   const tasarLink = document.getElementById('pf-tasar-link');
   if (tasarLink) {
-    const q = new URLSearchParams({ view: 'vendedor' });
+    const q = new URLSearchParams({ view: 'vendedor', origen: 'publicar' });
     if (p.direccion) q.set('direccion', p.direccion);
     if (p.depto) q.set('depto', p.depto);
     if (p.comuna) q.set('comuna', p.comuna);
     tasarLink.href = 'https://tasar.c2cprops.com/?' + q.toString();
   }
+}
+
+// Método de contacto elegido por el vendedor (whatsapp | telefono | email | ejecutivo)
+function setContactMethod(m) {
+  state.contact_method = m;
+  try { localStorage.setItem('c2c_contact_method', m); } catch (_) {}
+  const wrap = document.getElementById('pf-contact-methods');
+  if (wrap) [...wrap.querySelectorAll('button')].forEach(b => {
+    const on = b.getAttribute('data-m') === m;
+    b.style.borderColor = on ? 'var(--gold)' : 'var(--border-subtle)';
+    b.style.background = on ? 'var(--gold)' : 'transparent';
+    b.style.color = on ? 'var(--bg-base)' : 'var(--text-primary)';
+  });
+  const lbl = document.getElementById('pf-phone-label');
+  if (lbl) lbl.textContent = m === 'telefono' ? 'Número de teléfono *' : m === 'whatsapp' ? 'Número de WhatsApp *' : 'Teléfono de contacto *';
+  const ew = document.getElementById('pf-email-wrap'); if (ew) ew.style.display = m === 'email' ? 'block' : 'none';
+  const en = document.getElementById('pf-exec-note'); if (en) en.style.display = m === 'ejecutivo' ? 'block' : 'none';
 }
 
 function closePublishModal() {
@@ -1411,7 +1435,10 @@ async function submitPublish() {
   // Validación mínima — precio es OPCIONAL (si no lo tiene, Valentina lo tasa después)
   if (!loc) { alert("Falta la dirección de la propiedad"); document.getElementById('pf-loc').focus(); return; }
   if (!name) { alert("Falta tu nombre"); document.getElementById('pf-name')?.focus(); return; }
-  if (!wa) { alert("Falta el número de WhatsApp para contacto"); document.getElementById('pf-wa').focus(); return; }
+  const method = state.contact_method || 'whatsapp';
+  const email  = (document.getElementById('pf-email')?.value || '').trim();
+  if (method === 'email' && !email) { alert("Falta tu correo para que te contacten"); document.getElementById('pf-email')?.focus(); return; }
+  if (method !== 'email' && !wa) { alert(method === 'telefono' ? "Falta tu número de teléfono" : "Falta tu número de contacto"); document.getElementById('pf-wa').focus(); return; }
   // Nota: el precio NO es obligatorio — si el user prefiere que Valentina tase, dejamos precio null
 
   // Guardar en state para próxima vez
@@ -1425,6 +1452,7 @@ async function submitPublish() {
   try {
     localStorage.setItem('c2c_owner_name', name);
     localStorage.setItem('c2c_owner_wa', wa);
+    if (email) localStorage.setItem('c2c_owner_email', email);
   } catch(_) {}
   try { typeof saveStateToStorage === 'function' && saveStateToStorage(); } catch(_) {}
 
@@ -1454,6 +1482,8 @@ async function submitPublish() {
     loc:              loc,
     vanity_location:  loc, // por ahora mismo string; podemos refinar después
     contact_wa:       wa,
+    contact_method:   method,          // whatsapp | telefono | email | ejecutivo
+    contact_email:    email || null,
     owner_name:       name, // usado por backend para upsert de profile
     // lat/lng quedan null por ahora — Google Places lo agregaremos en una próxima iter
   };
@@ -4437,6 +4467,8 @@ function saveStateToStorage() {
       has_been_processed: state.has_been_processed,
       has_navigated_back_after_process: state.has_navigated_back_after_process,
       job_id: state.job_id,
+      job_file_url: state.job_file_url || null,
+      job_download: state.job_download || null,
       // Marca cuántos clips había para avisar al usuario
       _clips_count_sections: SECTION_ORDER.reduce((acc, k) => acc + (state.sections[k]?.clips?.length || 0), 0),
       _clips_count_simple: state.simple_clips?.length || 0,
@@ -4471,6 +4503,9 @@ function restoreStateFromStorage() {
   if (saved.custom_cta_info !== undefined) state.custom_cta_info = saved.custom_cta_info;
   if (saved.custom_cta_precio !== undefined) state.custom_cta_precio = saved.custom_cta_precio;
   if (saved.has_navigated_back_after_process !== undefined) state.has_navigated_back_after_process = saved.has_navigated_back_after_process;
+  if (saved.job_file_url) state.job_file_url = saved.job_file_url;
+  if (saved.job_download) state.job_download = saved.job_download;
+  if (saved.has_been_processed !== undefined) state.has_been_processed = saved.has_been_processed;
   return true;
 }
 
@@ -4534,6 +4569,31 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 500);
   }
 
+  // Volviendo del tasador de Valentina con precio sugerido (?precio_uf=)
+  try {
+    const qs = new URLSearchParams(location.search);
+    const pv = parseFloat(qs.get('precio_uf'));
+    if (pv > 0) {
+      state.property.precio_uf = String(Math.round(pv));
+      history.replaceState(null, '', location.pathname);
+      setTimeout(() => {
+        if (state.job_file_url || state.job_download) {
+          openPublishModal();
+          try { showManualPricing(); } catch (_) {}
+          const pe = document.getElementById('pf-precio'); if (pe) pe.value = state.property.precio_uf;
+          const pw = document.getElementById('pf-precio-wrap');
+          if (pw && !document.getElementById('pf-precio-sugerido')) {
+            const note = document.createElement('div');
+            note.id = 'pf-precio-sugerido';
+            note.style.cssText = 'font-size:10.5px;color:var(--gold);margin-top:6px;';
+            note.textContent = '✨ Precio sugerido por la tasación de Valentina — puedes ajustarlo antes de publicar.';
+            pw.appendChild(note);
+          }
+        }
+      }, 900);
+    }
+  } catch (_) {}
+
   // Auto-save cada 3 segundos si hay cambios
   setInterval(saveStateToStorage, 3000);
 });
@@ -4562,19 +4622,30 @@ document.addEventListener("DOMContentLoaded", async () => {
         <div id="pf-loc-hint" style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Aparece en el mapa del feed para los compradores</div>
       </div>
 
-      <!-- 2. TU NOMBRE + WHATSAPP (crean tu usuario automáticamente) -->
+      <!-- 2. TU NOMBRE + CONTACTO (método elegible) -->
       <div style="display:grid; grid-template-columns:1fr 1.4fr; gap:10px;">
         <div>
           <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Tu nombre *</label>
           <input id="pf-name" type="text" placeholder="Ej: Valentina" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
         </div>
         <div>
-          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Número de WhatsApp *</label>
+          <label id="pf-phone-label" style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Número de WhatsApp *</label>
           <input id="pf-wa" type="tel" placeholder="+56 9 1234 5678" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
         </div>
       </div>
-      <div style="font-size:10.5px; color:var(--text-faint); margin-top:-8px;">
-        Cada número de WhatsApp es un usuario único. Si ya publicaste con este número, se suma a tu perfil automáticamente.
+      <div>
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:8px; font-weight:600;">¿Cómo quieres que te contacten los interesados? *</label>
+        <div id="pf-contact-methods" style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" onclick="setContactMethod('whatsapp')" data-m="whatsapp" style="padding:8px 14px; border-radius:999px; font-size:12.5px; font-weight:500; border:1px solid var(--border-subtle); background:transparent; color:var(--text-primary); cursor:pointer;">💬 WhatsApp</button>
+          <button type="button" onclick="setContactMethod('telefono')" data-m="telefono" style="padding:8px 14px; border-radius:999px; font-size:12.5px; font-weight:500; border:1px solid var(--border-subtle); background:transparent; color:var(--text-primary); cursor:pointer;">📞 Teléfono</button>
+          <button type="button" onclick="setContactMethod('email')" data-m="email" style="padding:8px 14px; border-radius:999px; font-size:12.5px; font-weight:500; border:1px solid var(--border-subtle); background:transparent; color:var(--text-primary); cursor:pointer;">✉️ Mail</button>
+          <button type="button" onclick="setContactMethod('ejecutivo')" data-m="ejecutivo" style="padding:8px 14px; border-radius:999px; font-size:12.5px; font-weight:500; border:1px solid var(--border-subtle); background:transparent; color:var(--text-primary); cursor:pointer;">🤝 Ejecutivo C2C</button>
+        </div>
+        <div id="pf-email-wrap" style="display:none; margin-top:10px;">
+          <input id="pf-email" type="email" placeholder="tu@correo.cl" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        </div>
+        <div id="pf-exec-note" style="display:none; font-size:11px; color:var(--gold); margin-top:8px;">🤝 Un ejecutivo de C2C te contactará para gestionar la venta de principio a fin. Solo necesitamos tu teléfono.</div>
+        <div style="font-size:10.5px; color:var(--text-faint); margin-top:8px;">Cada número es un usuario único. Si ya publicaste con este número, se suma a tu perfil automáticamente.</div>
       </div>
 
       <!-- 3. PRECIO — con 2 opciones A/B -->
@@ -4582,7 +4653,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:10px; font-weight:600;">¿Ya sabés qué precio ponerle?</label>
 
         <!-- Opción A: usar tasador -->
-        <a id="pf-tasar-link" href="https://tasar.c2cprops.com/?view=vendedor" target="_blank" rel="noopener"
+        <a id="pf-tasar-link" href="https://tasar.c2cprops.com/?view=vendedor" rel="noopener"
            style="display:flex; align-items:flex-start; gap:12px; padding:14px; border-radius:12px; background:rgba(201,168,106,0.06); border:1.5px solid var(--gold-border); text-decoration:none; margin-bottom:10px; transition:all 0.2s;"
            onmouseover="this.style.background='rgba(201,168,106,0.12)'"
            onmouseout="this.style.background='rgba(201,168,106,0.06)'">
