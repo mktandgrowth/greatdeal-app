@@ -1370,6 +1370,17 @@ function openPublishModal() {
   document.getElementById('pf-wa').value          = p.contact_wa || savedWa;
   const nameEl = document.getElementById('pf-name');
   if (nameEl) nameEl.value = p.owner_name || savedName;
+
+  // "Usá nuestro tasador": llevar la dirección ya ingresada para que Valentina
+  // tase de inmediato, sin volver a preguntarla (deep-link a tasar.c2cprops.com)
+  const tasarLink = document.getElementById('pf-tasar-link');
+  if (tasarLink) {
+    const q = new URLSearchParams({ view: 'vendedor' });
+    if (p.direccion) q.set('direccion', p.direccion);
+    if (p.depto) q.set('depto', p.depto);
+    if (p.comuna) q.set('comuna', p.comuna);
+    tasarLink.href = 'https://tasar.c2cprops.com/?' + q.toString();
+  }
 }
 
 function closePublishModal() {
@@ -4571,7 +4582,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:10px; font-weight:600;">¿Ya sabés qué precio ponerle?</label>
 
         <!-- Opción A: usar tasador -->
-        <a href="https://c2cprops.com/tasar?view=vendedor" target="_blank" rel="noopener"
+        <a id="pf-tasar-link" href="https://tasar.c2cprops.com/?view=vendedor" target="_blank" rel="noopener"
            style="display:flex; align-items:flex-start; gap:12px; padding:14px; border-radius:12px; background:rgba(201,168,106,0.06); border:1.5px solid var(--gold-border); text-decoration:none; margin-bottom:10px; transition:all 0.2s;"
            onmouseover="this.style.background='rgba(201,168,106,0.12)'"
            onmouseout="this.style.background='rgba(201,168,106,0.06)'">
