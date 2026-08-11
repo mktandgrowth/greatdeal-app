@@ -4569,24 +4569,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 500);
   }
 
-  // Volviendo del tasador de Valentina con precio sugerido (?precio_uf=)
+  // Volviendo del tasador de Valentina (?precio_uf= / ?volver=1 / ?contacto=)
+  // El cierre se decide en el chat de la tasacion: precio aceptado o propio + metodo de contacto.
   try {
     const qs = new URLSearchParams(location.search);
-    const pv = parseFloat(qs.get('precio_uf'));
-    if (pv > 0) {
-      state.property.precio_uf = String(Math.round(pv));
-      history.replaceState(null, '', location.pathname);
+    const pv = parseFloat(qs.get("precio_uf"));
+    const contacto = (qs.get("contacto") || "").toLowerCase().trim();
+    const regresa = pv > 0 || qs.get("volver") === "1" || !!contacto;
+    if (regresa) {
+      if (pv > 0) state.property.precio_uf = String(Math.round(pv));
+      if (contacto) { try { localStorage.setItem("c2c_contact_method", contacto); } catch (_) {} }
+      history.replaceState(null, "", location.pathname);
       setTimeout(() => {
         if (state.job_file_url || state.job_download) {
           openPublishModal();
           try { showManualPricing(); } catch (_) {}
-          const pe = document.getElementById('pf-precio'); if (pe) pe.value = state.property.precio_uf;
-          const pw = document.getElementById('pf-precio-wrap');
-          if (pw && !document.getElementById('pf-precio-sugerido')) {
-            const note = document.createElement('div');
-            note.id = 'pf-precio-sugerido';
-            note.style.cssText = 'font-size:10.5px;color:var(--gold);margin-top:6px;';
-            note.textContent = '✨ Precio sugerido por la tasación de Valentina — puedes ajustarlo antes de publicar.';
+          if (contacto) { try { setContactMethod(contacto); } catch (_) {} }
+          const pe = document.getElementById("pf-precio");
+          if (pe) {
+            pe.value = pv > 0 ? state.property.precio_uf : (state.property.precio_uf || "");
+            if (!(pv > 0)) { try { pe.focus(); } catch (_) {} }
+          }
+          const pw = document.getElementById("pf-precio-wrap");
+          if (pv > 0 && pw && !document.getElementById("pf-precio-sugerido")) {
+            const note = document.createElement("div");
+            note.id = "pf-precio-sugerido";
+            note.style.cssText = "font-size:10.5px;color:var(--gold);margin-top:6px;";
+            note.textContent = "\u2728 Precio sugerido por la tasaci\u00f3n de Valentina \u2014 puedes ajustarlo antes de publicar.";
             pw.appendChild(note);
           }
         }
