@@ -507,25 +507,44 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     # Saca claves con valor None para no pisar defaults de la DB
     row = {k: v for k, v in row.items() if v is not None}
 
-    try:
-        res = requests.post(
-            f"{supabase_url}/rest/v1/properties",
-            headers={
-                "apikey": supabase_key,
-                "Authorization": f"Bearer {supabase_key}",
-                "Content-Type": "application/json",
-                "Prefer": "return=representation",
-            },
-            json=row,
-            timeout=15,
-        )
-    except Exception as e:
-        raise HTTPException(502, f"No se pudo contactar Supabase: {e}")
+    # Insert RESILIENTE al esquema: si la tabla 'properties' aún no tiene alguna
+    # columna nueva (PGRST204 "Could not find the 'X' column"), la quitamos del
+    # row y reintentamos — así publicar nunca se cae por desalineación de schema.
+    # Cuando se agreguen las columnas en Supabase, los campos entran solos.
+    import re as _re
+    res = None
+    dropped = []
+    for _intento in range(6):
+        try:
+            res = requests.post(
+                f"{supabase_url}/rest/v1/properties",
+                headers={
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {supabase_key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation",
+                },
+                json=row,
+                timeout=15,
+            )
+        except Exception as e:
+            raise HTTPException(502, f"No se pudo contactar Supabase: {e}")
+        if res.status_code in (200, 201):
+            break
+        m = _re.search(r"Could not find the '([^']+)' column", res.text or "")
+        if m and m.group(1) in row:
+            dropped.append(m.group(1))
+            row.pop(m.group(1), None)
+            print(f"[publish] Columna '{m.group(1)}' no existe en 'properties' — se omite y reintenta (falta migrar el schema en Supabase)", flush=True)
+            continue
+        break
+    if dropped:
+        print(f"[publish] AVISO: campos omitidos por schema desactualizado: {dropped}. Agregar columnas en Supabase (SQL: alter table properties add column ...).", flush=True)
 
-    if res.status_code not in (200, 201):
+    if res is None or res.status_code not in (200, 201):
         raise HTTPException(
             500,
-            f"Supabase rechazó el insert ({res.status_code}): {res.text[:1500]}",
+            f"Supabase rechazó el insert ({res.status_code if res is not None else '?'}): {(res.text if res is not None else '')[:1500]}",
         )
 
     inserted = res.json()
