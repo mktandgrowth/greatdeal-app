@@ -1389,6 +1389,7 @@ function openPublishModal() {
     if (parseInt(p.dorms) > 0) q.set('dorms', String(parseInt(p.dorms)));
     if (parseInt(p.banos) > 0) q.set('banos', String(parseInt(p.banos)));
     tasarLink.href = 'https://tasar.c2cprops.com/?' + q.toString();
+    tasarLink.onclick = () => { state.leaving_to_tasar = true; try { saveStateToStorage(); } catch (_) {} };
   }
 }
 
@@ -4550,6 +4551,7 @@ function hasUnsavedWork() {
 }
 
 window.addEventListener("beforeunload", (e) => {
+  if (state.leaving_to_tasar) return; // viaje ida-vuelta al tasador: el borrador ya quedó guardado
   if (hasUnsavedWork()) {
     e.preventDefault();
     e.returnValue = "Tenés videos cargados o configuración sin procesar. ¿Salir igual?";
