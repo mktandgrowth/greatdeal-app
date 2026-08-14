@@ -410,6 +410,25 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     # Si ya hay un profile con ese WA, usamos su owner_id. Si no, lo creamos.
     contact_wa_raw = (payload.get("contact_wa") or "").strip()[:30]
     contact_wa_norm = _norm_wa(contact_wa_raw)
+
+    # ─── Verificación OBLIGATORIA del contacto (si el canal está configurado) ──
+    # El frontend manda contact_verify_token (emitido por /api/verify/check).
+    # Sin canal configurado (faltan env vars Twilio/Resend), no se exige nada.
+    _metodo_contacto = (payload.get("contact_method") or "whatsapp").lower().strip()
+    _verify_token = (payload.get("contact_verify_token") or "").strip()
+    _email_contacto = (payload.get("contact_email") or "").strip().lower()[:120]
+    contact_verified = False
+    if _metodo_contacto == "email":
+        if _email_verify_disponible():
+            if not (_email_contacto and _token_valido("email:" + _email_contacto, _verify_token)):
+                raise HTTPException(403, "El mail no está verificado. Volvé al formulario, pedí el código y confirmalo antes de publicar.")
+            contact_verified = True
+    else:
+        if _twilio_cfg() is not None:
+            _tel_e164 = _norm_phone_e164(contact_wa_raw)
+            if not (_tel_e164 and _token_valido("phone:" + _tel_e164, _verify_token)):
+                raise HTTPException(403, "El teléfono no está verificado. Volvé al formulario, pedí el código y confirmalo antes de publicar.")
+            contact_verified = True
     owner_name = (payload.get("owner_name") or "").strip()[:80] or "Vendedor"
     owner_id_resolved = None
     profile_debug = {"wa_norm": contact_wa_norm, "name": owner_name, "found": None, "created": None, "error": None}
@@ -440,7 +459,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
                     "id": new_id,
                     "wa": contact_wa_norm,
                     "name": owner_name,
-                    "verified": False,
+                    "verified": bool(contact_verified and _metodo_contacto != "email"),
                 }
                 r_new = requests.post(
                     f"{supabase_url}/rest/v1/profiles",
@@ -504,6 +523,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         # Método de contacto elegido: whatsapp | telefono | email | ejecutivo
         "contact_method":  (payload.get("contact_method") or "whatsapp").lower().strip()[:20],
         "contact_email":   ((payload.get("contact_email") or "").strip()[:120] or None),
+        "contact_verified": contact_verified,  # bool — si falta la columna, el retry la omite
         "owner_id":        owner_id_resolved, # linkeado por WA (o null si falló)
         "status":          "published",       # explícito para asegurar que salga en el feed
     }
@@ -572,6 +592,274 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         "feed_url": feed_url,
         "_profile_debug": profile_debug,  # temporal para debuggear el upsert de profile
     }
+
+
+
+# ─── Verificación de contacto por código (OTP) ────────────────────────────
+# Objetivo: que teléfono y mail del vendedor sean REALES antes de publicar.
+#   · Email    → código propio de 6 dígitos, enviado vía Resend (RESEND_API_KEY)
+#                o, si no hay Resend, por SMTP (SMTP_HOST/USER/PASS, ya usados
+#                por /api/hire-request).
+#   · Teléfono → Twilio Verify (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN /
+#                TWILIO_VERIFY_SERVICE_SID). Canal WhatsApp con respaldo SMS.
+#                Twilio genera y valida el código (no lo guardamos nosotros).
+# Al validar, firmamos un token HMAC (24 h) que /api/publish EXIGE cuando el
+# canal correspondiente está configurado. Si el canal NO está configurado
+# (faltan env vars), la verificación se desactiva sola y publicar sigue
+# funcionando como hoy — así el deploy es seguro antes de crear las cuentas.
+import hmac as _hmac
+import hashlib as _hashlib
+import time as _time
+import secrets as _secrets
+
+_VERIFY_CODES: dict[str, dict] = {}   # "email:x@y.cl" → {hash, expires, attempts}
+_VERIFY_SENDS: dict[str, list] = {}   # dest → [timestamps de envíos] (rate limit)
+_VERIFY_LOCK = threading.Lock()
+
+
+def _verify_secret() -> bytes:
+    return (
+        os.environ.get("VERIFY_TOKEN_SECRET")
+        or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        or "dev-secret-cambiar"
+    ).encode()
+
+
+def _sign_verified(dest: str) -> str:
+    """Token firmado que certifica que `dest` fue verificado ahora."""
+    ts = str(int(_time.time()))
+    mac = _hmac.new(_verify_secret(), f"{dest}|{ts}".encode(), _hashlib.sha256).hexdigest()
+    return f"{ts}.{mac}"
+
+
+def _token_valido(dest: str, token: str, max_age_s: int = 86400) -> bool:
+    try:
+        ts, mac = (token or "").split(".", 1)
+        if _time.time() - int(ts) > max_age_s:
+            return False
+        esperado = _hmac.new(_verify_secret(), f"{dest}|{ts}".encode(), _hashlib.sha256).hexdigest()
+        return _hmac.compare_digest(mac, esperado)
+    except Exception:
+        return False
+
+
+def _norm_phone_e164(v) -> str:
+    """Normaliza a E.164 chileno: '9 1234 5678' → '+56912345678'.
+    MISMA regla que normPhoneE164 del frontend — si cambia una, cambiar la otra."""
+    s = str(v or "").strip()
+    d = "".join(ch for ch in s if ch.isdigit())
+    if not d:
+        return ""
+    if s.startswith("+"):
+        return "+" + d
+    if d.startswith("56") and len(d) >= 11:
+        return "+" + d
+    if len(d) == 9:
+        return "+56" + d
+    return "+" + d
+
+
+def _twilio_cfg():
+    sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
+    tok = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    vsid = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "")
+    return (sid, tok, vsid) if (sid and tok and vsid) else None
+
+
+def _email_verify_disponible() -> bool:
+    if os.environ.get("RESEND_API_KEY"):
+        return True
+    return bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASS"))
+
+
+def _rate_limit_ok(dest: str) -> tuple[bool, str]:
+    """Máx 4 envíos por hora y 1 por minuto por destino."""
+    now = _time.time()
+    with _VERIFY_LOCK:
+        sends = [t for t in _VERIFY_SENDS.get(dest, []) if now - t < 3600]
+        if sends and now - sends[-1] < 60:
+            return False, "Esperá un minuto antes de pedir otro código."
+        if len(sends) >= 4:
+            return False, "Demasiados intentos. Probá de nuevo en una hora."
+        sends.append(now)
+        _VERIFY_SENDS[dest] = sends
+    return True, ""
+
+
+def _enviar_codigo_email(email: str, codigo: str) -> tuple[bool, str]:
+    """Envía el código por Resend (preferido) o SMTP. Devuelve (ok, error)."""
+    import requests as _req
+    asunto = f"{codigo} es tu código de verificación · C2C props"
+    html = f"""
+    <html><body style="font-family: Arial, sans-serif; color:#222; background:#faf8f4; padding:24px;">
+      <div style="max-width:420px; margin:0 auto; background:#fff; border-radius:14px; padding:28px; border:1px solid #eee;">
+        <h2 style="color:#A6601C; margin:0 0 6px; font-size:19px;">Verificá tu correo</h2>
+        <p style="font-size:14px; color:#555; margin:0 0 18px;">Usá este código para confirmar tu contacto en la publicación de tu propiedad:</p>
+        <div style="font-size:34px; letter-spacing:10px; font-weight:700; text-align:center; padding:14px 0; background:#faf5ec; border-radius:10px; color:#222;">{codigo}</div>
+        <p style="font-size:12px; color:#999; margin:18px 0 0;">El código vence en 10 minutos. Si no fuiste vos, ignorá este mail.</p>
+      </div>
+    </body></html>"""
+
+    resend_key = os.environ.get("RESEND_API_KEY", "")
+    if resend_key:
+        remitente = os.environ.get("VERIFY_FROM_EMAIL", "C2C props <verificacion@c2cprops.com>")
+        try:
+            r = _req.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                json={"from": remitente, "to": [email], "subject": asunto, "html": html},
+                timeout=15,
+            )
+            if r.status_code in (200, 201):
+                return True, ""
+            print(f"[verify][resend] fallo {r.status_code}: {r.text[:300]}", flush=True)
+            # cae al respaldo SMTP si existe
+        except Exception as e:
+            print(f"[verify][resend] error: {e}", flush=True)
+
+    smtp_host = os.environ.get("SMTP_HOST", "")
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    if smtp_host and smtp_user and smtp_pass:
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = asunto
+            msg["From"] = smtp_user
+            msg["To"] = email
+            msg.attach(MIMEText(html, "html"))
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as s:
+                s.starttls()
+                s.login(smtp_user, smtp_pass)
+                s.sendmail(smtp_user, [email], msg.as_string())
+            return True, ""
+        except Exception as e:
+            print(f"[verify][smtp] error: {e}", flush=True)
+            return False, "No se pudo enviar el mail. Intentá de nuevo en unos minutos."
+    return False, "El envío de mails no está configurado."
+
+
+@app.get("/api/verify/config")
+async def verify_config():
+    """Qué canales de verificación están operativos (el frontend se adapta)."""
+    return {"phone": _twilio_cfg() is not None, "email": _email_verify_disponible()}
+
+
+@app.post("/api/verify/start")
+async def verify_start(payload: dict = Body(...)):
+    """Envía un código de verificación al teléfono (WhatsApp→SMS) o al mail."""
+    import requests as _req
+    channel = (payload.get("channel") or "").lower().strip()
+
+    if channel == "email":
+        email = (payload.get("destination") or "").strip().lower()[:120]
+        if not email or "@" not in email or "." not in email.split("@")[-1]:
+            raise HTTPException(400, "Email inválido")
+        if not _email_verify_disponible():
+            raise HTTPException(503, "Verificación por mail no configurada")
+        ok, msg = _rate_limit_ok("email:" + email)
+        if not ok:
+            raise HTTPException(429, msg)
+        codigo = f"{_secrets.randbelow(1000000):06d}"
+        with _VERIFY_LOCK:
+            _VERIFY_CODES["email:" + email] = {
+                "hash": _hashlib.sha256((codigo + email).encode()).hexdigest(),
+                "expires": _time.time() + 600,
+                "attempts": 0,
+            }
+        enviado, err = _enviar_codigo_email(email, codigo)
+        if not enviado:
+            raise HTTPException(502, err or "No se pudo enviar el código")
+        print(f"[verify] código email enviado a {email}", flush=True)
+        return {"ok": True, "channel": "email"}
+
+    if channel == "phone":
+        cfg = _twilio_cfg()
+        if not cfg:
+            raise HTTPException(503, "Verificación de teléfono no configurada")
+        sid, tok, vsid = cfg
+        dest = _norm_phone_e164(payload.get("destination"))
+        if not dest or len(dest) < 11:
+            raise HTTPException(400, "Número de teléfono inválido")
+        ok, msg = _rate_limit_ok("phone:" + dest)
+        if not ok:
+            raise HTTPException(429, msg)
+        via = None
+        for canal_twilio in ("whatsapp", "sms"):
+            try:
+                r = _req.post(
+                    f"https://verify.twilio.com/v2/Services/{vsid}/Verifications",
+                    auth=(sid, tok),
+                    data={"To": dest, "Channel": canal_twilio, "Locale": "es"},
+                    timeout=15,
+                )
+                if r.status_code in (200, 201):
+                    via = canal_twilio
+                    break
+                print(f"[verify][twilio][{canal_twilio}] fallo {r.status_code}: {r.text[:300]}", flush=True)
+            except Exception as e:
+                print(f"[verify][twilio][{canal_twilio}] error: {e}", flush=True)
+        if not via:
+            raise HTTPException(502, "No se pudo enviar el código al teléfono. Revisá el número e intentá de nuevo.")
+        print(f"[verify] código enviado a {dest} vía {via}", flush=True)
+        return {"ok": True, "channel": "phone", "via": via}
+
+    raise HTTPException(400, "channel debe ser 'phone' o 'email'")
+
+
+@app.post("/api/verify/check")
+async def verify_check(payload: dict = Body(...)):
+    """Valida el código. Si es correcto devuelve un token que /api/publish exige."""
+    import requests as _req
+    channel = (payload.get("channel") or "").lower().strip()
+    codigo = "".join(ch for ch in str(payload.get("code") or "") if ch.isdigit())[:10]
+    if len(codigo) < 4:
+        raise HTTPException(400, "Código inválido")
+
+    if channel == "email":
+        email = (payload.get("destination") or "").strip().lower()[:120]
+        key = "email:" + email
+        with _VERIFY_LOCK:
+            reg = _VERIFY_CODES.get(key)
+            if not reg or _time.time() > reg["expires"]:
+                raise HTTPException(410, "El código venció o no existe. Pedí uno nuevo.")
+            if reg["attempts"] >= 5:
+                _VERIFY_CODES.pop(key, None)
+                raise HTTPException(429, "Demasiados intentos. Pedí un código nuevo.")
+            reg["attempts"] += 1
+            ok = _hmac.compare_digest(reg["hash"], _hashlib.sha256((codigo + email).encode()).hexdigest())
+            if ok:
+                _VERIFY_CODES.pop(key, None)
+        if not ok:
+            raise HTTPException(400, "Código incorrecto")
+        return {"ok": True, "token": _sign_verified(key)}
+
+    if channel == "phone":
+        cfg = _twilio_cfg()
+        if not cfg:
+            raise HTTPException(503, "Verificación de teléfono no configurada")
+        sid, tok, vsid = cfg
+        dest = _norm_phone_e164(payload.get("destination"))
+        try:
+            r = _req.post(
+                f"https://verify.twilio.com/v2/Services/{vsid}/VerificationCheck",
+                auth=(sid, tok),
+                data={"To": dest, "Code": codigo},
+                timeout=15,
+            )
+        except Exception as e:
+            raise HTTPException(502, f"Error consultando Twilio: {e}")
+        if r.status_code == 404:
+            raise HTTPException(410, "El código venció. Pedí uno nuevo.")
+        data = r.json() if r.ok else {}
+        if data.get("status") == "approved":
+            return {"ok": True, "token": _sign_verified("phone:" + dest)}
+        raise HTTPException(400, "Código incorrecto")
+
+    raise HTTPException(400, "channel debe ser 'phone' o 'email'")
 
 
 # ─── Hire request (contratar servicio de grabación profesional) ──────────

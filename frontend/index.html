@@ -1377,6 +1377,7 @@ function openPublishModal() {
   let savedMethod = 'whatsapp';
   try { savedMethod = localStorage.getItem('c2c_contact_method') || 'whatsapp'; } catch (_) {}
   setContactMethod(savedMethod);
+  loadVerifyConfig();  // habilita el bloque "verificá tu contacto" si el backend lo soporta
   const emailEl = document.getElementById('pf-email');
   if (emailEl) { try { emailEl.value = localStorage.getItem('c2c_owner_email') || ''; } catch (_) {} }
 
@@ -1408,7 +1409,156 @@ function setContactMethod(m) {
   if (lbl) lbl.textContent = m === 'telefono' ? 'Número de teléfono *' : m === 'whatsapp' ? 'Número de WhatsApp *' : 'Teléfono de contacto *';
   const ew = document.getElementById('pf-email-wrap'); if (ew) ew.style.display = m === 'email' ? 'block' : 'none';
   const en = document.getElementById('pf-exec-note'); if (en) en.style.display = m === 'ejecutivo' ? 'block' : 'none';
+  try { refreshVerifyUI(); } catch (_) {}
 }
+
+// ─── Verificación de contacto por código (OTP) ─────────────────────────────
+// El backend expone /api/verify/config|start|check. Si un canal no está
+// configurado (sin Twilio/Resend en Render), acá se desactiva solo y no bloquea.
+let verifyCfg = null;          // {phone:bool, email:bool}
+let verifySendCooldown = 0;    // epoch ms hasta el que no se puede reenviar
+
+async function loadVerifyConfig() {
+  try {
+    const r = await fetch(API('/verify/config'));
+    verifyCfg = r.ok ? await r.json() : { phone: false, email: false };
+  } catch (_) { verifyCfg = { phone: false, email: false }; }
+  refreshVerifyUI();
+}
+
+// MISMA regla que _norm_phone_e164 del backend — si cambia una, cambiar la otra.
+function normPhoneE164(v) {
+  const s = (v || '').trim();
+  const d = s.replace(/\D/g, '');
+  if (!d) return '';
+  if (s.startsWith('+')) return '+' + d;
+  if (d.startsWith('56') && d.length >= 11) return '+' + d;
+  if (d.length === 9) return '+56' + d;
+  return '+' + d;
+}
+
+function verifyDest() {
+  const m = state.contact_method || 'whatsapp';
+  if (m === 'email') return { channel: 'email', dest: (document.getElementById('pf-email')?.value || '').trim().toLowerCase() };
+  return { channel: 'phone', dest: normPhoneE164(document.getElementById('pf-wa')?.value || '') };
+}
+
+function getVerifiedToken(channel, dest) {
+  if (!dest) return null;
+  try {
+    const map = JSON.parse(localStorage.getItem('c2c_verify_tokens') || '{}');
+    const e = map[channel + ':' + dest];
+    if (e && e.token && Date.now() - e.ts < 20 * 3600 * 1000) return e.token; // < 20 h (el backend acepta 24 h)
+  } catch (_) {}
+  return null;
+}
+
+function saveVerifiedToken(channel, dest, token) {
+  try {
+    const map = JSON.parse(localStorage.getItem('c2c_verify_tokens') || '{}');
+    map[channel + ':' + dest] = { token, ts: Date.now() };
+    localStorage.setItem('c2c_verify_tokens', JSON.stringify(map));
+  } catch (_) {}
+}
+
+function refreshVerifyUI() {
+  const block = document.getElementById('pf-verify-block');
+  if (!block) return;
+  const { channel, dest } = verifyDest();
+  const habilitado = channel === 'email' ? verifyCfg?.email : verifyCfg?.phone;
+  if (!verifyCfg || !habilitado) { block.style.display = 'none'; return; }
+  block.style.display = 'block';
+  const msg = document.getElementById('pf-verify-msg');
+  const btn = document.getElementById('pf-verify-send');
+  const row2 = document.getElementById('pf-verify-row2');
+  const status = document.getElementById('pf-verify-status');
+  if (getVerifiedToken(channel, dest)) {
+    if (msg) msg.innerHTML = channel === 'email' ? '✅ <b>Mail verificado.</b> Ya podés publicar.' : '✅ <b>Teléfono verificado.</b> Ya podés publicar.';
+    if (btn) btn.style.display = 'none';
+    if (row2) row2.style.display = 'none';
+    if (status) status.style.display = 'none';
+    block.style.borderStyle = 'solid';
+  } else {
+    if (msg) msg.innerHTML = channel === 'email'
+      ? 'Te mandamos un <b>código a tu mail</b> para confirmar que te pueden contactar.'
+      : 'Te mandamos un <b>código por WhatsApp/SMS</b> para confirmar tu número.';
+    if (btn) { btn.style.display = 'inline-block'; if (Date.now() > verifySendCooldown) btn.textContent = 'Enviar código'; }
+    block.style.borderStyle = 'dashed';
+  }
+}
+
+function _verifyStatus(texto, ok) {
+  const el = document.getElementById('pf-verify-status');
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.color = ok ? '#7fbf7f' : '#e07f7f';
+  el.textContent = texto;
+}
+
+async function sendVerifyCode() {
+  const { channel, dest } = verifyDest();
+  if (!dest || (channel === 'email' && !dest.includes('@')) || (channel === 'phone' && dest.length < 11)) {
+    _verifyStatus(channel === 'email' ? 'Escribí tu mail primero.' : 'Escribí tu número primero.', false);
+    (channel === 'email' ? document.getElementById('pf-email') : document.getElementById('pf-wa'))?.focus();
+    return;
+  }
+  if (Date.now() < verifySendCooldown) return;
+  const btn = document.getElementById('pf-verify-send');
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
+  try {
+    const r = await fetch(API('/verify/start'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel, destination: dest }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.detail || 'No se pudo enviar el código');
+    document.getElementById('pf-verify-row2').style.display = 'flex';
+    _verifyStatus(channel === 'email' ? 'Código enviado. Revisá tu bandeja (y spam).' : (j.via === 'sms' ? 'Código enviado por SMS.' : 'Código enviado por WhatsApp.'), true);
+    setTimeout(() => document.getElementById('pf-verify-code')?.focus(), 100);
+    // Cooldown de 60 s para reenviar
+    verifySendCooldown = Date.now() + 60000;
+    let restante = 60;
+    const timer = setInterval(() => {
+      restante -= 1;
+      if (!btn) { clearInterval(timer); return; }
+      if (restante <= 0 || Date.now() >= verifySendCooldown) { clearInterval(timer); btn.disabled = false; btn.textContent = 'Reenviar código'; }
+      else btn.textContent = `Reenviar (${restante}s)`;
+    }, 1000);
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Enviar código'; }
+    _verifyStatus(String(e.message || e), false);
+  }
+}
+
+async function checkVerifyCode() {
+  const { channel, dest } = verifyDest();
+  const code = (document.getElementById('pf-verify-code')?.value || '').replace(/\D/g, '');
+  if (code.length < 4) { _verifyStatus('Escribí el código que te llegó.', false); return; }
+  const btn = document.getElementById('pf-verify-check');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await fetch(API('/verify/check'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel, destination: dest, code }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.token) throw new Error(j.detail || 'Código incorrecto');
+    saveVerifiedToken(channel, dest, j.token);
+    refreshVerifyUI();
+  } catch (e) {
+    _verifyStatus(String(e.message || e), false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Verificar'; }
+  }
+}
+
+// Si el user edita el número/mail después de verificar, el badge se recalcula solo
+document.addEventListener('DOMContentLoaded', () => {
+  ['pf-wa', 'pf-email'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => { try { refreshVerifyUI(); } catch (_) {} });
+  });
+});
 
 function closePublishModal() {
   const modal = document.getElementById('publish-modal');
@@ -1442,6 +1592,25 @@ async function submitPublish() {
   const email  = (document.getElementById('pf-email')?.value || '').trim();
   if (method === 'email' && !email) { alert("Falta tu correo para que te contacten"); document.getElementById('pf-email')?.focus(); return; }
   if (method !== 'email' && !wa) { alert(method === 'telefono' ? "Falta tu número de teléfono" : "Falta tu número de contacto"); document.getElementById('pf-wa').focus(); return; }
+
+  // ─── Verificación OBLIGATORIA del contacto (si el canal está operativo) ───
+  let contactVerifyToken = null;
+  try {
+    if (!verifyCfg) await loadVerifyConfig();
+    const vd = verifyDest();
+    const requiere = vd.channel === 'email' ? verifyCfg?.email : verifyCfg?.phone;
+    if (requiere) {
+      contactVerifyToken = getVerifiedToken(vd.channel, vd.dest);
+      if (!contactVerifyToken) {
+        alert(vd.channel === 'email'
+          ? "Antes de publicar necesitamos verificar tu mail: pedí el código y confirmalo."
+          : "Antes de publicar necesitamos verificar tu número: pedí el código y confirmalo.");
+        refreshVerifyUI();
+        document.getElementById('pf-verify-block')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+    }
+  } catch (_) {}
   // Nota: el precio NO es obligatorio — si el user prefiere que Valentina tase, dejamos precio null
 
   // Guardar en state para próxima vez
@@ -1487,6 +1656,7 @@ async function submitPublish() {
     contact_wa:       wa,
     contact_method:   method,          // whatsapp | telefono | email | ejecutivo
     contact_email:    email || null,
+    contact_verify_token: contactVerifyToken,  // exigido por el backend si el canal está configurado
     owner_name:       name, // usado por backend para upsert de profile
     // lat/lng quedan null por ahora — Google Places lo agregaremos en una próxima iter
   };
@@ -4675,6 +4845,18 @@ document.addEventListener("DOMContentLoaded", async () => {
         </div>
         <div id="pf-email-wrap" style="display:none; margin-top:10px;">
           <input id="pf-email" type="email" placeholder="tu@correo.cl" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        </div>
+        <!-- Verificación del contacto por código (teléfono vía WhatsApp/SMS, mail vía código) -->
+        <div id="pf-verify-block" style="display:none; margin-top:10px; padding:12px 14px; border-radius:12px; background:rgba(201,168,106,0.05); border:1px dashed var(--gold-border);">
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <div id="pf-verify-msg" style="flex:1; min-width:180px; font-size:12px; color:var(--text-secondary); line-height:1.45;">Para publicar, verificá tu contacto con un código.</div>
+            <button type="button" id="pf-verify-send" onclick="sendVerifyCode()" style="padding:9px 16px; border-radius:999px; font-size:12.5px; font-weight:600; border:1px solid var(--gold-border); background:transparent; color:var(--gold); cursor:pointer; white-space:nowrap;">Enviar código</button>
+          </div>
+          <div id="pf-verify-row2" style="display:none; gap:8px; margin-top:10px;">
+            <input id="pf-verify-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Código de 6 dígitos" style="flex:1; padding:11px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:15px; letter-spacing:4px; font-family:inherit; outline:none;" onkeydown="if(event.key==='Enter'){event.preventDefault();checkVerifyCode();}">
+            <button type="button" id="pf-verify-check" onclick="checkVerifyCode()" style="padding:11px 18px; border-radius:10px; font-size:13px; font-weight:700; border:none; background:var(--gold); color:var(--bg-base); cursor:pointer; white-space:nowrap;">Verificar</button>
+          </div>
+          <div id="pf-verify-status" style="display:none; font-size:12px; margin-top:8px;"></div>
         </div>
         <div id="pf-exec-note" style="display:none; font-size:11px; color:var(--gold); margin-top:8px;">🤝 Un ejecutivo de C2C te contactará para gestionar la venta de principio a fin. Solo necesitamos tu teléfono.</div>
         <div style="font-size:10.5px; color:var(--text-faint); margin-top:8px;">Cada número es un usuario único. Si ya publicaste con este número, se suma a tu perfil automáticamente.</div>
