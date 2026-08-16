@@ -2115,6 +2115,47 @@ function subirConProgreso(url, formData, onPct) {
   });
 }
 
+// Subida POR TROZOS de 4 MB: cada trozo se lee a MEMORIA antes de enviarse
+// (evita ERR_UPLOAD_FILE_CHANGED de Android/Chrome con archivos de Drive, que
+// aborta el POST en 0%) y se reintenta solo hasta 3 veces (datos móviles).
+async function subirEnTrozos(file, onPct) {
+  const CH = 4 * 1024 * 1024;
+  const total = Math.max(1, Math.ceil(file.size / CH));
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
+  for (let i = 0; i < total; i++) {
+    let buf;
+    try {
+      buf = await file.slice(i * CH, Math.min(file.size, (i + 1) * CH)).arrayBuffer();
+    } catch (e) {
+      throw new Error('no pude leer el archivo — si está en Drive puede haber cambiado; volvé a elegirlo (o bajalo al teléfono primero)');
+    }
+    const fd = new FormData();
+    fd.append('upload_id', id);
+    fd.append('index', String(i));
+    fd.append('chunk', new Blob([buf]), 'part');
+    let ok = false, lastErr = null;
+    for (let intento = 0; intento < 3 && !ok; intento++) {
+      if (intento) await new Promise(r => setTimeout(r, 1500 * intento));
+      try {
+        const r = await fetch(API('/upload-chunk'), { method: 'POST', body: fd });
+        if (r.ok) { ok = true; }
+        else { lastErr = new Error('HTTP ' + r.status + ': ' + (await r.text()).slice(0, 120)); }
+      } catch (e) { lastErr = e; }
+    }
+    if (!ok) {
+      throw new Error(`se cortó en el trozo ${i + 1} de ${total} (${Math.round(i / total * 100)}%): ${(lastErr && lastErr.message) || 'falla de red'}`);
+    }
+    onPct && onPct(Math.round((i + 1) / total * 100));
+  }
+  // finish: ensambla y procesa en el servidor (FormData → sin preflight CORS)
+  const ffd = new FormData();
+  ffd.append('upload_id', id);
+  ffd.append('total', String(total));
+  ffd.append('filename', file.name || 'video.mp4');
+  const fin = await fetchReintento(API('/upload-chunk/finish'), { method: 'POST', body: ffd });
+  return { status: fin.status, text: await fin.text() };
+}
+
 async function handleReadyReelUpload(file) {
   if (!file) return;
 
@@ -2126,6 +2167,11 @@ async function handleReadyReelUpload(file) {
   const _esVideo = (file.type || '').startsWith('video/') || ['mp4', 'mov', 'm4v', 'webm'].includes(_ext);
   if (!_esVideo) {
     state.ready_reel_error = `"${file.name}" no parece un video. Elegí un archivo MP4, MOV o WEBM.`;
+    render();
+    return;
+  }
+  if (!file.size) {
+    state.ready_reel_error = `"${file.name}" llegó vacío desde el selector. Si está en Google Drive, abrí la app de Drive, tocá "Descargar" (o "Disponible sin conexión") y volvé a elegirlo.`;
     render();
     return;
   }
@@ -2180,8 +2226,6 @@ async function handleReadyReelUpload(file) {
       : 'Subiendo video…';
     render();
     etapa = 'subiendo el video';
-    const fd = new FormData();
-    fd.append('file', file);
     const mbTotal = (file.size / 1024 / 1024).toFixed(0);
     const notaComp = file.size > 48 * 1024 * 1024 ? ' · al llegar a 100% se comprime en el servidor (1-3 min más)' : '';
     const onPct = (pct) => {
@@ -2190,16 +2234,7 @@ async function handleReadyReelUpload(file) {
         : `Subiendo video… ${pct}% de ${mbTotal} MB · no cierres la página`;
       render();
     };
-    let upResp;
-    try {
-      upResp = await subirConProgreso(API('/upload-ready-reel'), fd, onPct);
-    } catch (e1) {
-      // 1 reintento: puede haber sido un corte breve de datos móviles
-      state.ready_reel_progress = `Se cortó la conexión (${e1.message}). Reintentando la subida…`;
-      render();
-      await new Promise(r => setTimeout(r, 3000));
-      upResp = await subirConProgreso(API('/upload-ready-reel'), fd, onPct);
-    }
+    const upResp = await subirEnTrozos(file, onPct);
     if (upResp.status < 200 || upResp.status >= 300) {
       let detalle = upResp.text || '';
       try { detalle = JSON.parse(detalle).detail || detalle; } catch (e) {}

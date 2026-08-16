@@ -123,18 +123,26 @@ async def upload_ready_reel(file: UploadFile = File(...)):
         os.unlink(tmp_in.name)
         raise HTTPException(500, f"No se pudo leer el archivo: {e}")
     tmp_in.close()
-    size_mb = size / (1024 * 1024)
+    return _procesar_reel_guardado(tmp_in.name, size, file.content_type or "video/mp4")
 
-    content_type = file.content_type or "video/mp4"
-    upload_path = tmp_in.name
-    tmp_out = tmp_in.name + "_opt.mp4"
+
+def _procesar_reel_guardado(tmp_path, size, content_type="video/mp4"):
+    """Comprime si hace falta y sube el reel a Supabase Storage (o disco local).
+    Compartido por /api/upload-ready-reel y /api/upload-chunk/finish."""
+    import requests, subprocess, shutil
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    bucket = os.environ.get("SUPABASE_BUCKET_REELS", "reels")
+    size_mb = size / (1024 * 1024)
+    upload_path = tmp_path
+    tmp_out = tmp_path + "_opt.mp4"
 
     # Supabase Storage (plan free) corta los uploads en ~50 MB. Si el reel pesa
     # más, lo comprimimos con FFmpeg (H.264 720p + audio AAC intacto).
     SUPABASE_MAX_MB = float(os.environ.get("SUPABASE_MAX_MB", "48"))
     if size_mb > SUPABASE_MAX_MB:
         cmd = [
-            "ffmpeg", "-y", "-i", tmp_in.name,
+            "ffmpeg", "-y", "-i", tmp_path,
             "-vf", "scale='min(720,iw)':-2",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
             "-c:a", "aac", "-b:a", "128k",
@@ -156,7 +164,7 @@ async def upload_ready_reel(file: UploadFile = File(...)):
         except Exception as e:
             print(f"[upload-ready] FFmpeg falló: {e}", flush=True)
         if size_mb > SUPABASE_MAX_MB:
-            for _pth in (tmp_in.name, tmp_out):
+            for _pth in (tmp_path, tmp_out):
                 try:
                     os.unlink(_pth)
                 except Exception:
@@ -166,7 +174,7 @@ async def upload_ready_reel(file: UploadFile = File(...)):
     out_name = f"ready_{uuid.uuid4().hex[:12]}.mp4"
 
     def _cleanup():
-        for _pth in (tmp_in.name, tmp_out):
+        for _pth in (tmp_path, tmp_out):
             try:
                 os.unlink(_pth)
             except Exception:
@@ -213,6 +221,85 @@ async def upload_ready_reel(file: UploadFile = File(...)):
     _cleanup()
     file_url = f"/api/files/{out_name}"
     return {"ok": True, "file_url": file_url, "size_mb": round(size_mb, 2), "storage": "local", "warning": "guardado en disco efímero — se pierde en redeploy"}
+
+
+# ─── UPLOAD POR TROZOS (móvil) ───────────────────────────────────────────
+# Los teléfonos fallaban subiendo el reel de una pieza ("Failed to fetch" en 0%):
+# conexiones móviles inestables y el bug de Android/Chrome con archivos de Drive
+# (ERR_UPLOAD_FILE_CHANGED aborta el POST entero). El frontend ahora sube trozos
+# de 4 MB (leídos a memoria) con reintento por trozo, y al final llama a finish
+# que ensambla y procesa igual que /api/upload-ready-reel.
+CHUNKS_DIR = UPLOAD_DIR / "chunks"
+CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _upload_id_valido(v: str) -> bool:
+    import re as _re
+    return bool(_re.fullmatch(r"[a-f0-9]{16,40}", v or ""))
+
+
+@app.post("/api/upload-chunk")
+async def upload_chunk(
+    chunk: UploadFile = File(...),
+    upload_id: str = Form(...),
+    index: int = Form(...),
+):
+    """Recibe un trozo del video. Idempotente: re-enviar un index lo sobreescribe."""
+    if not _upload_id_valido(upload_id):
+        raise HTTPException(400, "upload_id inválido")
+    if index < 0 or index > 200:
+        raise HTTPException(400, "index fuera de rango")
+    d = CHUNKS_DIR / upload_id
+    d.mkdir(parents=True, exist_ok=True)
+    data = chunk.file.read(9 * 1024 * 1024)
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(400, "Trozo muy grande (máx 8 MB)")
+    with open(d / f"part_{index:04d}", "wb") as f:
+        f.write(data)
+    return {"ok": True, "index": index, "bytes": len(data)}
+
+
+@app.post("/api/upload-chunk/finish")
+async def upload_chunk_finish(
+    upload_id: str = Form(...),
+    total: int = Form(...),
+    filename: str = Form("video.mp4"),
+):
+    """Ensambla los trozos y procesa el reel (compresión + Supabase Storage)."""
+    import shutil as _sh, tempfile
+    if not _upload_id_valido(upload_id):
+        raise HTTPException(400, "upload_id inválido")
+    if total <= 0 or total > 200:
+        raise HTTPException(400, "total inválido")
+    ext = os.path.splitext(filename)[1].lower() or ".mp4"
+    if ext not in [".mp4", ".mov", ".m4v", ".webm"]:
+        raise HTTPException(400, f"Formato no soportado ({ext}). Usar MP4/MOV/WEBM.")
+    d = CHUNKS_DIR / upload_id
+    faltan = [i for i in range(total) if not (d / f"part_{i:04d}").exists()]
+    if faltan:
+        raise HTTPException(409, f"Faltan trozos: {faltan[:10]} — reintentá la subida")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    tmp.close()
+    size = 0
+    try:
+        with open(tmp.name, "wb") as out:
+            for i in range(total):
+                p = d / f"part_{i:04d}"
+                with open(p, "rb") as f_in:
+                    _sh.copyfileobj(f_in, out)
+                size += p.stat().st_size
+    except Exception as e:
+        os.unlink(tmp.name)
+        raise HTTPException(500, f"No pude ensamblar el video: {e}")
+    _sh.rmtree(d, ignore_errors=True)
+    if size > 300 * 1024 * 1024:
+        os.unlink(tmp.name)
+        raise HTTPException(400, "Archivo muy grande. Máx 300 MB.")
+    if size < 50_000:
+        os.unlink(tmp.name)
+        raise HTTPException(400, "El archivo llegó vacío o incompleto. Volvé a elegir el video (si está en Drive, probá bajarlo al teléfono primero).")
+    print(f"[upload-chunk] ensamblado {upload_id}: {total} trozos, {size/1024/1024:.1f} MB", flush=True)
+    return _procesar_reel_guardado(tmp.name, size, "video/mp4")
 
 
 # ─── CONTENT MODERATION (frames del video) ───────────────────────────────
