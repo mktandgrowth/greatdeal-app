@@ -2093,6 +2093,28 @@ async function fetchReintento(url, opts) {
   }
 }
 
+// Subida con progreso real (XHR): muestra % y detecta exactamente dónde se corta.
+// Devuelve {status, text} o lanza Error de red con detalle del progreso alcanzado.
+function subirConProgreso(url, formData, onPct) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.timeout = 15 * 60 * 1000; // 15 min: compresión server de >48 MB tarda
+    let ultimoPct = 0;
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) {
+        ultimoPct = Math.round(ev.loaded / ev.total * 100);
+        onPct && onPct(ultimoPct);
+      }
+    };
+    xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
+    xhr.onerror = () => reject(new Error(`la subida se cortó en ${ultimoPct}% (falla de red)`));
+    xhr.ontimeout = () => reject(new Error(`la subida quedó colgada en ${ultimoPct}% (timeout)`));
+    xhr.onabort = () => reject(new Error(`la subida se canceló en ${ultimoPct}%`));
+    xhr.send(formData);
+  });
+}
+
 async function handleReadyReelUpload(file) {
   if (!file) return;
 
@@ -2117,6 +2139,7 @@ async function handleReadyReelUpload(file) {
   state.ready_reel_progress = 'Extrayendo frames para moderación…';
   render();
 
+  let etapa = 'conectando con el servidor';
   try {
     // 0) Despertar el backend (Render free se duerme; evita "Failed to fetch")
     const despierto = await despertarBackend();
@@ -2125,12 +2148,14 @@ async function handleReadyReelUpload(file) {
     }
 
     // 1) Extraer 3 frames del video con canvas
+    etapa = 'leyendo el video';
     const frames = await extractVideoFrames(file, 3);
     state.ready_reel_progress = 'Verificando contenido con IA…';
     render();
 
     // 2) Moderar los frames (si la moderación falla por infraestructura,
     // seguimos igual — el backend también es fail-open sin OPENAI_API_KEY)
+    etapa = 'verificando contenido';
     let mod = { safe: true };
     try {
       const modRes = await fetchReintento(API('/moderate'), {
@@ -2154,14 +2179,33 @@ async function handleReadyReelUpload(file) {
       ? 'Subiendo video… como pesa más de 48 MB lo vamos a comprimir en el servidor (puede tardar 1-3 min, no cierres la página)'
       : 'Subiendo video…';
     render();
+    etapa = 'subiendo el video';
     const fd = new FormData();
     fd.append('file', file);
-    const upRes = await fetchReintento(API('/upload-ready-reel'), { method: 'POST', body: fd });
-    if (!upRes.ok) {
-      const errText = await upRes.text();
-      throw new Error(`Backend rechazó: ${errText.slice(0,150)}`);
+    const mbTotal = (file.size / 1024 / 1024).toFixed(0);
+    const notaComp = file.size > 48 * 1024 * 1024 ? ' · al llegar a 100% se comprime en el servidor (1-3 min más)' : '';
+    const onPct = (pct) => {
+      state.ready_reel_progress = pct >= 100
+        ? `Video subido (${mbTotal} MB) — procesando en el servidor…${notaComp}`
+        : `Subiendo video… ${pct}% de ${mbTotal} MB · no cierres la página`;
+      render();
+    };
+    let upResp;
+    try {
+      upResp = await subirConProgreso(API('/upload-ready-reel'), fd, onPct);
+    } catch (e1) {
+      // 1 reintento: puede haber sido un corte breve de datos móviles
+      state.ready_reel_progress = `Se cortó la conexión (${e1.message}). Reintentando la subida…`;
+      render();
+      await new Promise(r => setTimeout(r, 3000));
+      upResp = await subirConProgreso(API('/upload-ready-reel'), fd, onPct);
     }
-    const up = await upRes.json();
+    if (upResp.status < 200 || upResp.status >= 300) {
+      let detalle = upResp.text || '';
+      try { detalle = JSON.parse(detalle).detail || detalle; } catch (e) {}
+      throw new Error(`El servidor rechazó el video: ${String(detalle).slice(0,200)}`);
+    }
+    const up = JSON.parse(upResp.text);
 
     // 4) Marcar estado como "reel listo" y saltar a paso 4
     state.job_file_url = up.file_url;
@@ -2174,10 +2218,10 @@ async function handleReadyReelUpload(file) {
     render();
   } catch (e) {
     state.ready_reel_uploading = false;
-    const esRed = e && (e.name === 'TypeError' || /failed to fetch|networkerror|load failed/i.test(e.message || ''));
+    const esRed = e && (e.name === 'TypeError' || /failed to fetch|networkerror|load failed|se cortó|colgada/i.test(e.message || ''));
     state.ready_reel_error = esRed
-      ? 'No se pudo conectar con el servidor (¿se cortó internet un segundo?). Tocá "Seleccionar video" e intentá de nuevo.'
-      : `Error: ${e.message}`;
+      ? `Falló ${etapa}: ${e.message && !/failed to fetch/i.test(e.message) ? e.message : 'se cortó la conexión'}. Tocá "Seleccionar video" e intentá de nuevo (si estás con datos móviles, mejor con WiFi).`
+      : `Error (${etapa}): ${e.message}`;
     render();
   }
 }
