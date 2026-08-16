@@ -347,7 +347,11 @@ const API_BASE = (() => {
   if (host === "localhost" || host === "127.0.0.1") return "";
   return window.GREATDEAL_API_URL || "https://greatdeal-api.onrender.com";
 })();
-const API = (path) => `${API_BASE}/api${path}`;
+const API = (path) => `${API_BASE}/api${path}`;
+// URLs del backend: los file_url pueden venir RELATIVOS (/api/files/x.mp4) o
+// ABSOLUTOS (Supabase Storage). Prefijar API_BASE solo si es relativo —
+// concatenar siempre generaba URLs rotas tipo "https://api...https://supabase..."
+const absApi = (u) => !u ? u : (/^https?:\/\//i.test(u) ? u : `${API_BASE}${u}`);
 
 // Fetch wrapper con mensajes de error útiles (sobre todo en móvil)
 async function fetchWithDetail(url, opts) {
@@ -750,7 +754,7 @@ async function runwayPollTask() {
       render();
       if (j.status === "done") {
         // Download the regenerated clip
-        const dlUrl = `${API_BASE}${j.download_url}`;
+        const dlUrl = absApi(j.download_url);
         const dlResp = await fetch(dlUrl);
         const blob = await dlResp.blob();
         const blobUrl = URL.createObjectURL(blob);
@@ -1647,9 +1651,7 @@ async function submitPublish() {
   try { typeof saveStateToStorage === 'function' && saveStateToStorage(); } catch(_) {}
 
   // URL del video (persistente preferido)
-  const videoUrl = state.job_file_url
-    ? `${API_BASE}${state.job_file_url}`
-    : state.job_download;
+  const videoUrl = absApi(state.job_file_url) || state.job_download;
 
   const p = state.property;
   const payload = {
@@ -1671,7 +1673,8 @@ async function submitPublish() {
     title:            `${p.tipo || "Propiedad"}${p.comuna ? " en " + p.comuna : ""}${p.m2 ? " · " + p.m2 + "m²" : ""}`,
     description:      desc,
     loc:              loc,
-    vanity_location:  loc, // por ahora mismo string; podemos refinar después
+    // Ubicación pública elegida por el vendedor; si no puso nada, solo la comuna
+    vanity_location:  (document.getElementById('pf-vanity')?.value || '').trim() || p.comuna || '',
     contact_wa:       wa,
     contact_method:   method,          // whatsapp | telefono | email | ejecutivo
     contact_email:    email || null,
@@ -2244,7 +2247,7 @@ async function handleReadyReelUpload(file) {
 
     // 4) Marcar estado como "reel listo" y saltar a paso 4
     state.job_file_url = up.file_url;
-    state.job_download = `${API_BASE}${up.file_url}`;
+    state.job_download = absApi(up.file_url);
     state.has_been_processed = true;
     state.ready_reel_uploading = false;
     state.ready_reel_progress = '';
@@ -3485,6 +3488,32 @@ function renderStep4() {
       </div>`;
   }
 
+  // Reel SUBIDO LISTO: nada que generar — preview + publicar directo
+  if (state.upload_mode === "ready_reel" && (state.job_download || state.job_file_url)) {
+    const srcListo = state.job_download || absApi(state.job_file_url);
+    return `
+      <div class="fade-in max-w-2xl mx-auto">
+        <div class="text-center mb-4">
+          <div class="text-3xl mb-2">✅</div>
+          <h1 class="text-2xl font-bold text-slate-900 mb-1">Tu reel está listo</h1>
+          <p class="text-slate-600 text-sm">Subiste tu video editado — solo falta ponerle precio y publicarlo.</p>
+        </div>
+        <div class="bg-black rounded-2xl overflow-hidden mb-3">
+          <video src="${srcListo}" controls playsinline class="w-full" style="max-height: 65vh; background: black;"></video>
+        </div>
+        <button onclick="openPublishModal()" id="btn-publish-open"
+           class="block w-full text-center px-5 py-4 rounded-xl font-bold text-base mb-2"
+           style="background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.25); border: none; cursor: pointer; font-family: inherit;">
+          💼 Ponerle precio y publicar →
+        </button>
+        <div class="text-center text-[11px] mb-3" style="color: var(--text-muted);">Tu reel + datos de la propiedad se publican en el feed de C2C</div>
+        <div class="flex gap-2 mb-3">
+          <a href="${srcListo}" download class="flex-1 text-center px-4 py-3 rounded-xl font-medium text-sm" style="background: rgba(201,168,106,0.08); color: var(--gold); border: 1px solid var(--gold-border);">⬇ Descargar MP4</a>
+          <button onclick="if(confirm('¿Cambiar por otro video?')) { state.job_file_url=null; state.job_download=null; state.has_been_processed=false; state.step=2; render(); }" class="px-4 py-3 rounded-xl text-sm font-medium" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); color: var(--text-primary);">↺ Cambiar video</button>
+        </div>
+      </div>`;
+  }
+
   if (isProc || state.job_status === "uploading") {
     return `
       <div class="fade-in max-w-md mx-auto text-center pt-12">
@@ -3874,10 +3903,10 @@ async function pollJobStatus() {
         state.job_log = j.log || [];
         state.job_error = j.error;
         state.job_duration = j.duration;
-        state.job_download = j.download_url ? `${API_BASE}${j.download_url}` : null;
+        state.job_download = j.download_url ? absApi(j.download_url) : null;
         // URL persistente al archivo específico (no cambia con regenerate)
         // — la usamos para guardar versiones anteriores
-        state.job_file_url = j.file_url ? `${API_BASE}${j.file_url}` : null;
+        state.job_file_url = j.file_url ? absApi(j.file_url) : null;
         render();
         if (j.status === "done" || j.status === "error") break;
       } catch (e) {
@@ -4475,7 +4504,7 @@ async function saveEditedSubtitles() {
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || "Error");
     // Refrescar URL del video con cache-buster
-    state.job_download = (j.download_url ? `${API_BASE}${j.download_url}` : state.job_download + `?v=${Date.now()}`);
+    state.job_download = (j.download_url ? absApi(j.download_url) : state.job_download + `?v=${Date.now()}`);
     if (modal) modal.remove();
     render();
   } catch (e) {
@@ -4989,7 +5018,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       <div>
         <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Dirección *</label>
         <input id="pf-loc" type="text" placeholder="Ej: Av. Las Condes 7100, Las Condes" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
-        <div id="pf-loc-hint" style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Aparece en el mapa del feed para los compradores</div>
+        <div id="pf-loc-hint" style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Solo para ubicar la propiedad en el mapa — no tiene por qué salir publicada tal cual</div>
+      </div>
+
+      <!-- 1b. UBICACIÓN PÚBLICA (opcional) -->
+      <div>
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">¿Cómo mostrar la ubicación en el aviso? (opcional)</label>
+        <input id="pf-vanity" type="text" placeholder="Ej: Departamento frente al Club de Polo" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        <div style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Si lo dejás vacío, mostramos solo la comuna. La dirección exacta no se publica.</div>
       </div>
 
       <!-- 2. TU NOMBRE + CONTACTO (método elegible) -->

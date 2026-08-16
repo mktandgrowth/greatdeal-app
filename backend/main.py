@@ -876,6 +876,7 @@ async def verify_start(payload: dict = Body(...)):
         if not ok:
             raise HTTPException(429, msg)
         via = None
+        errores = []
         for canal_twilio in ("whatsapp", "sms"):
             try:
                 r = _req.post(
@@ -887,11 +888,19 @@ async def verify_start(payload: dict = Body(...)):
                 if r.status_code in (200, 201):
                     via = canal_twilio
                     break
+                try:
+                    _tw = r.json()
+                except Exception:
+                    _tw = {}
+                # código de error Twilio (p.ej. 21408 = región SMS deshabilitada,
+                # 20003 = credenciales inválidas, 60xxx = Verify) — clave para diagnosticar
+                errores.append(f"{canal_twilio} {r.status_code}/{_tw.get('code', '?')}")
                 print(f"[verify][twilio][{canal_twilio}] fallo {r.status_code}: {r.text[:300]}", flush=True)
             except Exception as e:
+                errores.append(f"{canal_twilio} error-red")
                 print(f"[verify][twilio][{canal_twilio}] error: {e}", flush=True)
         if not via:
-            raise HTTPException(502, "No se pudo enviar el código al teléfono. Revisá el número e intentá de nuevo.")
+            raise HTTPException(502, f"No se pudo enviar el código al teléfono [{'; '.join(errores)}]. Revisá el número e intentá de nuevo.")
         print(f"[verify] código enviado a {dest} vía {via}", flush=True)
         return {"ok": True, "channel": "phone", "via": via}
 
