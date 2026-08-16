@@ -2038,18 +2038,10 @@ function renderReadyReelUpload() {
           <label class="inline-flex items-center gap-2 px-6 py-3 rounded-xl cursor-pointer font-semibold"
             style="background: var(--gold); color: var(--bg-base); box-shadow: 0 6px 20px rgba(201,168,106,0.3);">
             📤 Seleccionar video
-            <input type="file" accept="video/*" class="hidden"
+            <input type="file" class="hidden"
               onchange="handleReadyReelUpload(event.target.files[0])">
           </label>
-          <div style="margin-top:12px;">
-            <label class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl cursor-pointer text-sm font-medium"
-              style="border: 1px solid var(--border-subtle); color: var(--text-primary); background: transparent;">
-              ☁️ Desde Google Drive, Dropbox u otra nube
-              <input type="file" class="hidden"
-                onchange="handleReadyReelUpload(event.target.files[0])">
-            </label>
-            <div class="text-xs mt-2" style="color: var(--text-muted);">Abre el explorador de archivos — ahí podés elegir Drive, Dropbox, OneDrive, etc.</div>
-          </div>
+          <div class="text-xs mt-2" style="color: var(--text-muted);">Elegilo desde el teléfono o desde Google Drive, Dropbox, OneDrive, etc.</div>
         `}
 
         ${error ? `
@@ -2070,6 +2062,37 @@ function renderReadyReelUpload() {
 }
 
 // ─── Handler: subir video ya editado + moderar + saltar a paso 4 ─────────
+// Render free se duerme tras ~15 min sin uso y la primera consulta muere
+// ("Failed to fetch"). Antes de moderar/subir, despertamos el backend con
+// pings a /health hasta que responda (máx ~90 s).
+async function despertarBackend(maxMs = 90000) {
+  const t0 = Date.now();
+  let primeraEspera = true;
+  while (Date.now() - t0 < maxMs) {
+    try {
+      const r = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+      if (r.ok) return true;
+    } catch (e) { /* dormido o red caída — reintentamos */ }
+    if (primeraEspera) {
+      primeraEspera = false;
+      state.ready_reel_progress = 'Despertando el servidor… la primera vez puede tardar ~1 minuto, no cierres la página';
+      render();
+    }
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  return false;
+}
+
+// fetch con 1 reintento ante error de red (cortes breves de datos móviles)
+async function fetchReintento(url, opts) {
+  try {
+    return await fetch(url, opts);
+  } catch (e) {
+    await new Promise(r => setTimeout(r, 2500));
+    return await fetch(url, opts);
+  }
+}
+
 async function handleReadyReelUpload(file) {
   if (!file) return;
 
@@ -2095,18 +2118,30 @@ async function handleReadyReelUpload(file) {
   render();
 
   try {
+    // 0) Despertar el backend (Render free se duerme; evita "Failed to fetch")
+    const despierto = await despertarBackend();
+    if (!despierto) {
+      throw new Error('No pude conectar con el servidor. Revisá tu conexión a internet e intentá de nuevo en un minuto.');
+    }
+
     // 1) Extraer 3 frames del video con canvas
     const frames = await extractVideoFrames(file, 3);
     state.ready_reel_progress = 'Verificando contenido con IA…';
     render();
 
-    // 2) Moderar los frames
-    const modRes = await fetch(API('/moderate'), {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ frames })
-    });
-    const mod = await modRes.json();
+    // 2) Moderar los frames (si la moderación falla por infraestructura,
+    // seguimos igual — el backend también es fail-open sin OPENAI_API_KEY)
+    let mod = { safe: true };
+    try {
+      const modRes = await fetchReintento(API('/moderate'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ frames })
+      });
+      if (modRes.ok) mod = await modRes.json();
+    } catch (e) {
+      console.warn('moderación no disponible, se continúa:', e);
+    }
     if (mod.safe === false) {
       state.ready_reel_uploading = false;
       state.ready_reel_error = `Rechazado: ${mod.reason || 'contenido no apto para el marketplace'}. Probá con otro video.`;
@@ -2121,7 +2156,7 @@ async function handleReadyReelUpload(file) {
     render();
     const fd = new FormData();
     fd.append('file', file);
-    const upRes = await fetch(API('/upload-ready-reel'), { method: 'POST', body: fd });
+    const upRes = await fetchReintento(API('/upload-ready-reel'), { method: 'POST', body: fd });
     if (!upRes.ok) {
       const errText = await upRes.text();
       throw new Error(`Backend rechazó: ${errText.slice(0,150)}`);
@@ -2139,7 +2174,10 @@ async function handleReadyReelUpload(file) {
     render();
   } catch (e) {
     state.ready_reel_uploading = false;
-    state.ready_reel_error = `Error: ${e.message}`;
+    const esRed = e && (e.name === 'TypeError' || /failed to fetch|networkerror|load failed/i.test(e.message || ''));
+    state.ready_reel_error = esRed
+      ? 'No se pudo conectar con el servidor (¿se cortó internet un segundo?). Tocá "Seleccionar video" e intentá de nuevo.'
+      : `Error: ${e.message}`;
     render();
   }
 }
