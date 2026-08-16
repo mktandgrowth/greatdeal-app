@@ -387,7 +387,7 @@ let state = {
   upload_mode: "guided",
   sections: emptySections(),
   simple_clips: [],
-  property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
+  property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", terraza_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
   advanced_open: false,
   enhance_ai: false,
   auto_subtitles: true,  // por default ON: si hay voz, los subtítulos se quieren siempre
@@ -455,7 +455,7 @@ function resetAll() {
   const voices = state.eleven_voices;
   state = {
     step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [],
-    property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
+    property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", terraza_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
     advanced_open: false, enhance_ai: false, auto_subtitles: true,
     music_preset: "cinematic_view", music_file: null, music_presets_catalog: catalog,
     voice_audio_file: null, voice_audio_url: null, voice_method: "none",
@@ -1274,6 +1274,17 @@ function goPrev() {
 //   ✔ Feature 1
 //   ✔ Feature 2
 //   📩 CTA
+// Depto: m² totales = útiles + terraza (se recalcula en vivo, sin re-render)
+function totalesDepto(p) {
+  const u = parseFloat(p.m2) || 0, t = parseFloat(p.terraza_m2) || 0;
+  const tot = u + t;
+  return tot > 0 ? String(Math.round(tot * 10) / 10) : "";
+}
+function updTotalesDepto() {
+  const el = document.getElementById('sup-totales-depto');
+  if (el) el.value = totalesDepto(state.property);
+}
+
 function buildAutoCopy(p) {
   const parts = [];
   const tipo = p.tipo || 'Propiedad';
@@ -1297,7 +1308,12 @@ function buildAutoCopy(p) {
   if (p.dorms) parts.push(`• ${p.dorms} ${Number(p.dorms) === 1 ? 'dormitorio' : 'dormitorios'}`);
   if (p.banos) parts.push(`• ${p.banos} ${Number(p.banos) === 1 ? 'baño' : 'baños'}`);
   if (p.m2) parts.push(`• ${p.m2} m² útiles`);
-  if (p.terreno_m2) parts.push(`• ${p.terreno_m2} m² totales`);
+  if (p.tipo === 'Departamento') {
+    if (p.terraza_m2) parts.push(`• ${p.terraza_m2} m² terraza`);
+    if (p.terraza_m2 && totalesDepto(p)) parts.push(`• ${totalesDepto(p)} m² totales`);
+  } else if (p.terreno_m2) {
+    parts.push(`• ${p.terreno_m2} m² totales`);
+  }
   if (p.parking) parts.push(`• ${p.parking} ${Number(p.parking) === 1 ? 'estacionamiento' : 'estacionamientos'}`);
   parts.push('');
 
@@ -1324,6 +1340,8 @@ function buildAutoCopy(p) {
     jardin: 'Jardín',
     bodega: 'Bodega',
     gimnasio: 'Gimnasio',
+    salon_multiuso: 'Salón multiuso',
+    est_visitas: 'Estacionamientos de visita',
   };
   if (p.features && p.features.length) {
     p.features.forEach(f => {
@@ -1645,7 +1663,8 @@ async function submitPublish() {
     baths:            parseInt(p.banos) || null,
     area:             parseFloat(p.m2) || null,
     // Nuevos campos (para filtros del feed comprador)
-    terreno_m2:       parseFloat(p.terreno_m2) || null,
+    terreno_m2:       p.tipo === 'Departamento' ? null : (parseFloat(p.terreno_m2) || null),
+    terraza_m2:       p.tipo === 'Departamento' ? (parseFloat(p.terraza_m2) || null) : null,
     parking:          parseInt(p.parking) || null,
     condition:        p.condition || null,      // "nuevo" | "usado" | null
     features:         Array.isArray(p.features) ? p.features : [],  // array de strings
@@ -2019,9 +2038,18 @@ function renderReadyReelUpload() {
           <label class="inline-flex items-center gap-2 px-6 py-3 rounded-xl cursor-pointer font-semibold"
             style="background: var(--gold); color: var(--bg-base); box-shadow: 0 6px 20px rgba(201,168,106,0.3);">
             📤 Seleccionar video
-            <input type="file" accept="video/mp4,video/quicktime,video/webm" class="hidden"
+            <input type="file" accept="video/*" class="hidden"
               onchange="handleReadyReelUpload(event.target.files[0])">
           </label>
+          <div style="margin-top:12px;">
+            <label class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl cursor-pointer text-sm font-medium"
+              style="border: 1px solid var(--border-subtle); color: var(--text-primary); background: transparent;">
+              ☁️ Desde Google Drive, Dropbox u otra nube
+              <input type="file" class="hidden"
+                onchange="handleReadyReelUpload(event.target.files[0])">
+            </label>
+            <div class="text-xs mt-2" style="color: var(--text-muted);">Abre el explorador de archivos — ahí podés elegir Drive, Dropbox, OneDrive, etc.</div>
+          </div>
         `}
 
         ${error ? `
@@ -2049,6 +2077,13 @@ async function handleReadyReelUpload(file) {
   state.ready_reel_error = '';
 
   // Validaciones rápidas
+  const _ext = (file.name || '').split('.').pop().toLowerCase();
+  const _esVideo = (file.type || '').startsWith('video/') || ['mp4', 'mov', 'm4v', 'webm'].includes(_ext);
+  if (!_esVideo) {
+    state.ready_reel_error = `"${file.name}" no parece un video. Elegí un archivo MP4, MOV o WEBM.`;
+    render();
+    return;
+  }
   if (file.size > 300 * 1024 * 1024) {
     state.ready_reel_error = `El archivo pesa ${(file.size/1024/1024).toFixed(1)} MB · máximo 300 MB`;
     render();
@@ -2716,7 +2751,7 @@ function renderStep2() {
         <!-- Tipo + Comuna -->
         <div class="grid grid-cols-2 gap-3">
           <div><label class="text-xs text-slate-500 block mb-1">Tipo</label>
-            <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.property.tipo=this.value">
+            <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.property.tipo=this.value; render()">
               <option ${p.tipo === 'Casa' ? 'selected' : ''}>Casa</option>
               <option ${p.tipo === 'Departamento' ? 'selected' : ''}>Departamento</option>
               <option ${p.tipo === 'Sitio' ? 'selected' : ''}>Sitio</option>
@@ -2727,13 +2762,22 @@ function renderStep2() {
 
         </div>
 
-        <!-- Superficies -->
+        <!-- Superficies: depto = útiles + terraza (totales auto) · resto = útiles + terreno -->
+        ${p.tipo === 'Departamento' ? `
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="text-xs text-slate-500 block mb-1">m² útiles</label>
+            <input type="number" value="${escapeAttr(p.m2)}" placeholder="80" oninput="state.property.m2=this.value; updTotalesDepto()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+          <div><label class="text-xs text-slate-500 block mb-1">m² terraza <span class="text-slate-400">(opcional)</span></label>
+            <input type="number" value="${escapeAttr(p.terraza_m2)}" placeholder="12" oninput="state.property.terraza_m2=this.value; updTotalesDepto()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+          <div class="col-span-2"><label class="text-xs text-slate-500 block mb-1">m² totales <span class="text-slate-400">(útiles + terraza, se calcula solo)</span></label>
+            <input type="text" id="sup-totales-depto" value="${escapeAttr(totalesDepto(p))}" readonly tabindex="-1" style="opacity:0.7; pointer-events:none;" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+        </div>` : `
         <div class="grid grid-cols-2 gap-3">
           <div><label class="text-xs text-slate-500 block mb-1">m² útiles / construidos</label>
             <input type="number" value="${escapeAttr(p.m2)}" placeholder="180" oninput="state.property.m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
           <div><label class="text-xs text-slate-500 block mb-1">m² terreno <span class="text-slate-400">(opcional)</span></label>
             <input type="number" value="${escapeAttr(p.terreno_m2)}" placeholder="300" oninput="state.property.terreno_m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
-        </div>
+        </div>`}
 
         <!-- Dormitorios (chips) -->
         <div>
@@ -2778,14 +2822,21 @@ function renderStep2() {
         <div>
           <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">Características</label>
           <div class="grid grid-cols-2 gap-2">
-            ${[
+            ${(p.tipo === 'Departamento' ? [
               {k:"terraza", ic:"🏠", l:"Terraza"},
               {k:"piscina", ic:"🏊", l:"Piscina"},
               {k:"quincho", ic:"🍖", l:"Quincho"},
               {k:"jardin",  ic:"🌳", l:"Jardín"},
-              {k:"bodega",  ic:"📦", l:"Bodega"},
               {k:"gimnasio",ic:"💪", l:"Gimnasio"},
-            ].map(f => {
+              {k:"salon_multiuso", ic:"🛋️", l:"Salón multiuso"},
+              {k:"est_visitas", ic:"🚗", l:"Estacionamientos de visita"},
+            ] : [
+              {k:"terraza", ic:"🏠", l:"Terraza"},
+              {k:"piscina", ic:"🏊", l:"Piscina"},
+              {k:"quincho", ic:"🍖", l:"Quincho"},
+              {k:"jardin",  ic:"🌳", l:"Jardín"},
+              {k:"gimnasio",ic:"💪", l:"Gimnasio"},
+            ]).map(f => {
               const on = (p.features||[]).includes(f.k);
               return `
                 <button type="button" onclick="(function(){ const fs=state.property.features||[]; const i=fs.indexOf('${f.k}'); if(i>=0) fs.splice(i,1); else fs.push('${f.k}'); state.property.features=fs; render(); })()"

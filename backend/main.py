@@ -488,7 +488,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
             # No es fatal — seguimos sin owner_id (nullable)
 
     # Sanitize features (array de strings validados)
-    _valid_features = {"terraza", "piscina", "quincho", "jardin", "bodega", "gimnasio"}
+    _valid_features = {"terraza", "piscina", "quincho", "jardin", "bodega", "gimnasio", "salon_multiuso", "est_visitas"}
     _raw_features = payload.get("features") or []
     features_clean = [f for f in _raw_features if isinstance(f, str) and f in _valid_features]
 
@@ -507,6 +507,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         "area":            _f(payload.get("area")),
         # Nuevos campos para que los filtros del feed comprador funcionen
         "terreno_m2":      _f(payload.get("terreno_m2")),
+        "terraza_m2":      _f(payload.get("terraza_m2")),
         "parking":         _i(payload.get("parking")),
         "condition":       condition_clean,       # "nuevo" | "usado" | null
         "features":        features_clean,        # array (jsonb en Supabase)
