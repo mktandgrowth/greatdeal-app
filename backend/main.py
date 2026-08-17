@@ -126,6 +126,39 @@ async def upload_ready_reel(file: UploadFile = File(...)):
     return _procesar_reel_guardado(tmp_in.name, size, file.content_type or "video/mp4")
 
 
+def _r2_cfg():
+    """Config de Cloudflare R2 (S3-compatible, egress gratis). Si faltan env vars
+    devuelve None y el flujo cae a Supabase Storage como siempre."""
+    acc = os.environ.get("R2_ACCOUNT_ID", "").strip()
+    key = os.environ.get("R2_ACCESS_KEY_ID", "").strip()
+    sec = os.environ.get("R2_SECRET_ACCESS_KEY", "").strip()
+    pub = os.environ.get("R2_PUBLIC_BASE", "").strip().rstrip("/")
+    bucket = os.environ.get("R2_BUCKET", "reels").strip()
+    if acc and key and sec and pub:
+        return {"account": acc, "key": key, "secret": sec, "bucket": bucket, "public": pub}
+    return None
+
+
+def _subir_a_r2(cfg, local_path, out_name, content_type="video/mp4"):
+    """Sube el archivo a R2 vía API S3. Devuelve la URL pública o None si falla."""
+    try:
+        import boto3
+        from botocore.config import Config as _BotoCfg
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=f"https://{cfg['account']}.r2.cloudflarestorage.com",
+            aws_access_key_id=cfg["key"],
+            aws_secret_access_key=cfg["secret"],
+            config=_BotoCfg(signature_version="s3v4", retries={"max_attempts": 3}),
+            region_name="auto",
+        )
+        s3.upload_file(local_path, cfg["bucket"], out_name, ExtraArgs={"ContentType": content_type})
+        return f"{cfg['public']}/{out_name}"
+    except Exception as e:
+        print(f"[r2] upload falló: {e}", flush=True)
+        return None
+
+
 def _procesar_reel_guardado(tmp_path, size, content_type="video/mp4"):
     """Comprime si hace falta y sube el reel a Supabase Storage (o disco local).
     Compartido por /api/upload-ready-reel y /api/upload-chunk/finish."""
@@ -139,12 +172,18 @@ def _procesar_reel_guardado(tmp_path, size, content_type="video/mp4"):
 
     # Supabase Storage (plan free) corta los uploads en ~50 MB. Si el reel pesa
     # más, lo comprimimos con FFmpeg (H.264 720p + audio AAC intacto).
-    SUPABASE_MAX_MB = float(os.environ.get("SUPABASE_MAX_MB", "48"))
+    _r2 = _r2_cfg()
+    if _r2:
+        SUPABASE_MAX_MB = float(os.environ.get("R2_MAX_MB", "80"))
+    else:
+        SUPABASE_MAX_MB = float(os.environ.get("SUPABASE_MAX_MB", "48"))
     if size_mb > SUPABASE_MAX_MB:
         # ESCALERA DE CALIDAD: el video es la vitrina de la propiedad — se parte
         # en 1080p alta calidad y solo se baja lo mínimo para caber en el límite
         # de Storage. (La receta vieja 720p/CRF26 dejaba los reels borrosos.)
-        intentos = [(1080, 20, "fast"), (1080, 23, "fast"), (720, 23, "veryfast"), (720, 27, "veryfast")]
+        intentos = ([(1080, 19, "fast"), (1080, 21, "fast"), (1080, 24, "fast"), (720, 24, "veryfast")]
+                    if _r2 else
+                    [(1080, 20, "fast"), (1080, 23, "fast"), (720, 23, "veryfast"), (720, 27, "veryfast")])
         print(f"[upload-ready] {size_mb:.1f} MB > {SUPABASE_MAX_MB:.0f} MB → comprimiendo con FFmpeg (escalera de calidad)…", flush=True)
         for _res, _crf, _preset in intentos:
             cmd = [
@@ -187,6 +226,15 @@ def _procesar_reel_guardado(tmp_path, size, content_type="video/mp4"):
                 os.unlink(_pth)
             except Exception:
                 pass
+
+    # Destino preferido: Cloudflare R2 (egress gratis, sin límite de 50 MB)
+    if _r2:
+        public_url = _subir_a_r2(_r2, upload_path, out_name, content_type)
+        if public_url:
+            print(f"[upload-ready] Subido a R2 → {public_url}", flush=True)
+            _cleanup()
+            return {"ok": True, "file_url": public_url, "size_mb": round(size_mb, 2), "storage": "r2"}
+        print("[upload-ready] R2 falló — cayendo a Supabase Storage", flush=True)
 
     # Si hay Supabase configurada → subir a Storage por STREAMING desde disco
     if supabase_url and supabase_key:
