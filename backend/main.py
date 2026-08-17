@@ -141,28 +141,36 @@ def _procesar_reel_guardado(tmp_path, size, content_type="video/mp4"):
     # más, lo comprimimos con FFmpeg (H.264 720p + audio AAC intacto).
     SUPABASE_MAX_MB = float(os.environ.get("SUPABASE_MAX_MB", "48"))
     if size_mb > SUPABASE_MAX_MB:
-        cmd = [
-            "ffmpeg", "-y", "-i", tmp_path,
-            "-vf", "scale='min(720,iw)':-2",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart",
-            "-threads", "2",
-            tmp_out,
-        ]
-        try:
-            print(f"[upload-ready] {size_mb:.1f} MB > {SUPABASE_MAX_MB:.0f} MB → comprimiendo con FFmpeg…", flush=True)
-            proc = subprocess.run(cmd, capture_output=True, timeout=600)
-            if proc.returncode != 0:
-                raise RuntimeError((proc.stderr or b"").decode(errors="ignore")[-400:])
-            comp_size = os.path.getsize(tmp_out)
-            if comp_size > 50_000:
-                upload_path = tmp_out
-                size_mb = comp_size / (1024 * 1024)
-                content_type = "video/mp4"
-                print(f"[upload-ready] Comprimido a {size_mb:.1f} MB", flush=True)
-        except Exception as e:
-            print(f"[upload-ready] FFmpeg falló: {e}", flush=True)
+        # ESCALERA DE CALIDAD: el video es la vitrina de la propiedad — se parte
+        # en 1080p alta calidad y solo se baja lo mínimo para caber en el límite
+        # de Storage. (La receta vieja 720p/CRF26 dejaba los reels borrosos.)
+        intentos = [(1080, 20, "fast"), (1080, 23, "fast"), (720, 23, "veryfast"), (720, 27, "veryfast")]
+        print(f"[upload-ready] {size_mb:.1f} MB > {SUPABASE_MAX_MB:.0f} MB → comprimiendo con FFmpeg (escalera de calidad)…", flush=True)
+        for _res, _crf, _preset in intentos:
+            cmd = [
+                "ffmpeg", "-y", "-i", tmp_path,
+                "-vf", f"scale='min({_res},iw)':-2",
+                "-c:v", "libx264", "-preset", _preset, "-crf", str(_crf),
+                "-c:a", "aac", "-b:a", "160k",
+                "-movflags", "+faststart",
+                "-threads", "2",
+                tmp_out,
+            ]
+            try:
+                proc = subprocess.run(cmd, capture_output=True, timeout=480)
+                if proc.returncode != 0:
+                    raise RuntimeError((proc.stderr or b"").decode(errors="ignore")[-400:])
+                comp_size = os.path.getsize(tmp_out)
+                comp_mb = comp_size / (1024 * 1024)
+                print(f"[upload-ready] intento {_res}p CRF{_crf} → {comp_mb:.1f} MB", flush=True)
+                if comp_size > 50_000 and comp_mb <= SUPABASE_MAX_MB:
+                    upload_path = tmp_out
+                    size_mb = comp_mb
+                    content_type = "video/mp4"
+                    print(f"[upload-ready] Comprimido a {size_mb:.1f} MB ({_res}p CRF{_crf})", flush=True)
+                    break
+            except Exception as e:
+                print(f"[upload-ready] FFmpeg falló en {_res}p CRF{_crf}: {e}", flush=True)
         if size_mb > SUPABASE_MAX_MB:
             for _pth in (tmp_path, tmp_out):
                 try:
