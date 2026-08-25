@@ -240,11 +240,11 @@
       </a>
     </div>
     <nav class="flex items-center gap-2" style="position: relative;">
-      <a href="https://c2cprops.com/comprar" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Comprar</a>
-      <a href="https://c2cprops.com/vender" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Publicar</a>
+      <a href="https://c2cprops.com/comprar" class="c2c-nav-link" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Comprar</a>
+      <a href="https://c2cprops.com/vender" class="c2c-nav-link" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Publicar</a>
       <div id="c2cAiDropdown" style="position: relative;">
         <button id="c2cAiDropdownBtn" type="button" style="display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: rgba(201,168,106,0.04); border: 1px solid rgba(201,168,106,0.25); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; cursor: pointer; font-family: inherit;">
-          <span style="color: var(--gold); font-size: 12px;">✦</span> Mi asistente IA <span class="c2c-arrow" style="font-size: 10px; transition: transform 0.2s;">▾</span>
+          <span style="color: var(--gold); font-size: 12px;">✦</span><span class="c2c-ai-label"> Mi asistente IA</span> <span class="c2c-arrow" style="font-size: 10px; transition: transform 0.2s;">▾</span>
         </button>
         <div class="c2c-dropdown-menu" style="position: absolute; top: calc(100% + 8px); right: 0; min-width: 280px; background: #0f0f10; border: 1px solid var(--border-subtle); border-radius: 14px; padding: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity 0.18s, transform 0.18s, visibility 0.18s; z-index: 9999;">
           <a href="https://c2cprops.com/tasar?view=comprador" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; text-decoration: none; color: var(--text-secondary);">
@@ -275,6 +275,14 @@
       #c2cAiDropdown.is-open .c2c-dropdown-menu { opacity: 1 !important; visibility: visible !important; transform: translateY(0) !important; }
       #c2cAiDropdown.is-open .c2c-arrow { transform: rotate(180deg); }
       #c2cAiDropdown .c2c-dropdown-menu a:hover { background: rgba(201,168,106,0.06); }
+      /* Móvil angosto (≤420px): el header medía 427px y cortaba "Mi asistente IA" con scroll horizontal */
+      @media (max-width: 420px) {
+        .c2c-nav-link { display: none !important; }
+        #c2cAiDropdownBtn { padding: 6px 10px !important; }
+        #c2cAiDropdownBtn .c2c-ai-label { display: none; }
+        #c2cAiDropdown .c2c-dropdown-menu { min-width: 240px !important; max-width: calc(100vw - 24px); }
+        body { overflow-x: hidden; }
+      }
     </style>
     <script>
       // Wire the dropdown reliably (addEventListener en vez de inline onclick, por si un render lo pisa)
