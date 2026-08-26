@@ -243,7 +243,7 @@
       <a href="https://c2cprops.com/comprar" class="c2c-nav-link" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Comprar</a>
       <a href="https://c2cprops.com/vender" class="c2c-nav-link" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Publicar</a>
       <div id="c2cAiDropdown" style="position: relative;">
-        <button id="c2cAiDropdownBtn" type="button" style="display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: rgba(201,168,106,0.04); border: 1px solid rgba(201,168,106,0.25); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; cursor: pointer; font-family: inherit;">
+        <button id="c2cAiDropdownBtn" type="button" aria-label="Mi asistente IA" style="display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: rgba(201,168,106,0.04); border: 1px solid rgba(201,168,106,0.25); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; cursor: pointer; font-family: inherit;">
           <span style="color: var(--gold); font-size: 12px;">✦</span><span class="c2c-ai-label"> Mi asistente IA</span> <span class="c2c-arrow" style="font-size: 10px; transition: transform 0.2s;">▾</span>
         </button>
         <div class="c2c-dropdown-menu" style="position: absolute; top: calc(100% + 8px); right: 0; min-width: 280px; background: #0f0f10; border: 1px solid var(--border-subtle); border-radius: 14px; padding: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity 0.18s, transform 0.18s, visibility 0.18s; z-index: 9999;">
@@ -307,6 +307,16 @@
         document.addEventListener('click', function(e) {
           var d = document.getElementById('c2cAiDropdown');
           if (d && !d.contains(e.target)) d.classList.remove('is-open');
+        });
+        // Cerrar con Escape
+        document.addEventListener('keydown', function(e) {
+          if (e.key !== 'Escape') return;
+          var d = document.getElementById('c2cAiDropdown');
+          if (d && d.classList.contains('is-open')) {
+            d.classList.remove('is-open');
+            var b = document.getElementById('c2cAiDropdownBtn');
+            if (b) b.focus();
+          }
         });
       })();
     </script>
@@ -1288,13 +1298,30 @@ function goPrev() {
 //   📩 CTA
 // Depto: m² totales = útiles + terraza (se recalcula en vivo, sin re-render)
 function totalesDepto(p) {
-  const u = parseFloat(p.m2) || 0, t = parseFloat(p.terraza_m2) || 0;
-  const tot = u + t;
-  return tot > 0 ? String(Math.round(tot * 10) / 10) : "";
+  const rawU = String(p.m2 ?? "").trim(), rawT = String(p.terraza_m2 ?? "").trim();
+  if (rawU === "" && rawT === "") return "";
+  const u = parseFloat(rawU) || 0, t = parseFloat(rawT) || 0;
+  return String(Math.round((u + t) * 10) / 10);
 }
 function updTotalesDepto() {
   const el = document.getElementById('sup-totales-depto');
   if (el) el.value = totalesDepto(state.property);
+  updPreviewInfo();
+}
+// Cierre del reel: depto con terraza se anuncia por m² totales; el resto, por m² útiles
+function ctaInfoM2(p) {
+  if (p.tipo === 'Departamento' && String(p.terraza_m2 ?? "").trim() !== "") {
+    return totalesDepto(p) || (p.m2 || '—');
+  }
+  return p.m2 || '—';
+}
+function ctaInfoDefault(p) {
+  return `${ctaInfoM2(p)} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`;
+}
+// Refresco en vivo del cierre, sin re-render (para no perder el foco del input)
+function updPreviewInfo() {
+  const el = document.getElementById('cta-preview-info');
+  if (el) el.textContent = state.custom_cta_info || ctaInfoDefault(state.property);
 }
 
 function buildAutoCopy(p) {
@@ -1678,7 +1705,7 @@ async function submitPublish() {
     parking:          parseInt(p.parking) || null,
     condition:        p.condition || null,      // "nuevo" | "usado" | null
     features:         Array.isArray(p.features) ? p.features : [],  // array de strings
-    title:            `${p.tipo || "Propiedad"}${p.comuna ? " en " + p.comuna : ""}${p.m2 ? " · " + p.m2 + "m²" : ""}`,
+    title:            `${p.tipo || "Propiedad"}${p.comuna ? " en " + p.comuna : ""}${p.m2 ? " · " + ctaInfoM2(p) + "m²" : ""}`,
     description:      desc,
     loc:              loc,
     // Ubicación pública elegida por el vendedor; si no puso nada, solo la comuna
@@ -2809,7 +2836,7 @@ function renderCatastroBlock() {
 // ── STEP 2: DATOS + AVANZADO ───────────────────────────────────────
 function renderStep2() {
   const p = state.property;
-  const previewInfo = state.custom_cta_info || `${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`;
+  const previewInfo = state.custom_cta_info || ctaInfoDefault(p);
   const previewPrecio = state.custom_cta_precio || (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar');
 
   // ─── Selector de filtros cinematográficos (desplegable) ───
@@ -2894,17 +2921,17 @@ function renderStep2() {
         ${p.tipo === 'Departamento' ? `
         <div class="grid grid-cols-2 gap-3">
           <div><label class="text-xs text-slate-500 block mb-1">m² útiles</label>
-            <input type="number" value="${escapeAttr(p.m2)}" placeholder="80" oninput="state.property.m2=this.value; updTotalesDepto()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+            <input type="number" min="0" value="${escapeAttr(p.m2)}" placeholder="80" oninput="state.property.m2=this.value; updTotalesDepto()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
           <div><label class="text-xs text-slate-500 block mb-1">m² terraza <span class="text-slate-400">(opcional)</span></label>
-            <input type="number" value="${escapeAttr(p.terraza_m2)}" placeholder="12" oninput="state.property.terraza_m2=this.value; updTotalesDepto()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+            <input type="number" min="0" value="${escapeAttr(p.terraza_m2)}" placeholder="12" oninput="state.property.terraza_m2=this.value; updTotalesDepto()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
           <div class="col-span-2"><label class="text-xs text-slate-500 block mb-1">m² totales <span class="text-slate-400">(útiles + terraza, se calcula solo)</span></label>
             <input type="text" id="sup-totales-depto" value="${escapeAttr(totalesDepto(p))}" readonly tabindex="-1" style="opacity:0.7; pointer-events:none;" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
         </div>` : `
         <div class="grid grid-cols-2 gap-3">
           <div><label class="text-xs text-slate-500 block mb-1">m² útiles / construidos</label>
-            <input type="number" value="${escapeAttr(p.m2)}" placeholder="180" oninput="state.property.m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+            <input type="number" min="0" value="${escapeAttr(p.m2)}" placeholder="180" oninput="state.property.m2=this.value; updPreviewInfo()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
           <div><label class="text-xs text-slate-500 block mb-1">m² terreno <span class="text-slate-400">(opcional)</span></label>
-            <input type="number" value="${escapeAttr(p.terreno_m2)}" placeholder="300" oninput="state.property.terreno_m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+            <input type="number" min="0" value="${escapeAttr(p.terreno_m2)}" placeholder="300" oninput="state.property.terreno_m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
         </div>`}
 
         <!-- Dormitorios (chips) -->
@@ -2998,7 +3025,7 @@ function renderStep2() {
       <!-- Descripción movida al modal de publicar (evita pedirla 2 veces) -->
 
       <div class="bg-black rounded-2xl p-6 mb-4 text-center">
-        <div class="text-white text-sm mb-3">${escapeHtml(previewInfo)}</div>
+        <div id="cta-preview-info" class="text-white text-sm mb-3">${escapeHtml(previewInfo)}</div>
         ${state.custom_tagline ? `<div class="text-slate-400 text-xs">${escapeHtml(state.custom_tagline)}</div>` : ''}
         <div class="text-slate-500 text-[10px] mt-3">↑ Cierre del reel (preview)</div>
       </div>
@@ -3027,7 +3054,7 @@ function renderCierreCustomization() {
         <div>
           <div class="text-sm font-medium text-slate-900 mb-2">💎 Personalizar cierre (opcional)</div>
           <div class="space-y-2">
-            <input type="text" placeholder="Info (default: ${escapeAttr(`${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`)})" value="${escapeAttr(state.custom_cta_info)}" maxlength="60" oninput="state.custom_cta_info=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
+            <input type="text" placeholder="Info (default: ${escapeAttr(ctaInfoDefault(p))})" value="${escapeAttr(state.custom_cta_info)}" maxlength="60" oninput="state.custom_cta_info=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
             <input type="text" placeholder="Precio (default: ${escapeAttr(p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar')})" value="${escapeAttr(state.custom_cta_precio)}" maxlength="30" oninput="state.custom_cta_precio=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
             <input type="text" placeholder="Tagline final" value="${escapeAttr(state.custom_tagline)}" maxlength="40" oninput="state.custom_tagline=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
           </div>
@@ -3754,7 +3781,7 @@ function renderStep4() {
 function buildCtaData() {
   const p = state.property;
   return {
-    info: (state.custom_cta_info || "").trim() || `${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`,
+    info: (state.custom_cta_info || "").trim() || ctaInfoDefault(p),
     precio: (state.custom_cta_precio || "").trim() || (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar'),
     tagline: (state.custom_tagline || "").trim(),  // vacío = no aparece la línea
   };
