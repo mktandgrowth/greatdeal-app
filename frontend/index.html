@@ -2864,6 +2864,9 @@ function removeSectionClip(key, idx) {
 const CATASTRO_API = "https://tasar.c2cprops.com/api/predio";
 function rolCortoCat(r) { const p = String(r || "").split("-"); return p.length >= 3 ? p.slice(1).join("-") : (r || ""); }
 async function buscarCatastro() {
+  // El botón queda deshabilitado mientras busca, pero el guard evita igual una
+  // segunda request si el click llega por teclado o por doble tap en móvil.
+  if (state.cat && state.cat.status === "loading") return;
   const p = state.property;
   if (!p.direccion || !p.comuna) { state.cat = { status: "error", msg: "Escribí la dirección y la comuna primero." }; render(); return; }
   state.cat = { status: "loading" }; render();
@@ -2894,6 +2897,7 @@ function aplicarCatastro() {
 function renderCatastroBlock() {
   const p = state.property;
   const c = state.cat;
+  const buscando = !!(c && c.status === "loading");
   let panel = "";
   if (c && c.status === "loading") panel = `<div class="text-xs text-slate-500 mt-2">⏳ Buscando en el catastro…</div>`;
   if (c && c.status === "error") panel = `<div class="text-xs text-red-600 mt-2">${escapeHtml(c.msg)}</div>`;
@@ -2928,7 +2932,7 @@ function renderCatastroBlock() {
       </div>
       <div class="grid grid-cols-[1fr_auto] gap-2 mt-2">
         <input type="text" value="${escapeAttr(p.comuna || "")}" placeholder="Comuna · Ej: Vitacura" oninput="state.property.comuna=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-        <button onclick="buscarCatastro()" class="px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-700 whitespace-nowrap">🔍 Buscar en catastro</button>
+        <button onclick="buscarCatastro()" ${buscando ? "disabled" : ""} class="px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-700 whitespace-nowrap disabled:opacity-50 disabled:cursor-wait">${buscando ? "Buscando…" : "🔍 Buscar en catastro"}</button>
       </div>
       <div class="text-[11px] text-slate-400 mt-1">Con la dirección y la comuna traemos m², tipo y ROL automáticamente desde el SII</div>
       ${panel}
