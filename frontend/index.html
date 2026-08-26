@@ -102,10 +102,19 @@
   /* Sombras dramáticas pero sutiles para el dark theme */
   .shadow-sm, .shadow, .shadow-md, .shadow-lg, .shadow-xl { box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--border-subtle) !important; }
 
-  /* Hover states más sutiles en dark */
-  .hover\\:bg-slate-50:hover, .hover\\:bg-slate-100:hover, .hover\\:bg-white:hover { background-color: var(--bg-card-hover) !important; }
-  .hover\\:bg-slate-800:hover, .hover\\:bg-slate-900:hover { background-color: var(--gold-bright) !important; color: var(--bg-base) !important; }
-  .hover\\:bg-purple-700:hover, .hover\\:bg-amber-600:hover { background-color: var(--gold-bright) !important; }
+  /* Hover states más sutiles en dark.
+     OJO: el escape correcto del ":" dentro de un nombre de clase es "\:" — uno
+     solo. Con "\\:" el selector es inválido, el navegador descarta la regla
+     entera y estos hovers nunca llegaban a aplicarse: quedaba el gris claro de
+     Tailwind (o directamente ningún cambio) sobre el fondo oscuro. */
+  .hover\:bg-slate-50:hover, .hover\:bg-slate-100:hover, .hover\:bg-white:hover { background-color: var(--bg-card-hover) !important; }
+  .hover\:bg-slate-700:hover, .hover\:bg-slate-800:hover, .hover\:bg-slate-900:hover { background-color: var(--gold-bright) !important; color: var(--bg-base) !important; }
+  .hover\:bg-purple-700:hover, .hover\:bg-amber-600:hover { background-color: var(--gold-bright) !important; }
+
+  /* Botones sólidos dorados (bg-slate-900 + text-white, ej. "Buscar en catastro"):
+     .text-white gana por orden de cascada y deja champagne sobre dorado (~1.7:1
+     de contraste). Forzamos texto oscuro en reposo y en hover. */
+  .bg-slate-900.text-white, .bg-slate-900.text-white:hover { color: var(--bg-base) !important; }
 
   /* Cards y contenedores — bordes más visibles con gold sutil */
   .rounded-2xl, .rounded-xl, .rounded-3xl { border-color: var(--border-subtle); }
