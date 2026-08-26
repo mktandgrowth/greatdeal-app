@@ -536,6 +536,7 @@ function resetAll() {
     is_reprocessing: false, has_been_processed: false,
     editor_open: false, editor_clips: [], editor_sortable: null, simple_sortable: null,
   };
+  saveEditorMode();
   render();
 }
 
@@ -5026,7 +5027,7 @@ function render() {
   // está armado y publicar empieza a tener sentido.
   const datosLink = (state.editor_mode && (state.step === 3 || state.step === 4)) ? `
     <div class="mb-4">
-      <button onclick="state.step=1; render()" class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium" style="background: rgba(201,168,106,0.06); color: var(--gold); border: 1px solid var(--gold-border); cursor: pointer; font-family: inherit;">
+      <button onclick="goToStep(1)" class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium" style="background: rgba(201,168,106,0.06); color: var(--gold); border: 1px solid var(--gold-border); cursor: pointer; font-family: inherit;">
         <span>🏠</span><span>Completar datos de la propiedad</span>
       </button>
     </div>
@@ -5071,13 +5072,26 @@ function render() {
 // Al volver a abrir la app, se restauran los datos.
 const STORAGE_KEY = "greatdeal_state_v1";
 
+// editor_mode va en sessionStorage, NO en el snapshot de localStorage: el
+// parámetro se borra de la URL con replaceState, así que sin persistencia un F5
+// te sacaría del editor. Pero localStorage sobrevive a cerrar el navegador, y
+// entonces cualquiera que hubiera usado el editor una vez entraba en modo
+// editor también al abrir la app normal para publicar una propiedad.
+// sessionStorage cubre el refresh y muere con la pestaña.
+const EDITOR_MODE_KEY = "greatdeal_editor_mode";
+function saveEditorMode() {
+  try { sessionStorage.setItem(EDITOR_MODE_KEY, state.editor_mode ? "1" : "0"); } catch (_) {}
+}
+function restoreEditorMode() {
+  try { state.editor_mode = sessionStorage.getItem(EDITOR_MODE_KEY) === "1"; } catch (_) {}
+}
+
 function saveStateToStorage() {
   try {
     // Solo guardamos lo "serializable" (sin File objects ni Blobs)
     const snap = {
       step: state.step,
       upload_mode: state.upload_mode,
-      editor_mode: state.editor_mode,
       property: state.property,
       advanced_open: state.advanced_open,
       enhance_ai: state.enhance_ai,
@@ -5117,7 +5131,6 @@ function restoreStateFromStorage() {
   // Restaurar solo lo seguro
   Object.assign(state.property, saved.property || {});
   if (saved.upload_mode) state.upload_mode = saved.upload_mode;
-  if (saved.editor_mode !== undefined) state.editor_mode = saved.editor_mode;
   if (saved.advanced_open !== undefined) state.advanced_open = saved.advanced_open;
   if (saved.enhance_ai !== undefined) state.enhance_ai = saved.enhance_ai;
   if (saved.auto_subtitles !== undefined) state.auto_subtitles = saved.auto_subtitles;
@@ -5180,6 +5193,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Restaurar datos guardados (si los hay)
   const restored = restoreStateFromStorage();
+  // editor_mode vive aparte, por pestaña (ver EDITOR_MODE_KEY)
+  restoreEditorMode();
+  if (state.editor_mode && state.step === 1) state.step = 2;
 
   // ── ?mode=editor ──────────────────────────────────────────────────
   // Entrada directa al editor de videos (link "Editor de videos" del dropdown
@@ -5197,7 +5213,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       qsInit.delete("mode");
       const resto = qsInit.toString();
       history.replaceState(null, "", location.pathname + (resto ? "?" + resto : ""));
-      saveStateToStorage();
+      saveEditorMode();
     }
   } catch (_) {}
 
