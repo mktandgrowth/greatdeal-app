@@ -259,6 +259,12 @@
           <span style="color: var(--gold); font-size: 12px;">✦</span><span class="c2c-ai-label"> Mi asistente IA</span> <span class="c2c-arrow" style="font-size: 10px; transition: transform 0.2s;">▾</span>
         </button>
         <div class="c2c-dropdown-menu" style="position: absolute; top: calc(100% + 8px); right: 0; min-width: 280px; background: #0f0f10; border: 1px solid var(--border-subtle); border-radius: 14px; padding: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity 0.18s, transform 0.18s, visibility 0.18s; z-index: 9999;">
+          <!-- En ≤420px los links del header (Comprar / Publicar) se ocultan por
+               falta de ancho, así que se muestran acá y la navegación no se pierde.
+               Ocultos por defecto; el media query de abajo los enciende. -->
+          <a href="https://c2cprops.com/comprar" class="c2c-dd-compact" style="display: none; align-items: center; padding: 10px 14px; border-radius: 10px; text-decoration: none; color: var(--text-primary); font-size: 13.5px; font-weight: 500; letter-spacing: 0.02em;">Comprar</a>
+          <a href="https://c2cprops.com/vender" class="c2c-dd-compact" style="display: none; align-items: center; padding: 10px 14px; border-radius: 10px; text-decoration: none; color: var(--text-primary); font-size: 13.5px; font-weight: 500; letter-spacing: 0.02em;">Publicar</a>
+          <div class="c2c-dd-compact-sep" style="display: none; height: 1px; margin: 6px 12px; background: var(--border-subtle);"></div>
           <a href="https://c2cprops.com/tasar?view=comprador" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; text-decoration: none; color: var(--text-secondary);">
             <span style="font-size: 20px; line-height: 1;">🔍</span>
             <div>
@@ -287,12 +293,16 @@
       #c2cAiDropdown.is-open .c2c-dropdown-menu { opacity: 1 !important; visibility: visible !important; transform: translateY(0) !important; }
       #c2cAiDropdown.is-open .c2c-arrow { transform: rotate(180deg); }
       #c2cAiDropdown .c2c-dropdown-menu a:hover { background: rgba(201,168,106,0.06); }
-      /* Móvil angosto (≤420px): el header medía 427px y cortaba "Mi asistente IA" con scroll horizontal */
+      /* Móvil angosto (≤420px): el header medía 427px y cortaba "Mi asistente IA" con scroll horizontal.
+         Comprar y Publicar se ocultan de la barra y pasan al dropdown (.c2c-dd-compact),
+         así el header entra en 390px sin dejar al usuario sin esas dos rutas. */
       @media (max-width: 420px) {
         .c2c-nav-link { display: none !important; }
         #c2cAiDropdownBtn { padding: 6px 10px !important; }
         #c2cAiDropdownBtn .c2c-ai-label { display: none; }
         #c2cAiDropdown .c2c-dropdown-menu { min-width: 240px !important; max-width: calc(100vw - 24px); }
+        #c2cAiDropdown .c2c-dd-compact { display: flex !important; }
+        #c2cAiDropdown .c2c-dd-compact-sep { display: block !important; }
         body { overflow-x: hidden; }
       }
     </style>
