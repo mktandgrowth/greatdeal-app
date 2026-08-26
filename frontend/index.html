@@ -114,10 +114,24 @@
   .hover\:bg-slate-700:hover, .hover\:bg-slate-800:hover, .hover\:bg-slate-900:hover { background-color: var(--gold-bright) !important; color: var(--bg-base) !important; }
   .hover\:bg-purple-700:hover, .hover\:bg-amber-600:hover { background-color: var(--gold-bright) !important; }
 
-  /* Botones sólidos dorados (bg-slate-900 + text-white, ej. "Buscar en catastro"):
-     .text-white gana por orden de cascada y deja champagne sobre dorado (~1.7:1
-     de contraste). Forzamos texto oscuro en reposo y en hover. */
-  .bg-slate-900.text-white, .bg-slate-900.text-white:hover { color: var(--bg-base) !important; }
+  /* Botones sólidos (fondo mapeado a dorado o verde + .text-white).
+     .text-white está mapeado a champagne y gana por orden de cascada sobre el
+     color oscuro que define cada regla de fondo, así que el texto quedaba casi
+     invisible. Contraste medido antes → después:
+       bg-slate-900   1.70 → 8.76    bg-amber-500/400  1.99 → 8.76
+       bg-purple-600  1.99 → 8.76    bg-amber-600      2.90 → 6.01
+       bg-purple-700  1.99 → 8.76    bg-emerald-500/600/green-500  1.86 → 9.35
+     Los nueve pasan WCAG AA (4.5:1). Medido en navegador, no estimado.
+     Forzamos texto oscuro en reposo y en hover. */
+  .bg-slate-900.text-white,   .bg-slate-900.text-white:hover,
+  .bg-purple-600.text-white,  .bg-purple-600.text-white:hover,
+  .bg-purple-700.text-white,  .bg-purple-700.text-white:hover,
+  .bg-amber-400.text-white,   .bg-amber-400.text-white:hover,
+  .bg-amber-500.text-white,   .bg-amber-500.text-white:hover,
+  .bg-amber-600.text-white,   .bg-amber-600.text-white:hover,
+  .bg-emerald-500.text-white, .bg-emerald-500.text-white:hover,
+  .bg-emerald-600.text-white, .bg-emerald-600.text-white:hover,
+  .bg-green-500.text-white,   .bg-green-500.text-white:hover { color: var(--bg-base) !important; }
 
   /* Cards y contenedores — bordes más visibles con gold sutil */
   .rounded-2xl, .rounded-xl, .rounded-3xl { border-color: var(--border-subtle); }
