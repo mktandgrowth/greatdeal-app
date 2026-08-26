@@ -2862,6 +2862,7 @@ function removeSectionClip(key, idx) {
 // Busca la propiedad por dirección+comuna y permite confirmar la ficha:
 // rellena m² y tipo automáticamente y guarda el ROL en la publicación.
 const CATASTRO_API = "https://tasar.c2cprops.com/api/predio";
+const CATASTRO_TIMEOUT_MS = 20000;
 function rolCortoCat(r) { const p = String(r || "").split("-"); return p.length >= 3 ? p.slice(1).join("-") : (r || ""); }
 async function buscarCatastro() {
   // El botón queda deshabilitado mientras busca, pero el guard evita igual una
@@ -2870,14 +2871,26 @@ async function buscarCatastro() {
   const p = state.property;
   if (!p.direccion || !p.comuna) { state.cat = { status: "error", msg: "Escribí la dirección y la comuna primero." }; render(); return; }
   state.cat = { status: "loading" }; render();
+  // Timeout duro: sin esto, una request que nunca resuelve (señal que se cae a
+  // mitad de camino) deja state.cat en "loading" para siempre y el botón, que
+  // ahora se deshabilita mientras busca, no vuelve nunca. Mismo patrón que
+  // submitPublish.
+  const ctrl = new AbortController();
+  const tId = setTimeout(() => ctrl.abort(), CATASTRO_TIMEOUT_MS);
   try {
-    const r = await fetch(CATASTRO_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ direccion: p.direccion, comuna: p.comuna, depto: p.depto || "" }) });
+    const r = await fetch(CATASTRO_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ direccion: p.direccion, comuna: p.comuna, depto: p.depto || "" }), signal: ctrl.signal });
     const j = await r.json();
     const cands = j.candidatos || [];
     if (!cands.length) state.cat = { status: "error", msg: j.mensaje || "No encontré la propiedad en el catastro. Podés cargar los datos a mano." };
     else if (cands.length === 1) state.cat = { status: "ficha", ficha: cands[0] };
     else state.cat = { status: "candidatos", candidatos: cands.slice(0, 8) };
-  } catch (e) { state.cat = { status: "error", msg: "No pude conectar con el catastro. Cargá los datos a mano." }; }
+  } catch (e) {
+    state.cat = { status: "error", msg: e.name === "AbortError"
+      ? "El catastro no respondió a tiempo. Probá de nuevo o cargá los datos a mano."
+      : "No pude conectar con el catastro. Cargá los datos a mano." };
+  } finally {
+    clearTimeout(tId);
+  }
   render();
 }
 function elegirCandidatoCat(i) { const c = ((state.cat && state.cat.candidatos) || [])[i]; if (c) state.cat = { status: "ficha", ficha: c }; render(); }
