@@ -1362,10 +1362,20 @@ function goPrev() {
 //   ✔ Feature 2
 //   📩 CTA
 // Depto: m² totales = útiles + terraza (se recalcula en vivo, sin re-render)
+// m² nunca negativos: min="0" solo marca el input como inválido, no impide
+// escribir "-40" a mano ni pegarlo, y el valor igual llegaba al cierre del reel
+// y al copy de la publicación. Clampeamos al calcular, que es lo que se muestra.
+function m2Clamp(v) {
+  const s = String(v ?? "").trim();
+  if (s === "") return "";
+  const n = parseFloat(s);
+  if (!isFinite(n)) return "";
+  return String(Math.max(0, n));
+}
 function totalesDepto(p) {
   const rawU = String(p.m2 ?? "").trim(), rawT = String(p.terraza_m2 ?? "").trim();
   if (rawU === "" && rawT === "") return "";
-  const u = parseFloat(rawU) || 0, t = parseFloat(rawT) || 0;
+  const u = Math.max(0, parseFloat(rawU) || 0), t = Math.max(0, parseFloat(rawT) || 0);
   return String(Math.round((u + t) * 10) / 10);
 }
 function updTotalesDepto() {
@@ -1376,9 +1386,9 @@ function updTotalesDepto() {
 // Cierre del reel: depto con terraza se anuncia por m² totales; el resto, por m² útiles
 function ctaInfoM2(p) {
   if (p.tipo === 'Departamento' && String(p.terraza_m2 ?? "").trim() !== "") {
-    return totalesDepto(p) || (p.m2 || '—');
+    return totalesDepto(p) || m2Clamp(p.m2) || '—';
   }
-  return p.m2 || '—';
+  return m2Clamp(p.m2) || '—';
 }
 function ctaInfoDefault(p) {
   return `${ctaInfoM2(p)} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`;
