@@ -1863,11 +1863,14 @@ async function submitPublish() {
     }
   } catch (e) {
     clearTimeout(timeoutId);
-    console.error('[publish] fallo:', e);
-    const msg = e.name === 'AbortError'
-      ? 'El backend no respondió en 90 segundos. Puede estar durmiendo (Render se suspende sin uso). Reintentá en 30 seg.'
+    // El detalle técnico (incluidos nombres de variables de entorno que puede
+    // devolver el backend) queda SOLO en consola: al usuario final no le sirve
+    // y expone la configuración del servidor.
+    const detalle = e.name === 'AbortError'
+      ? 'timeout: el backend no respondió en 90 s (Render puede estar dormido)'
       : e.message;
-    alert("❌ Error al publicar:\n\n" + msg + "\n\n────────────\nSi dice 'Supabase no configurada', falta agregar SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Render env vars.");
+    console.error('[publish] fallo:', detalle, e);
+    alert("No pudimos publicar, intentá de nuevo en un minuto");
     if (btn) {
       btn.disabled = false;
       btn.style.opacity = '1';
