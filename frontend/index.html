@@ -331,6 +331,10 @@
 </main>
 
 <div class="fixed bottom-0 left-0 right-0 z-20" style="background: linear-gradient(0deg, #0a0a0b 0%, rgba(10,10,11,0.92) 100%); backdrop-filter: blur(20px); border-top: 1px solid var(--border-subtle);">
+  <!-- Validaciones del wizard: mensaje inline sobre la barra, en vez de alert() -->
+  <div id="nav-error-wrap" class="max-w-4xl mx-auto px-5 pt-2.5" style="display:none;">
+    <div id="nav-error" role="alert" aria-live="polite" style="font-size:12.5px; line-height:1.45; color:var(--error); background:rgba(229,118,118,0.10); border:1px solid rgba(229,118,118,0.30); border-radius:10px; padding:8px 12px;"></div>
+  </div>
   <div class="max-w-4xl mx-auto px-5 py-3 flex items-center justify-between">
     <button id="btn-prev" onclick="goPrev()" class="px-5 py-2.5 rounded-full disabled:opacity-30 transition" style="color: var(--text-secondary); border: 1px solid var(--border-subtle); background: transparent;">← Volver</button>
     <button id="btn-next" onclick="goNext()" class="px-7 py-3 rounded-full disabled:opacity-30 font-semibold transition" style="background: var(--gold); color: var(--bg-base); letter-spacing: 0.02em; box-shadow: 0 4px 20px rgba(201,168,106,0.25);">Continuar →</button>
@@ -1231,6 +1235,39 @@ function stopMusicPreviewIfPlaying() {
   } catch (_) {}
 }
 
+// Mensajes de validación del wizard: se muestran inline sobre la barra
+// inferior (nunca alert(), que en móvil tapa el formulario y pierde el foco).
+function showNavError(msg) {
+  const wrap = document.getElementById('nav-error-wrap');
+  const el = document.getElementById('nav-error');
+  if (!wrap || !el) return;
+  el.textContent = msg;
+  wrap.style.display = 'block';
+}
+function clearNavError() {
+  const wrap = document.getElementById('nav-error-wrap');
+  if (wrap) wrap.style.display = 'none';
+}
+
+// Paso 1 (datos de la propiedad): dirección, comuna y tipo son obligatorios,
+// y los m² útiles tienen que ser un número mayor a 0.
+// Devuelve el mensaje de error, o "" si está todo bien.
+function validarPaso1(p) {
+  const faltan = [];
+  if (!String(p.direccion || "").trim()) faltan.push("la dirección");
+  if (!String(p.comuna || "").trim())    faltan.push("la comuna");
+  if (!String(p.tipo || "").trim())      faltan.push("el tipo de propiedad");
+  if (faltan.length) {
+    const lista = faltan.length === 1
+      ? faltan[0]
+      : faltan.slice(0, -1).join(", ") + " y " + faltan[faltan.length - 1];
+    return "Para continuar falta " + lista + ".";
+  }
+  const m2 = parseFloat(String(p.m2 ?? "").trim());
+  if (!isFinite(m2) || m2 <= 0) return "Indicá los m² útiles de la propiedad — tienen que ser mayores a 0.";
+  return "";
+}
+
 function goNext() {
   // Modo "hire" (contratar grabación): el flow termina en el paso 2 con el formulario enviado.
   // Nada que hacer al presionar continuar — todo se maneja dentro del renderHireForm.
@@ -1238,6 +1275,12 @@ function goNext() {
     if (!state.hire_sent) { alert("Completá el formulario de arriba y tocá 'Enviar solicitud de grabación'."); }
     return;
   }
+  // Paso 1: no dejamos avanzar sin los datos mínimos de la propiedad
+  if (state.step === 1) {
+    const errPaso1 = validarPaso1(state.property || {});
+    if (errPaso1) { showNavError(errPaso1); return; }
+  }
+  clearNavError();
   if (state.step === 2 && totalClipsCount() === 0 && state.upload_mode !== "ready_reel") { alert("Subí al menos un video"); return; }
   // Modo "ready_reel": desde paso 2 saltamos directo a paso 4 (audio+cierre no aplica),
   // y desde paso 4 abrimos el modal de publicar (nada que procesar/regenerar).
@@ -1494,6 +1537,28 @@ function normPhoneE164(v) {
   return '+' + d;
 }
 
+// Formato de teléfono chileno aceptado en el paso 3:
+//   +56 9 XXXX XXXX (con o sin espacios) — o los 9 dígitos locales.
+function telefonoValido(v) {
+  const s = String(v || '').trim();
+  if (!s) return false;
+  const d = s.replace(/\D/g, '');
+  if (s.startsWith('+') || d.length > 9) return /^56\d{9}$/.test(d);
+  return /^\d{9}$/.test(d);
+}
+
+// Error inline debajo de un campo del modal de publicar
+function showFieldError(id, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function clearFieldError(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = 'none';
+}
+
 function verifyDest() {
   const m = state.contact_method || 'whatsapp';
   if (m === 'email') return { channel: 'email', dest: (document.getElementById('pf-email')?.value || '').trim().toLowerCase() };
@@ -1648,7 +1713,9 @@ async function submitPublish() {
   const method = state.contact_method || 'whatsapp';
   const email  = (document.getElementById('pf-email')?.value || '').trim();
   if (method === 'email' && !email) { alert("Falta tu correo para que te contacten"); document.getElementById('pf-email')?.focus(); return; }
-  if (method !== 'email' && !wa) { alert(method === 'telefono' ? "Falta tu número de teléfono" : "Falta tu número de contacto"); document.getElementById('pf-wa').focus(); return; }
+  if (method !== 'email' && !wa) { showFieldError('pf-wa-err', method === 'telefono' ? "Falta tu número de teléfono" : "Falta tu número de contacto"); document.getElementById('pf-wa').focus(); return; }
+  if (method !== 'email' && !telefonoValido(wa)) { showFieldError('pf-wa-err', "Revisá el número: tiene que ser +56 9 XXXX XXXX o los 9 dígitos."); document.getElementById('pf-wa').focus(); return; }
+  clearFieldError('pf-wa-err');
 
   // ─── Verificación OBLIGATORIA del contacto (si el canal está operativo) ───
   let contactVerifyToken = null;
@@ -4820,6 +4887,7 @@ async function applyEditorChanges() {
 
 // ── MAIN RENDER ────────────────────────────────────────────────────
 function render() {
+  clearNavError();
   renderStepper();
   const c = document.getElementById("step-content");
   // Si ya hay reel generado y estás navegando por pasos 1/2/3, agregamos
@@ -5072,6 +5140,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         <div>
           <label id="pf-phone-label" style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Número de WhatsApp *</label>
           <input id="pf-wa" type="tel" placeholder="+56 9 1234 5678" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+          <div id="pf-wa-err" role="alert" aria-live="polite" style="display:none; font-size:11.5px; line-height:1.4; color:var(--error); margin-top:5px;"></div>
         </div>
       </div>
       <div>
