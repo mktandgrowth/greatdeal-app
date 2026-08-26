@@ -1,275 +1,247 @@
-# GreatDeal — Estado del proyecto
+# GreatDeal / C2C Publicar — Estado del proyecto
 
-> **Para Claude**: este archivo es tu memoria persistente. Léelo al inicio de cada sesión antes de tocar código. Actualizalo cuando hagas cambios estructurales importantes.
+> **Para Claude (y para gstack)**: este archivo es la memoria persistente del repo. Leelo al inicio de cada sesión antes de tocar código y actualizalo cuando cambie algo estructural. Las secciones 1–14 describen el estado **actual** (agosto 2026). Las secciones 15–17 son bitácoras históricas de mayo 2026: sirven como contexto, pero **todo lo marcado ahí como "pendiente" o "bug activo" ya está resuelto o superado**.
 
----
-
-## 1. Qué es GreatDeal
-
-Plataforma C2C de real estate. El usuario (corredor o vendedor particular, **no técnico**) sube los videos cortos de una propiedad, completa datos básicos, y la app le devuelve un reel listo para Instagram/TikTok con texto sobre los clips, música, CTA con precio y opcionalmente voz/logo personalizado.
-
-**Audiencia clave**: gente sin background técnico. La UX tiene que sentirse como WhatsApp/Instagram — todo se entiende sin instructivo, defaults inteligentes, complejidad escondida en "Opciones avanzadas".
+Última actualización: 2026-08-26 (Oscar + Claude).
 
 ---
 
-## 2. URLs en producción
+## 1. Qué es
 
-- **Frontend**: https://greatdeal-app-7b95.vercel.app/
-- **Backend API**: https://greatdeal-api.onrender.com/
-- **Repo GitHub**: https://github.com/mktandgrowth/greatdeal-app
-- **Render dashboard**: https://dashboard.render.com/ → `greatdeal-api`
-- **Vercel dashboard**: https://vercel.com/ → `greatdeal-app`
+Plataforma C2C de real estate en Chile. El vendedor (corredor o particular, **no técnico**) entra a **vender.c2cprops.com**, carga los datos de la propiedad, sube o arma un reel vertical, le pone precio y contacto, y la propiedad queda **publicada en el marketplace C2C** (c2cprops.com). El mismo backend sigue ofreciendo el editor de reels con IA (clips por sección, música, voz, Runway, subtítulos).
 
-Deploy es **automático en push a `main`**: Render redeploya backend (~3-5 min) y Vercel redeploya frontend (~1 min).
+**Audiencia clave**: gente sin background técnico, mayormente desde el teléfono. La UX tiene que sentirse como WhatsApp/Instagram: defaults inteligentes, complejidad escondida en "Opciones avanzadas".
+
+---
+
+## 2. URLs y cuentas
+
+| Qué | Dónde |
+|---|---|
+| Frontend (prod) | https://vender.c2cprops.com (Vercel, deploy automático en push a `main`, ~1 min) |
+| Backend API (prod) | https://greatdeal-api.onrender.com (Render, deploy automático en push a `main`, ~3–5 min). `GET /health` → `{"status":"ok"}` |
+| Repo | https://github.com/mktandgrowth/greatdeal-app (público) |
+| Marketplace / tasador | https://c2cprops.com · https://tasar.c2cprops.com (API de catastro `POST /api/predio`) |
+| Base de datos | Supabase: tabla `properties` (publicaciones), bucket `reels` (respaldo) |
+| Storage de reels | Cloudflare R2 (bucket `reels`, egress gratis) desde PR #18; Supabase Storage como respaldo |
+
+**OJO con los accesos (26-ago-2026)**: la cuenta de Render que aloja `greatdeal-api` y la cuenta de Vercel que administra el dominio `c2cprops.com` (DNS en `ns1/ns2.vercel-dns.com`) **no son las de Oscar**. Para tocar env vars o DNS hace falta que el administrador (Vale / mktandgrowth) invite a Oscar como miembro en ambos.
 
 ---
 
 ## 3. Stack
 
-| Componente | Tech | Hosting | Costo |
-|---|---|---|---|
-| Backend | FastAPI Python | Render **Standard** | $25/mes (always-on, 2 GB RAM, 1 CPU) — Starter NO sirve (solo 512 MB), upgradeamos a Standard porque FFmpeg necesita más |
-| Frontend | HTML + Tailwind CDN + SortableJS | Vercel | Free |
-| Video editing | FFmpeg + ffprobe | dentro de Render container | incluido |
-| Voz IA | ElevenLabs API | externa | ~$22/mes plan Creator |
-| Video IA | Runway Gen-3 Turbo | externa | pay-as-you-go (~$0.05/seg) |
+| Componente | Tech | Hosting |
+|---|---|---|
+| Backend | FastAPI (Python 3.12) en Docker, FFmpeg + ffprobe dentro del container | Render (`render.yaml`, `rootDir: backend`). El plan está definido en el dashboard, no en el YAML. Si está en free, duerme tras ~15 min: el frontend lo despierta con `despertarBackend()` |
+| Frontend | `frontend/index.html`, SPA única: HTML + Tailwind CDN + SortableJS + JS vanilla | Vercel (`vercel.json` sirve `frontend/` estático) |
+| Datos | Supabase (`properties`, Storage) + Cloudflare R2 | externos |
+| IA | ElevenLabs (voz), Runway Gen-3 Turbo (video-to-video), OpenAI (Whisper subtítulos, moderación de frames, captions) | externas |
+| Verificación de contacto | Twilio Verify (WhatsApp/SMS) + Resend (mail) — ver §5 y §10 | externas |
 
 ---
 
-## 4. Estructura local de archivos
+## 4. Estructura del repo
 
-**Carpeta de trabajo de Vale (la que Claude debe editar)**:
 ```
-C:\Users\vales\OneDrive\Documents\Claude\GitHub\greatdeal-app\
+greatdeal-app/
 ├── backend/
-│   ├── main.py          # FastAPI app + todos los endpoints
-│   ├── editor.py        # Pipeline FFmpeg (normalize, trim, overlay, CTA, etc)
-│   ├── voice.py         # ElevenLabs integration + voiceover scripts
-│   ├── runway_ai.py     # Runway video-to-video por toma
+│   ├── main.py          # FastAPI: publicación, storage, OTP, moderación, jobs de reel (~2100 líneas)
+│   ├── editor.py        # Pipeline FFmpeg (normalize, trim, overlay, CTA, concat, mux; escalera de calidad 1080p→540p)
+│   ├── ai_features.py   # Captions, análisis de clips/calidad (OpenAI)
+│   ├── subtitles.py     # Whisper + quemado de subtítulos
+│   ├── voice.py         # ElevenLabs
+│   ├── runway_ai.py     # Runway video-to-video por toma (REST con requests, sin SDK)
+│   ├── music/           # Presets de música
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
-│   └── index.html       # Single-page SPA con todo el wizard + editor avanzado
+│   └── index.html       # SPA completa (~5300 líneas, CRLF — ver §12)
+├── render.yaml
 ├── vercel.json
+├── DEPLOY.md
 └── PROJECT_STATE.md     # ← este archivo
 ```
 
-**OJO**: existe también `C:\Users\vales\OneDrive\Documents\GitHub\greatdeal-app\` (versión vieja, **no editar ahí**).
+Carpeta local de Oscar (foco-predator): `C:\Users\oscar\OneDrive\Documentos\GitHub\greatdeal-app`. Las rutas `C:\Users\vales\...` de las bitácoras viejas son de la máquina de Vale.
 
 ---
 
-## 5. Variables de entorno en Render
+## 5. Variables de entorno en Render (`greatdeal-api` → Environment)
 
-Configurar en https://dashboard.render.com/ → `greatdeal-api` → Environment:
-
-| Variable | Para qué | Estado |
+| Variable | Para qué | Estado 26-ago |
 |---|---|---|
-| `ELEVENLABS_API_KEY` | Generación de voz IA | ✅ configurada |
-| `RUNWAY_API_KEY` | Regenerar tomas con video-to-video | ✅ configurada ($10 cargados) |
-| `OPENAI_API_KEY` | Whisper para subtítulos automáticos | ⏳ pendiente agregar |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Publicar en `properties`, Storage de respaldo | ✅ |
+| `SUPABASE_BUCKET_REELS`, `SUPABASE_MAX_MB` | Bucket/límite de reels en Supabase | opcional |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE`, `R2_MAX_MB` | Storage principal de reels (PR #18) | ✅ |
+| `OPENAI_API_KEY` | Moderación de frames, Whisper, captions. Sin ella la moderación es fail-open | ✅ |
+| `ELEVENLABS_API_KEY` | Voz IA | ✅ |
+| `RUNWAY_API_KEY` | Video-to-video | ✅ |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID` | OTP por WhatsApp/SMS | ⏳ **pendiente** (servicio Verify ya creado, ver §10) |
+| `RESEND_API_KEY`, `VERIFY_FROM_EMAIL` | OTP por mail (fallback: `SMTP_HOST/USER/PASS/PORT`) | ⏳ pendiente (dominio en Resend esperando DNS) |
+| `VERIFY_TOKEN_SECRET` | Firma HMAC de los tokens de verificación (si falta usa la service-role key) | ⏳ conviene agregar |
+| `HIRE_NOTIFY_EMAIL` | Destino de "Contratar grabación" | ✅ |
+| `BACKEND_PUBLIC_URL` | URL pública del backend para migrar videos locales | opcional |
+
+**Regla de oro**: el frontend nunca muestra nombres de variables de entorno al usuario (PR fix/qa-26ago); los detalles técnicos van a `console.error`.
 
 ---
 
-## 6. Arquitectura del backend
+## 6. Backend (`main.py`)
+
+### Endpoints
+
+| Grupo | Endpoints |
+|---|---|
+| Salud | `GET/HEAD /`, `GET/HEAD /health` |
+| Publicación | `POST /api/publish` (inserta en `properties`; migra el video a R2/Supabase si es local; exige token de verificación **solo si el canal está configurado**) · `POST /api/profile/upsert` · `POST /api/lead/capture` · `POST /api/hire-request` |
+| Reel listo | `POST /api/upload-ready-reel` · `POST /api/upload-chunk` + `/finish` (subida por partes) · `POST /api/moderate` (frames → OpenAI; fail-open ante errores de infraestructura, bloquea si `safe=false`) |
+| OTP | `GET /api/verify/config` → `{"phone":bool,"email":bool}` · `POST /api/verify/start` · `POST /api/verify/check` (rate limit: 4/h y 1/min por destino; código de 6 dígitos; token HMAC 24 h) |
+| Editor de reels | `POST /api/jobs`, `GET /api/jobs/{id}`, `/download`, `POST /reprocess`, `GET/POST /subtitles`, `GET /api/files/{name}` |
+| IA | `/api/voices`, `/api/generate-voice`, `/api/script-preview`, `/api/generate-caption`, `/api/analyze-clip`, `/api/analyze-quality`, `/api/transcribe-audio`, `/api/runway/*`, `/api/music-presets`, `/api/music-preview/{key}`, `/api/cinematic-filters` |
 
 ### Pipeline FFmpeg (`editor.py`)
-- **Resolución**: 540x960 vertical 9:16 (optimizado para 2GB Render, no 1080x1920)
-- **fps**: 30
-- **Codec**: H.264 preset `ultrafast` CRF 23 (cambia a `fast` CRF 21 con `enhance_ai`)
-- **Texto**: Poppins Bold 32px (headline) + Poppins Reg 20px gris claro (subline), ambos **centrados horizontal**, posicionados en **tercio inferior** (zona safe IG/TikTok). Con gradient negro detrás.
-- **CTA white-label**: fondo negro puro, info en blanco arriba, precio en rectángulo blanco con texto NEGRO, tagline en gris abajo. **Sin "GREATDEAL" hardcoded** (editable por reel).
-- **Música**: 5 presets sintetizados (chill, cinematic, uplifting, melancholic, corporate) o MP3 propio
-- **Audio mux**: si hay voz, música baja al 25% (mix simple, no sidechain por RAM)
-- **Concat**: usa demuxer (`-f concat`) en vez de xfade para no consumir RAM
+Vertical 9:16. Desde PR #17, **escalera de calidad**: intenta 1080p y baja solo lo necesario según memoria. Texto Poppins centrado en tercio inferior; CTA white-label (info · precio · tagline); concat por demuxer (no xfade) y ducking simple de música con voz. El texto usa `drawbox` semitransparente detrás (no `borderw`, que en mayo tumbaba el container: **ese bug está resuelto**).
 
-### Funciones clave en `editor.py`
-- `normalize_clip(input, output, enhance=False)` — escala + corrige color. Con `enhance=True` aplica color cinematográfico (denoise + boost contraste/saturación + unsharp + viñeta)
-- `trim_clip(input, output, start, duration)` — recorta segmento
-- `speedup_clip(input, output, speed)` — aplica `setpts=PTS/speed` (entrada usa 3x = timelapse)
-- `add_text_overlay(input, output, headline, subline, duration)` — texto + gradient. Skip si ambos vacíos.
-- `build_logo_slide(logo, output, duration)` — fondo negro + logo PNG centrado con fade
-- `build_cta_v2(output, info, precio, tagline, duration)` — CTA white-label
-- `concat_clips(clips, output)` — demuxer concat
-- `synth_music_preset(preset, output, duration)` — sintetiza pad ambient según preset
-- `mux_audio(video, music, voice, output)` — mux final con ducking
-- `build_reel(sections, cta_data, work_dir, ...)` — **orquestador principal**
+### Jobs
+In-memory (`JOBS` dict con lock). Se pierden al reiniciar Render. Las publicaciones sí persisten (Supabase).
 
-### Endpoints en `main.py`
-| Método | Endpoint | Función |
+---
+
+## 7. Frontend: wizard de publicación (3 pasos visuales, 4 internos)
+
+`state.step` va 1–4; el stepper muestra 3: **Datos** (step 1) → **Video** (steps 2 y 3) → **Precio** (step 4). Modos de video (`state.upload_mode`): `ready_reel` ("Ya tengo mi reel", salta de 2 a 4), `guided` ("Armar mi reel con IA": secciones, audio, generación), `hire` ("Contratar grabación": formulario), `simple`.
+
+### Paso 1 · Datos
+- Vender / Arrendar · Dirección + depto + comuna · **"Buscar en catastro"** (`tasar.c2cprops.com/api/predio`, trae m², tipo y ROL del SII; botón con estado de carga y timeout 20 s).
+- Tipo: Casa, Departamento, Sitio, Parcela, Oficina, Industrial.
+- **Departamento**: "m² útiles" + "m² terraza (opcional)" + "m² totales" (readonly, `updTotalesDepto()`), sin "m² terreno". Otros tipos: "m² útiles / construidos" + "m² terreno". Los m² se clampean a ≥ 0 (`min="0"` + `Math.max` en el cálculo).
+- Características por tipo: depto agrega salón multiuso y estacionamiento de visita; "bodega" quedó fuera de la UI (se conserva en `featureMap`/`_valid_features` por publicaciones viejas).
+- **Preview del cierre del reel** en vivo (`updPreviewInfo()`): depto con terraza anuncia m² totales; el resto, útiles. Preview, placeholder del campo "Info" y `buildCtaData()` salen de la misma función `ctaInfoDefault(p)` (PR #20).
+- **Validación al continuar** (`validarPaso1`, PR fix/qa-26ago): dirección, comuna y tipo obligatorios; m² útiles > 0. Mensajes inline (`showNavError`), nunca `alert()`.
+
+### Paso 2 · Video
+- Un solo botón "📤 Seleccionar video" (input sin `accept`: abre el explorador del sistema, donde conviven teléfono y Drive/Dropbox). No existe "Desde la nube".
+- Antes de moderar/subir: `despertarBackend()` (pings a `/health` hasta 90 s, mensaje "Despertando el servidor…") y `fetchReintento()` (1 reintento ante corte de red).
+- Moderación automática con mensajes por etapa; subida por chunks con progreso.
+- Modo guiado: secciones (exterior, entrada 3x, dormitorios, baños, áreas, vista), audio (música preset/propia, voz: sin/subir/grabar/IA), subtítulos Whisper, Runway por toma, editor avanzado con trim visual.
+
+### Paso 3 · Precio y publicar
+- Precio en UF (o vía tasador de Valentina: vuelve con `?precio_uf=&volver=1&contacto=`), nombre, WhatsApp/teléfono/mail, método de contacto, ubicación "vanity" (`#pf-vanity`; no hay campo título: el título se arma solo).
+- **Validación de teléfono** (`telefonoValido`): `+56 9 XXXX XXXX` o 9 dígitos.
+- OTP de 6 dígitos ("Enviar código" / "Verificar") **solo cuando `/api/verify/config` reporta el canal activo**; si no, el backend no lo exige (fail-open, ver §10).
+- "🚀 Publicar en C2C marketplace" → `POST /api/publish`. Payload incluye `terraza_m2` (null si no es depto) y `terreno_m2` (null para deptos). Error de red/backend: mensaje genérico al usuario, detalle en consola.
+
+### Header
+Nav "Comprar · Publicar · ✦ Mi asistente IA ▾" (dropdown con Ayuda en tu compra / venta y "Editor de videos" → `/?mode=editor`). En ≤ 420 px los links van dentro del dropdown y el botón queda "✦ ▾" (PR #19 + fix/qa-26ago). `aria-label` y cierre con Escape.
+
+### Estado local
+Borrador en `localStorage.greatdeal_state_v1` (se restaura al abrir; los videos no). Cualquier evento `input` disparado por script lo sobrescribe: en QA, respaldar antes.
+
+---
+
+## 8. Cómo se trabaja (agosto 2026)
+
+- **Oscar** trabaja desde Claude Code en la app de escritorio de Claude, con **gstack** instalado (`/qa`, `/review`, `/ship`, `/cso`). La sesión debe abrirse **en la carpeta del repo**; si no, `/qa` queda en modo solo-reporte.
+- Flujo: prompt con el fix → revisar diff → `/review` → `/ship` (pushea la rama; no hay `gh`, el PR se abre desde el link `compare` en Chrome) → merge en GitHub → verificación en producción.
+- **Vale** pushea con GitHub Desktop; el repo local no tiene credential helper.
+- Nunca pedir ni manejar credenciales; las API keys se pegan en Render directamente.
+- Contexto adicional vive en el proyecto "IA prop" de Claude (`greatdeal-contexto.md`, `qa-greatdeal-*.md`, `otp-config-greatdeal.md`).
+
+---
+
+## 9. Historial de PRs recientes
+
+| PR | Fecha | Qué |
 |---|---|---|
-| GET | `/` | Sirve frontend HTML |
-| GET | `/api/voices` | Lista voces ElevenLabs curadas |
-| GET | `/api/music-presets` | Lista 5 presets de música |
-| GET | `/api/runway/presets` | Lista presets de estilo Runway + flag `available` |
-| POST | `/api/jobs` | Crear job (multipart con sections JSON + clips + audio + logo) |
-| GET | `/api/jobs/{id}` | Estado del job (status, log, error, download_url) |
-| GET | `/api/jobs/{id}/download` | MP4 final |
-| POST | `/api/jobs/{id}/reprocess` | Re-procesar con nuevas sections/CTA sin re-uploadear |
-| POST | `/api/generate-voice` | ElevenLabs standalone (devuelve MP3 directo) |
-| POST | `/api/runway/enhance-clip` | Inicia Runway video-to-video por toma |
-| GET | `/api/runway/tasks/{id}` | Estado de la task Runway |
-| GET | `/api/runway/tasks/{id}/download` | MP4 regenerado |
-| GET | `/api/script-preview` | Preview del script de voz autogenerado |
-
-### Job store
-**In-memory dict** (no DB). Los jobs se pierden al reiniciar Render. Para producción real eventualmente migrar a Postgres/Supabase.
+| #12 | 16-ago | Terraza + m² totales en depto; características por tipo; columna `terraza_m2` en Supabase |
+| #13 | 16-ago | Botón único de video; `despertarBackend`, `fetchReintento`; moderación fail-open; fin del "Failed to fetch" |
+| #16 | ago | Fixes de publicación |
+| #17 | ago | Escalera de calidad FFmpeg (1080p primero) |
+| #18 | ago | Cloudflare R2 como destino de reels, Supabase de respaldo |
+| #19 | 25-ago | Header móvil ≤ 420 px sin desborde |
+| #20 | 25-ago | Cierre del reel con m² totales + refresco en vivo; `min="0"`; aria-label; Escape |
+| fix/qa-26ago | 26-ago | 9 commits del QA de gstack: validación paso 1 y teléfono, contraste en tema oscuro, sin nombres de env vars en errores, links del header en el dropdown móvil, clamp de m², loading + timeout del catastro |
 
 ---
 
-## 7. Flujo frontend (4 pasos)
+## 10. Pendientes (26-ago-2026)
 
-### Paso 1: Videos
-- Toggle "🎬 Guiado por tomas" / "⚡ Subir existentes"
-- Toggle "🎬 Color cinematográfico" (filtros FFmpeg pro, NO IA generativa)
-- Banner explicativo de IA real (Runway en paso 4)
-- Modo **guiado**: 6 secciones con tips educativos
-  - Exterior (1 toma, 3.5s)
-  - Entrada (1 toma 15s a **3x** = 5s)
-  - Dormitorios (1-5 tomas, 2.5s c/u)
-  - Baños (1-5 tomas, 2.5s c/u)
-  - Áreas comunes (1-5 tomas, 2.5s c/u)
-  - Vista (1 toma, 3s)
-- Modo **simple**: drop zone + grid reordenable (SortableJS)
-- En cada upload: botón "📤 Subir" + "📷 Grabar" (este usa `capture="environment"` para cámara móvil nativa, **no MediaRecorder**)
-
-### Paso 2: Datos
-- Form básico: tipo, comuna, m², dorms, baños, precio
-- **Preview en vivo** del cierre (fondo negro + precio en rectángulo blanco)
-- Banner que avisa que música/voz están en paso 3
-- Acordeón "Opciones avanzadas" para logo PNG y CTA personalizado
-
-### Paso 3: Audio
-- Banner con duración estimada del reel + caracteres recomendados (14 chars/seg)
-- Música: dropdown de 5 presets o subir MP3 propio
-- Voz con 4 tabs:
-  - 🚫 Sin voz
-  - 📤 Subir audio
-  - 🎤 **Grabar acá** (MediaRecorder API real)
-  - 🤖 **Generar con IA** (ElevenLabs con calculadora de caracteres en vivo)
-
-### Paso 4: Tu reel
-- Procesando → Loader → reel listo
-- Botón gigante "⬇ Descargar MP4"
-- Botón "🎨 Editor avanzado" → abre modal con:
-  - Lista de clips reordenables (drag handles)
-  - Por clip: video preview + **dual-range slider visual** para trim (no segundos numéricos)
-  - Slider de velocidad 0.5x-4x
-  - Botón "▶️ Previa del segmento"
-  - Inputs título/subtítulo
-  - **Botón "✨ Rehacer con IA (Runway)"** por clip → modal con prompt + 5 presets de estilo
-- Acordeón con botones rápidos para volver a pasos del wizard
-- Botón "↻ Re-procesar" manual con confirmación
+| Prioridad | Pendiente | Estado |
+|---|---|---|
+| 🔴 ALTA | **Activar OTP**: hoy `/api/verify/config` = `{phone:false,email:false}` → cualquiera publica con contacto inventado. Twilio: servicio Verify "C2C props" creado (SID en `otp-config-greatdeal.md`), faltan las 3 env vars en Render. Resend: dominio agregado, faltan 3 registros DNS en Vercel. | Bloqueado por acceso a Render/Vercel (§2) |
+| 🔴 ALTA | Publicación real desde el teléfono y confirmar `terraza_m2` en Supabase; ver "Despertando el servidor…" con Render dormido | Prueba manual |
+| 🟡 MEDIA | `?mode=editor` (link "Editor de videos" del asistente): la app ignora el parámetro y pide la dirección. Implementar: entrar directo a Video con "Armar mi reel con IA", datos opcionales hasta publicar | Decidido implementar |
+| 🟡 MEDIA | Catastro devuelve predios reales para direcciones inexistentes, sin estado vacío; "✓ Sí, usar estos datos" puede confirmar un ROL ajeno → umbral de coincidencia (backend tasar) | |
+| 🟡 MEDIA | Sitio y Oficina reusan el formulario de Casa (piden dormitorios/piscina a un terreno) | |
+| 🟢 BAJA | Accesibilidad: `<label for>`, `aria-live`, `aria-pressed` en los 25 toggles; target táctil del botón asistente ≥ 44×44 | Un PR dedicado |
+| 🟢 BAJA | Copy "paso 4" en wizard de 3; placeholder "Comuna · Ej: Vitacur" cortado; stepper móvil con conector colgando; Tailwind por CDN en prod; errores en `alert()` con JSON crudo | |
+| 🟢 BAJA | Reel queda público en storage antes del OTP; borrar rastro `reels/ready_d4731ae46941.mp4` del QA | |
+| 🟢 BAJA | Jobs en memoria → DB; voz con auto-calce (atempo) | histórico |
 
 ---
 
-## 8. Trabajo con Vale (workflow)
+## 11. Decisiones técnicas clave
 
-- **Vale NO es developer**. Hablamos en español, casual, sin jerga técnica innecesaria.
-- **Vale tiene GitHub Desktop** y hace commit+push manualmente. Claude escribe archivos directos en su filesystem.
-- **Nunca pedir credenciales** (passwords, tokens completos). Las API keys las pega ella en Render directamente.
-- Claude **NO puede modificar Render ni Vercel** por su cuenta — solo guía paso a paso.
-- **Sandbox bash** a veces se cae. Si pasa, usar Edit/Write/Read directamente con paths Windows.
-
----
-
-## 9. Features actuales (todas en producción)
-
-- ✅ Wizard de 4 pasos
-- ✅ Modo guiado por tomas con tips educativos
-- ✅ Modo simple drag-and-drop con reorder
-- ✅ Multi-upload + cámara nativa móvil (`capture="environment"`)
-- ✅ 5 presets de música sintetizada + subir MP3 propio
-- ✅ 4 opciones de voz (none/subir/grabar/ElevenLabs)
-- ✅ Calculadora de caracteres según duración del reel
-- ✅ Logo PNG opcional con slide propio antes del CTA
-- ✅ CTA white-label con info/precio/tagline editables
-- ✅ Color cinematográfico (filtros FFmpeg pro)
-- ✅ Editor avanzado con timeline tipo CapCut
-- ✅ Dual-range slider visual para trim (con preview del frame)
-- ✅ Reorder de clips por drag-drop
-- ✅ **Runway video-to-video por toma con prompt + presets**
-- ✅ **Subtítulos automáticos con OpenAI Whisper API** (toggle en paso 3, solo visible con voz)
-- ✅ Ducking de música cuando hay voz (25% mientras habla, 100% sin voz)
-- ✅ Re-edición y re-procesar sin perder uploads
-- ✅ Error handling con detalle del backend visible al usuario
-
----
-
-## 10. Pendientes / TODOs
-
-| Prioridad | Pendiente |
-|---|---|
-| 🔴 ALTA | **Bug móvil**: el reel no se crea cuando se incluye audio (voz). Reproducir con screenshot del error. |
-| 🟡 MEDIA | Subtítulos automáticos con OpenAI Whisper API (requiere `OPENAI_API_KEY` en Render) |
-| 🟡 MEDIA | Voz con auto-calce (atempo) para que dure exacto lo del reel |
-| 🟢 BAJA | Curar 4-6 voces ElevenLabs específicas para real estate Chile |
-| 🟢 BAJA | Migrar in-memory job store a DB (Supabase/Postgres) |
-| 🟢 BAJA | Soporte de upscaling 1080x1920 (requiere más RAM de Render) |
-
----
-
-## 11. Decisiones técnicas clave (rationale)
-
-- **540x960 vs 1080x1920**: en Render Starter (2GB RAM) el upscale a FullHD vertical hace OOM con clips de 4+. Mantenemos 540x960 hasta que migremos a plan más alto.
-- **Demuxer concat vs xfade**: xfade requiere cargar dos clips simultáneos en RAM. Demuxer es streaming → seguro en 2GB.
-- **ultrafast preset por default**: pierde algo de nitidez pero procesa rápido. Con `enhance_ai` sube a `fast`.
-- **`capture="environment"` vs MediaRecorder para grabar video**: el primero abre la cámara nativa del móvil (mejor calidad, mejor UX). MediaRecorder es para grabar **audio** en el paso de voz.
-- **Sortable.js**: 12KB, drag-drop confiable en touch + desktop. Mejor que HTML5 drag nativo en móvil.
-- **No DB**: in-memory está OK para MVP. Los jobs se pierden al reiniciar Render pero el deploy ocurre solo en pushes, raro.
+- **Fail-open deliberado** en OTP y moderación: sin env vars el deploy sigue funcionando; se endurece solo al configurar los servicios.
+- **R2 antes que Supabase Storage** para reels: egress gratis; Supabase queda de respaldo.
+- **Un solo botón de video sin `accept`**: el selector del sistema ya integra Drive/Dropbox/OneDrive en el teléfono; el segundo botón confundía.
+- **Sin `alert()` para validaciones**: en móvil tapa el formulario y pierde el foco; se usan mensajes inline.
+- **Concat por demuxer, no xfade**; **`drawbox` en vez de `borderw`** (CPU); **escalera de calidad** en vez de resolución fija.
+- **Una sola fuente para el texto del cierre** (`ctaInfoDefault`): preview, placeholder y reel no pueden divergir.
 
 ---
 
 ## 12. Bugs conocidos y lecciones aprendidas
 
-### Tooling
-- **Write tool tiene límite de tamaño**: archivos >1000 líneas se truncan silenciosamente. Para reescribir HTML/JS grandes, usar `cat >> file << EOF` en bash con heredocs chunked.
-- **OneDrive sync**: a veces el archivo en disco no refleja inmediatamente el último Write. Si algo se ve raro, releer con Read tool antes de asumir corrupción.
-- **`__pycache__` bloqueado** desde el sandbox de bash: si necesitás testar editor.py modificado, copiarlo a `/tmp` antes de importar para evitar pyc stale.
-- **AskUserQuestion** a veces falla con "permission stream closed". Si pasa, hacer preguntas en texto plano y proceder con defaults sensatos.
-- **CRÍTICO al reparar archivos truncados**: si vas a usar `head -n -1 file > tmp && mv tmp file && cat >> file`, el `mv` puede fallar silenciosamente (permission denied desde sandbox a OneDrive paths) y el `cat >>` se ejecuta igual, dejando código DUPLICADO al final del archivo. Después puede compilar pero fallar en runtime con IndentationError raro. **Siempre validar después con `grep -n "@app\\.\\|^if __name__" file`** para ver duplicados antes de pushear.
-- **NUNCA pinear versiones de packages externos** sin verificar primero. `runwayml==3.6.0` rompió el deploy porque esa versión no existe en PyPI. Mejor usar la API REST directa con `requests` cuando es factible.
+### Repo / tooling
+- **`frontend/index.html` usa CRLF** (con algún CR huérfano embebido). Editarlo con herramientas que preserven bytes; nunca reescribirlo entero (un editor que normalice a LF genera un diff de 5000 líneas).
+- Claude Code en la carpeta equivocada (`G:\Mi unidad\Claude`) → gstack no puede commitear. Abrir la sesión en el repo.
+- Chrome renombra descargas repetidas (`index_5.html`): al subir archivos por la web de GitHub, revisar que el PR reemplace `frontend/index.html` y no agregue uno nuevo (pasó en PR #19).
+- Las bitácoras §15–17 mencionan archivos truncados y `head/mv` peligrosos: eran problemas del sandbox de mayo; validar con `grep -n "@app\.\|^if __name__"` sigue siendo buena práctica.
 
-### FFmpeg
-- **Escape de caracteres especiales** en drawtext: `'` → `\'`, `:` → `\:`, `%` → `\%`, `\` → `\\`. Está en `_esc()` helper.
-- **Concat demuxer** requiere que todos los clips tengan **mismo codec/res/fps**. Por eso normalize ANTES de concat.
+### App
+- La app usa `alert()`/`confirm()`/`beforeunload` en varios flujos: automatizaciones de navegador se congelan si no los sobreescriben (`window.alert = () => {}`, `onbeforeunload = null`).
+- Render free duerme: la primera request tras 15 min tarda 30–90 s (`despertarBackend` lo cubre; en QA, hacer `GET /health` antes).
+- El error de "Supabase no configurada" ya no se muestra al usuario; si aparece en consola, faltan `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`.
 
-### Móvil
-- **iOS Safari MediaRecorder** soporta solo `audio/mp4` (no webm). El código tiene fallback.
-- **El archivo de voz grabado puede ser pesado** y romper uploads en redes móviles lentas.
-
----
-
-## 13. Costos operativos estimados
-
-| Item | Costo | Notas |
-|---|---|---|
-| Render Starter | $7/mes | Always-on, sin cold starts |
-| ElevenLabs Creator | $22/mes | 100k chars/mes incluidos |
-| Runway créditos | pay-as-you-go | ~$0.05/seg Gen-3 Turbo. 100 tomas de 3s = ~$15 |
-| Vercel | $0 | Free tier alcanza |
-| Cloudflare R2 (futuro) | $0 | Hasta 10GB gratis para outputs persistentes |
-| **TOTAL estimado** | **~$30-50/mes** | Sin contar Runway por reel |
+### FFmpeg / móvil
+- Escape en drawtext (`_esc()`); concat requiere mismo codec/res/fps (normalize antes).
+- iOS Safari MediaRecorder solo `audio/mp4`; audios grabados pesados rompen uploads lentos.
 
 ---
 
-## 14. Cómo retomar el proyecto (checklist al inicio de sesión)
+## 13. Costos operativos
 
-1. **Leer este archivo completo** primero
-2. Chequear que los 3 archivos críticos no estén truncados:
-   - `backend/main.py` (~400 líneas)
-   - `backend/editor.py` (~350 líneas)
-   - `frontend/index.html` (~1100 líneas)
-3. Verificar git status en GitHub Desktop antes de empezar (pueden haber cambios sin pushear)
-4. Si Vale reporta un bug, **pedirle screenshot del error** que aparece en pantalla (la app ahora muestra el detalle del backend)
-5. Si va a tocar el frontend grande: hacer Edits incrementales, **nunca Write completo** del index.html
-6. Al terminar, recordarle a Vale los pasos de deploy:
-   1. GitHub Desktop → Review changes
-   2. Commit con mensaje claro
-   3. Push origin
-   4. Esperar Render (3-5 min) y Vercel (~1 min)
-   5. Ctrl+Shift+R en el navegador para limpiar caché
+| Item | Costo |
+|---|---|
+| Render (`greatdeal-api`) | según plan actual del dashboard (free duerme; Starter $7; Standard $25 con 2 GB para FFmpeg) |
+| Vercel | $0 |
+| Supabase | free tier |
+| Cloudflare R2 | $0 hasta 10 GB |
+| ElevenLabs | ~$22/mes (Creator) |
+| Runway | pay-as-you-go (~$0.05/seg) |
+| OpenAI | pay-as-you-go (moderación + Whisper) |
+| Twilio Verify | ~$0.05 por verificación + saldo cargado (USD 20) |
+| Resend | $0 hasta 3.000 mails/mes |
 
 ---
+
+## 14. Checklist al inicio de sesión
+
+1. Leer este archivo (secciones 1–12).
+2. `git pull origin main` — los merges se hacen por la web de GitHub, el clon local suele estar atrás.
+3. Abrir la sesión de Claude Code en la carpeta del repo.
+4. Si se va a probar producción: `GET https://greatdeal-api.onrender.com/health` primero.
+5. Ediciones a `frontend/index.html`: incrementales y preservando CRLF.
+6. Antes del PR: `/review`; después del deploy: `/qa https://vender.c2cprops.com` con los flujos que tocó el cambio.
+7. Al cerrar: actualizar §9 y §10 de este archivo si cambió algo.
+
+---
+
+# Bitácoras históricas (mayo 2026) — solo contexto, no vigentes
+
+> Todo lo listado abajo como "pendiente", "bug activo" o "pendiente de push" **ya fue resuelto o reemplazado** por el estado descrito arriba. En particular: el bug de Render reiniciándose con FFmpeg (`borderw`) está resuelto (`editor.py` usa `drawbox`), Whisper está integrado, y el wizard de 4 pasos de reel fue reemplazado por el wizard de publicación de 3 pasos.
 
 ## 15. Sesión 2026-05-26 — Runway + Whisper + bug Render reiniciándose
 
