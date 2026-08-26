@@ -447,6 +447,9 @@ function emptySections() {
 let state = {
   step: 1,
   upload_mode: "guided",
+  // ?mode=editor — entrada directa al editor de videos: los datos de la
+  // propiedad pasan a ser opcionales hasta el momento de publicar.
+  editor_mode: false,
   sections: emptySections(),
   simple_clips: [],
   property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", terraza_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
@@ -515,8 +518,11 @@ function resetAll() {
   if (!confirm("¿Empezar de cero? Se pierden los videos cargados.")) return;
   const catalog = state.music_presets_catalog;
   const voices = state.eleven_voices;
+  // editor_mode sobrevive al reset: "empezar de cero" vacía el reel, no cambia
+  // por qué puerta entró el usuario a la app.
+  const modoEditor = state.editor_mode;
   state = {
-    step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [],
+    step: modoEditor ? 2 : 1, upload_mode: "guided", editor_mode: modoEditor, sections: emptySections(), simple_clips: [],
     property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", terraza_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
     advanced_open: false, enhance_ai: false, auto_subtitles: true,
     music_preset: "cinematic_view", music_file: null, music_presets_catalog: catalog,
@@ -530,6 +536,7 @@ function resetAll() {
     is_reprocessing: false, has_been_processed: false,
     editor_open: false, editor_clips: [], editor_sortable: null, simple_sortable: null,
   };
+  saveEditorMode();
   render();
 }
 
@@ -1203,6 +1210,8 @@ function renderStepper() {
   const html = STEPS.map((s, i) => {
     const active = visualStep === s.id;
     const done = visualStep > s.id;
+    // En editor_mode los datos de la propiedad no bloquean nada hasta publicar
+    const label = (s.id === 1 && state.editor_mode) ? "Datos (opcional)" : s.label;
     let dotStyle, textStyle;
     if (active) {
       dotStyle = 'background: var(--gold); color: var(--bg-base); border: 1.5px solid var(--gold); box-shadow: 0 0 18px rgba(201,168,106,0.5);';
@@ -1217,7 +1226,7 @@ function renderStepper() {
     return `
       <div class="flex items-center gap-2">
         <div class="step-dot w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition" style="${dotStyle}">${done ? '✓' : s.id}</div>
-        <span class="text-xs uppercase tracking-wider" style="${textStyle}">${s.label}</span>
+        <span class="text-xs uppercase tracking-wider" style="${textStyle}">${label}</span>
       </div>
       ${i < STEPS.length - 1 ? `<div class="w-6 h-px" style="background: ${done ? 'var(--gold-border)' : 'var(--border-subtle)'};"></div>` : ''}
     `;
@@ -1227,7 +1236,9 @@ function renderStepper() {
   // btn-prev ya no se deshabilita — en step 1 lleva al home C2C
   const prevBtn = document.getElementById("btn-prev");
   prevBtn.disabled = false;
-  prevBtn.textContent = state.step === 1 ? "← Volver al home" : "← Volver";
+  prevBtn.textContent = (state.editor_mode && state.step === 1) ? "← Volver al video"
+                      : (state.step === 1 || (state.editor_mode && state.step === 2)) ? "← Volver al home"
+                      : "← Volver";
   const next = document.getElementById("btn-next");
   if (state.step === 4) {
     const isProc = state.job_status && state.job_status !== "done" && state.job_status !== "error";
@@ -1311,8 +1322,10 @@ function goNext() {
     if (!state.hire_sent) { alert("Completá el formulario de arriba y tocá 'Enviar solicitud de grabación'."); }
     return;
   }
-  // Paso 1: no dejamos avanzar sin los datos mínimos de la propiedad
-  if (state.step === 1) {
+  // Paso 1: no dejamos avanzar sin los datos mínimos de la propiedad.
+  // En editor_mode son opcionales hasta publicar, así que no se valida acá
+  // (el cierre del reel ya imprime "—" donde falte dato).
+  if (state.step === 1 && !state.editor_mode) {
     const errPaso1 = validarPaso1(state.property || {});
     if (errPaso1) { showNavError(errPaso1); return; }
   }
@@ -1340,7 +1353,19 @@ function goNext() {
 }
 
 function goPrev() {
-  if (state.step > 1) {
+  // En editor_mode el paso 1 es un desvío opcional al que se entra desde el
+  // link de los pasos 3 y 4: "Volver" devuelve al video, no saca de la app
+  // (ahí se perdería el reel a medio armar).
+  if (state.editor_mode && state.step === 1) {
+    stopMusicPreviewIfPlaying();
+    state.step = 2;
+    render();
+    return;
+  }
+  // Fuera del paso 1, y en editor_mode también fuera del 2, "Volver" retrocede
+  // un paso. En editor_mode el paso 2 es el primero del camino, así que sale.
+  const primerPaso = state.step === 1 || (state.editor_mode && state.step === 2);
+  if (!primerPaso) {
     stopMusicPreviewIfPlaying();
     // Si ya hay reel generado y el user vuelve atrás, marcamos el flag
     if (state.has_been_processed && state.step === 4) {
@@ -1350,9 +1375,21 @@ function goPrev() {
     render();
     return;
   }
-  // Step 1: no hay a dónde volver dentro del wizard → llevar al home C2C
+  // Primer paso: no hay a dónde volver dentro del wizard → llevar al home C2C
   stopMusicPreviewIfPlaying();
   window.location.href = "https://c2cprops.com";
+}
+
+// Publicar desde el editor: los datos de la propiedad eran opcionales hasta
+// acá, así que este es el punto donde sí hacen falta. Si faltan, mandamos al
+// paso 1 con el mensaje inline en vez de abrir el modal con la ficha a medias.
+// El reel generado no se toca: has_been_processed y job_* quedan intactos.
+function publicarDesdeEditor() {
+  const err = validarPaso1(state.property || {});
+  if (!err) { openPublishModal(); return; }
+  state.step = 1;
+  render();                       // render() limpia el mensaje, así que va antes
+  showNavError(err + " Las necesitamos para publicar en el marketplace.");
 }
 
 // ─── PUBLISH TO C2C MARKETPLACE ─────────────────────────────────────────────
@@ -3775,6 +3812,25 @@ function renderStep4() {
         ` : '<div class="mb-3"></div>'}
 
         <!-- ✨ CTA principal: completar ficha + publicar -->
+        ${state.editor_mode ? `
+        <a href="${state.job_download}" download id="btn-download-mp4"
+           class="block w-full text-center px-5 py-4 rounded-xl font-bold text-base mb-2"
+           style="background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.25); transition: transform 0.15s, box-shadow 0.15s; text-decoration: none;"
+           onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 32px rgba(201,168,106,0.4)'"
+           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 8px 24px rgba(201,168,106,0.25)'">
+          ⬇ Descargar MP4
+        </a>
+        <div class="text-center text-[11px] mb-3" style="color: var(--text-muted);">
+          Listo para Instagram, TikTok o WhatsApp
+        </div>
+
+        <div class="flex gap-2 mb-3">
+          <button onclick="publicarDesdeEditor()" id="btn-publish-open" class="flex-1 text-center px-4 py-3 rounded-xl font-medium text-sm" style="background: rgba(201,168,106,0.08); color: var(--gold); border: 1px solid var(--gold-border); cursor: pointer; font-family: inherit;">💼 Publicar en C2C</button>
+          ${state.previous_reel ? `
+          <button onclick="restorePreviousReel()" class="px-4 py-3 rounded-xl text-sm font-medium" style="background: rgba(201,168,106,0.08); color: var(--gold); border: 1px solid var(--gold-border);">↶ Anterior</button>
+          ` : ''}
+        </div>
+        ` : `
         <button onclick="openPublishModal()" id="btn-publish-open"
            class="block w-full text-center px-5 py-4 rounded-xl font-bold text-base mb-2"
            style="background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.25); transition: transform 0.15s, box-shadow 0.15s; border: none; cursor: pointer; font-family: inherit;"
@@ -3792,6 +3848,7 @@ function renderStep4() {
           <button onclick="restorePreviousReel()" class="px-4 py-3 rounded-xl text-sm font-medium" style="background: rgba(201,168,106,0.08); color: var(--gold); border: 1px solid var(--gold-border);">↶ Anterior</button>
           ` : ''}
         </div>
+        `}
 
         <!-- ✨ COPY / DESCRIPCIÓN DE LA PROPIEDAD (IA) -->
         <div class="rounded-2xl p-4 mb-3" style="background: linear-gradient(135deg, var(--bg-card) 0%, rgba(201,168,106,0.05) 100%); border: 1px solid var(--border-subtle);">
@@ -4965,14 +5022,24 @@ function render() {
       </button>
     </div>
   ` : '';
+  // En editor_mode el paso de datos queda fuera del camino y del botón "Volver",
+  // así que la entrada está acá: un link desde los pasos 3 y 4, donde el reel ya
+  // está armado y publicar empieza a tener sentido.
+  const datosLink = (state.editor_mode && (state.step === 3 || state.step === 4)) ? `
+    <div class="mb-4">
+      <button onclick="goToStep(1)" class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium" style="background: rgba(201,168,106,0.06); color: var(--gold); border: 1px solid var(--gold-border); cursor: pointer; font-family: inherit;">
+        <span>🏠</span><span>Completar datos de la propiedad</span>
+      </button>
+    </div>
+  ` : '';
   // Paso 1 = Datos (renderStep2 original)
   // Paso 2 = Videos (renderStep1 original)
   // Paso 3 = Audio (renderStep3 original)
   // Paso 4 = Tu reel (renderStep4 original)
   if (state.step === 1) c.innerHTML = backToReelBanner + renderStep2();
   if (state.step === 2) { c.innerHTML = backToReelBanner + renderStep1(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); }
-  if (state.step === 3) c.innerHTML = backToReelBanner + renderStep3();
-  if (state.step === 4) c.innerHTML = renderStep4();
+  if (state.step === 3) c.innerHTML = backToReelBanner + datosLink + renderStep3();
+  if (state.step === 4) c.innerHTML = datosLink + renderStep4();
   const existing = document.getElementById("editor-overlay");
   if (state.editor_open) {
     if (existing) existing.remove();
@@ -5004,6 +5071,20 @@ function render() {
 // Guardamos metadata + configs (NO los videos, son muy pesados).
 // Al volver a abrir la app, se restauran los datos.
 const STORAGE_KEY = "greatdeal_state_v1";
+
+// editor_mode va en sessionStorage, NO en el snapshot de localStorage: el
+// parámetro se borra de la URL con replaceState, así que sin persistencia un F5
+// te sacaría del editor. Pero localStorage sobrevive a cerrar el navegador, y
+// entonces cualquiera que hubiera usado el editor una vez entraba en modo
+// editor también al abrir la app normal para publicar una propiedad.
+// sessionStorage cubre el refresh y muere con la pestaña.
+const EDITOR_MODE_KEY = "greatdeal_editor_mode";
+function saveEditorMode() {
+  try { sessionStorage.setItem(EDITOR_MODE_KEY, state.editor_mode ? "1" : "0"); } catch (_) {}
+}
+function restoreEditorMode() {
+  try { state.editor_mode = sessionStorage.getItem(EDITOR_MODE_KEY) === "1"; } catch (_) {}
+}
 
 function saveStateToStorage() {
   try {
@@ -5112,6 +5193,29 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Restaurar datos guardados (si los hay)
   const restored = restoreStateFromStorage();
+  // editor_mode vive aparte, por pestaña (ver EDITOR_MODE_KEY)
+  restoreEditorMode();
+  if (state.editor_mode && state.step === 1) state.step = 2;
+
+  // ── ?mode=editor ──────────────────────────────────────────────────
+  // Entrada directa al editor de videos (link "Editor de videos" del dropdown
+  // del asistente). Salta el paso de datos y arranca en "Armar mi reel con IA":
+  // el que viene por acá quiere un MP4, no publicar una propiedad. Se lee antes
+  // del primer render para que no parpadee el paso 1.
+  try {
+    const qsInit = new URLSearchParams(location.search);
+    if ((qsInit.get("mode") || "").trim().toLowerCase() === "editor") {
+      state.editor_mode = true;
+      state.upload_mode = "guided";
+      state.step = 2;
+      // Sacamos solo "mode" y dejamos el resto de la query intacta, para no
+      // pisar el retorno del tasador (?precio_uf / ?volver / ?contacto).
+      qsInit.delete("mode");
+      const resto = qsInit.toString();
+      history.replaceState(null, "", location.pathname + (resto ? "?" + resto : ""));
+      saveEditorMode();
+    }
+  } catch (_) {}
 
   render();
   await Promise.all([loadMusicPresets(), loadElevenVoices(), loadCinematicFilters()]);
