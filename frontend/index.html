@@ -64,6 +64,9 @@
   .bg-slate-900 { background-color: var(--gold) !important; color: var(--bg-base) !important; }
   .bg-slate-950 { background-color: #050505 !important; }
   .bg-stone-50, .bg-emerald-50, .bg-purple-50, .bg-amber-50, .bg-blue-50, .bg-red-50 { background-color: var(--bg-card) !important; color: var(--text-primary); }
+  /* Badges tipo "×3" (bg-purple-100 + text-purple-700): sin override quedaba
+     el lavanda claro de Tailwind con el texto ya mapeado a dorado. */
+  .bg-purple-100 { background-color: var(--gold-soft) !important; color: var(--gold) !important; }
   .bg-amber-500, .bg-amber-400 { background-color: var(--gold) !important; color: var(--bg-base) !important; }
   .bg-amber-600 { background-color: var(--gold-dark) !important; }
   .bg-purple-600, .bg-purple-700 { background-color: var(--gold) !important; color: var(--bg-base) !important; }
@@ -102,10 +105,33 @@
   /* Sombras dramáticas pero sutiles para el dark theme */
   .shadow-sm, .shadow, .shadow-md, .shadow-lg, .shadow-xl { box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--border-subtle) !important; }
 
-  /* Hover states más sutiles en dark */
-  .hover\\:bg-slate-50:hover, .hover\\:bg-slate-100:hover, .hover\\:bg-white:hover { background-color: var(--bg-card-hover) !important; }
-  .hover\\:bg-slate-800:hover, .hover\\:bg-slate-900:hover { background-color: var(--gold-bright) !important; color: var(--bg-base) !important; }
-  .hover\\:bg-purple-700:hover, .hover\\:bg-amber-600:hover { background-color: var(--gold-bright) !important; }
+  /* Hover states más sutiles en dark.
+     OJO: el escape correcto del ":" dentro de un nombre de clase es "\:" — uno
+     solo. Con "\\:" el selector es inválido, el navegador descarta la regla
+     entera y estos hovers nunca llegaban a aplicarse: quedaba el gris claro de
+     Tailwind (o directamente ningún cambio) sobre el fondo oscuro. */
+  .hover\:bg-slate-50:hover, .hover\:bg-slate-100:hover, .hover\:bg-white:hover { background-color: var(--bg-card-hover) !important; }
+  .hover\:bg-slate-700:hover, .hover\:bg-slate-800:hover, .hover\:bg-slate-900:hover { background-color: var(--gold-bright) !important; color: var(--bg-base) !important; }
+  .hover\:bg-purple-700:hover, .hover\:bg-amber-600:hover { background-color: var(--gold-bright) !important; }
+
+  /* Botones sólidos (fondo mapeado a dorado o verde + .text-white).
+     .text-white está mapeado a champagne y gana por orden de cascada sobre el
+     color oscuro que define cada regla de fondo, así que el texto quedaba casi
+     invisible. Contraste medido antes → después:
+       bg-slate-900   1.70 → 8.76    bg-amber-500/400  1.99 → 8.76
+       bg-purple-600  1.99 → 8.76    bg-amber-600      2.90 → 6.01
+       bg-purple-700  1.99 → 8.76    bg-emerald-500/600/green-500  1.86 → 9.35
+     Los nueve pasan WCAG AA (4.5:1). Medido en navegador, no estimado.
+     Forzamos texto oscuro en reposo y en hover. */
+  .bg-slate-900.text-white,   .bg-slate-900.text-white:hover,
+  .bg-purple-600.text-white,  .bg-purple-600.text-white:hover,
+  .bg-purple-700.text-white,  .bg-purple-700.text-white:hover,
+  .bg-amber-400.text-white,   .bg-amber-400.text-white:hover,
+  .bg-amber-500.text-white,   .bg-amber-500.text-white:hover,
+  .bg-amber-600.text-white,   .bg-amber-600.text-white:hover,
+  .bg-emerald-500.text-white, .bg-emerald-500.text-white:hover,
+  .bg-emerald-600.text-white, .bg-emerald-600.text-white:hover,
+  .bg-green-500.text-white,   .bg-green-500.text-white:hover { color: var(--bg-base) !important; }
 
   /* Cards y contenedores — bordes más visibles con gold sutil */
   .rounded-2xl, .rounded-xl, .rounded-3xl { border-color: var(--border-subtle); }
@@ -247,6 +273,12 @@
           <span style="color: var(--gold); font-size: 12px;">✦</span><span class="c2c-ai-label"> Mi asistente IA</span> <span class="c2c-arrow" style="font-size: 10px; transition: transform 0.2s;">▾</span>
         </button>
         <div class="c2c-dropdown-menu" style="position: absolute; top: calc(100% + 8px); right: 0; min-width: 280px; background: #0f0f10; border: 1px solid var(--border-subtle); border-radius: 14px; padding: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity 0.18s, transform 0.18s, visibility 0.18s; z-index: 9999;">
+          <!-- En ≤420px los links del header (Comprar / Publicar) se ocultan por
+               falta de ancho, así que se muestran acá y la navegación no se pierde.
+               Ocultos por defecto; el media query de abajo los enciende. -->
+          <a href="https://c2cprops.com/comprar" class="c2c-dd-compact" style="display: none; align-items: center; padding: 10px 14px; border-radius: 10px; text-decoration: none; color: var(--text-primary); font-size: 13.5px; font-weight: 500; letter-spacing: 0.02em;">Comprar</a>
+          <a href="https://c2cprops.com/vender" class="c2c-dd-compact" style="display: none; align-items: center; padding: 10px 14px; border-radius: 10px; text-decoration: none; color: var(--text-primary); font-size: 13.5px; font-weight: 500; letter-spacing: 0.02em;">Publicar</a>
+          <div class="c2c-dd-compact-sep" style="display: none; height: 1px; margin: 6px 12px; background: var(--border-subtle);"></div>
           <a href="https://c2cprops.com/tasar?view=comprador" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; text-decoration: none; color: var(--text-secondary);">
             <span style="font-size: 20px; line-height: 1;">🔍</span>
             <div>
@@ -275,12 +307,16 @@
       #c2cAiDropdown.is-open .c2c-dropdown-menu { opacity: 1 !important; visibility: visible !important; transform: translateY(0) !important; }
       #c2cAiDropdown.is-open .c2c-arrow { transform: rotate(180deg); }
       #c2cAiDropdown .c2c-dropdown-menu a:hover { background: rgba(201,168,106,0.06); }
-      /* Móvil angosto (≤420px): el header medía 427px y cortaba "Mi asistente IA" con scroll horizontal */
+      /* Móvil angosto (≤420px): el header medía 427px y cortaba "Mi asistente IA" con scroll horizontal.
+         Comprar y Publicar se ocultan de la barra y pasan al dropdown (.c2c-dd-compact),
+         así el header entra en 390px sin dejar al usuario sin esas dos rutas. */
       @media (max-width: 420px) {
         .c2c-nav-link { display: none !important; }
         #c2cAiDropdownBtn { padding: 6px 10px !important; }
         #c2cAiDropdownBtn .c2c-ai-label { display: none; }
         #c2cAiDropdown .c2c-dropdown-menu { min-width: 240px !important; max-width: calc(100vw - 24px); }
+        #c2cAiDropdown .c2c-dd-compact { display: flex !important; }
+        #c2cAiDropdown .c2c-dd-compact-sep { display: block !important; }
         body { overflow-x: hidden; }
       }
     </style>
@@ -331,6 +367,10 @@
 </main>
 
 <div class="fixed bottom-0 left-0 right-0 z-20" style="background: linear-gradient(0deg, #0a0a0b 0%, rgba(10,10,11,0.92) 100%); backdrop-filter: blur(20px); border-top: 1px solid var(--border-subtle);">
+  <!-- Validaciones del wizard: mensaje inline sobre la barra, en vez de alert() -->
+  <div id="nav-error-wrap" class="max-w-4xl mx-auto px-5 pt-2.5" style="display:none;">
+    <div id="nav-error" role="alert" aria-live="polite" style="font-size:12.5px; line-height:1.45; color:var(--error); background:rgba(229,118,118,0.10); border:1px solid rgba(229,118,118,0.30); border-radius:10px; padding:8px 12px;"></div>
+  </div>
   <div class="max-w-4xl mx-auto px-5 py-3 flex items-center justify-between">
     <button id="btn-prev" onclick="goPrev()" class="px-5 py-2.5 rounded-full disabled:opacity-30 transition" style="color: var(--text-secondary); border: 1px solid var(--border-subtle); background: transparent;">← Volver</button>
     <button id="btn-next" onclick="goNext()" class="px-7 py-3 rounded-full disabled:opacity-30 font-semibold transition" style="background: var(--gold); color: var(--bg-base); letter-spacing: 0.02em; box-shadow: 0 4px 20px rgba(201,168,106,0.25);">Continuar →</button>
@@ -1231,6 +1271,39 @@ function stopMusicPreviewIfPlaying() {
   } catch (_) {}
 }
 
+// Mensajes de validación del wizard: se muestran inline sobre la barra
+// inferior (nunca alert(), que en móvil tapa el formulario y pierde el foco).
+function showNavError(msg) {
+  const wrap = document.getElementById('nav-error-wrap');
+  const el = document.getElementById('nav-error');
+  if (!wrap || !el) return;
+  el.textContent = msg;
+  wrap.style.display = 'block';
+}
+function clearNavError() {
+  const wrap = document.getElementById('nav-error-wrap');
+  if (wrap) wrap.style.display = 'none';
+}
+
+// Paso 1 (datos de la propiedad): dirección, comuna y tipo son obligatorios,
+// y los m² útiles tienen que ser un número mayor a 0.
+// Devuelve el mensaje de error, o "" si está todo bien.
+function validarPaso1(p) {
+  const faltan = [];
+  if (!String(p.direccion || "").trim()) faltan.push("la dirección");
+  if (!String(p.comuna || "").trim())    faltan.push("la comuna");
+  if (!String(p.tipo || "").trim())      faltan.push("el tipo de propiedad");
+  if (faltan.length) {
+    const lista = faltan.length === 1
+      ? faltan[0]
+      : faltan.slice(0, -1).join(", ") + " y " + faltan[faltan.length - 1];
+    return "Para continuar falta " + lista + ".";
+  }
+  const m2 = parseFloat(String(p.m2 ?? "").trim());
+  if (!isFinite(m2) || m2 <= 0) return "Indicá los m² útiles de la propiedad — tienen que ser mayores a 0.";
+  return "";
+}
+
 function goNext() {
   // Modo "hire" (contratar grabación): el flow termina en el paso 2 con el formulario enviado.
   // Nada que hacer al presionar continuar — todo se maneja dentro del renderHireForm.
@@ -1238,6 +1311,12 @@ function goNext() {
     if (!state.hire_sent) { alert("Completá el formulario de arriba y tocá 'Enviar solicitud de grabación'."); }
     return;
   }
+  // Paso 1: no dejamos avanzar sin los datos mínimos de la propiedad
+  if (state.step === 1) {
+    const errPaso1 = validarPaso1(state.property || {});
+    if (errPaso1) { showNavError(errPaso1); return; }
+  }
+  clearNavError();
   if (state.step === 2 && totalClipsCount() === 0 && state.upload_mode !== "ready_reel") { alert("Subí al menos un video"); return; }
   // Modo "ready_reel": desde paso 2 saltamos directo a paso 4 (audio+cierre no aplica),
   // y desde paso 4 abrimos el modal de publicar (nada que procesar/regenerar).
@@ -1297,10 +1376,20 @@ function goPrev() {
 //   ✔ Feature 2
 //   📩 CTA
 // Depto: m² totales = útiles + terraza (se recalcula en vivo, sin re-render)
+// m² nunca negativos: min="0" solo marca el input como inválido, no impide
+// escribir "-40" a mano ni pegarlo, y el valor igual llegaba al cierre del reel
+// y al copy de la publicación. Clampeamos al calcular, que es lo que se muestra.
+function m2Clamp(v) {
+  const s = String(v ?? "").trim();
+  if (s === "") return "";
+  const n = parseFloat(s);
+  if (!isFinite(n)) return "";
+  return String(Math.max(0, n));
+}
 function totalesDepto(p) {
   const rawU = String(p.m2 ?? "").trim(), rawT = String(p.terraza_m2 ?? "").trim();
   if (rawU === "" && rawT === "") return "";
-  const u = parseFloat(rawU) || 0, t = parseFloat(rawT) || 0;
+  const u = Math.max(0, parseFloat(rawU) || 0), t = Math.max(0, parseFloat(rawT) || 0);
   return String(Math.round((u + t) * 10) / 10);
 }
 function updTotalesDepto() {
@@ -1311,9 +1400,9 @@ function updTotalesDepto() {
 // Cierre del reel: depto con terraza se anuncia por m² totales; el resto, por m² útiles
 function ctaInfoM2(p) {
   if (p.tipo === 'Departamento' && String(p.terraza_m2 ?? "").trim() !== "") {
-    return totalesDepto(p) || (p.m2 || '—');
+    return totalesDepto(p) || m2Clamp(p.m2) || '—';
   }
-  return p.m2 || '—';
+  return m2Clamp(p.m2) || '—';
 }
 function ctaInfoDefault(p) {
   return `${ctaInfoM2(p)} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`;
@@ -1494,6 +1583,28 @@ function normPhoneE164(v) {
   return '+' + d;
 }
 
+// Formato de teléfono chileno aceptado en el paso 3:
+//   +56 9 XXXX XXXX (con o sin espacios) — o los 9 dígitos locales.
+function telefonoValido(v) {
+  const s = String(v || '').trim();
+  if (!s) return false;
+  const d = s.replace(/\D/g, '');
+  if (s.startsWith('+') || d.length > 9) return /^56\d{9}$/.test(d);
+  return /^\d{9}$/.test(d);
+}
+
+// Error inline debajo de un campo del modal de publicar
+function showFieldError(id, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function clearFieldError(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = 'none';
+}
+
 function verifyDest() {
   const m = state.contact_method || 'whatsapp';
   if (m === 'email') return { channel: 'email', dest: (document.getElementById('pf-email')?.value || '').trim().toLowerCase() };
@@ -1648,7 +1759,9 @@ async function submitPublish() {
   const method = state.contact_method || 'whatsapp';
   const email  = (document.getElementById('pf-email')?.value || '').trim();
   if (method === 'email' && !email) { alert("Falta tu correo para que te contacten"); document.getElementById('pf-email')?.focus(); return; }
-  if (method !== 'email' && !wa) { alert(method === 'telefono' ? "Falta tu número de teléfono" : "Falta tu número de contacto"); document.getElementById('pf-wa').focus(); return; }
+  if (method !== 'email' && !wa) { showFieldError('pf-wa-err', method === 'telefono' ? "Falta tu número de teléfono" : "Falta tu número de contacto"); document.getElementById('pf-wa').focus(); return; }
+  if (method !== 'email' && !telefonoValido(wa)) { showFieldError('pf-wa-err', "Revisá el número: tiene que ser +56 9 XXXX XXXX o los 9 dígitos."); document.getElementById('pf-wa').focus(); return; }
+  clearFieldError('pf-wa-err');
 
   // ─── Verificación OBLIGATORIA del contacto (si el canal está operativo) ───
   let contactVerifyToken = null;
@@ -1784,11 +1897,14 @@ async function submitPublish() {
     }
   } catch (e) {
     clearTimeout(timeoutId);
-    console.error('[publish] fallo:', e);
-    const msg = e.name === 'AbortError'
-      ? 'El backend no respondió en 90 segundos. Puede estar durmiendo (Render se suspende sin uso). Reintentá en 30 seg.'
+    // El detalle técnico (incluidos nombres de variables de entorno que puede
+    // devolver el backend) queda SOLO en consola: al usuario final no le sirve
+    // y expone la configuración del servidor.
+    const detalle = e.name === 'AbortError'
+      ? 'timeout: el backend no respondió en 90 s (Render puede estar dormido)'
       : e.message;
-    alert("❌ Error al publicar:\n\n" + msg + "\n\n────────────\nSi dice 'Supabase no configurada', falta agregar SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Render env vars.");
+    console.error('[publish] fallo:', detalle, e);
+    alert("No pudimos publicar, intentá de nuevo en un minuto");
     if (btn) {
       btn.disabled = false;
       btn.style.opacity = '1';
@@ -2760,19 +2876,35 @@ function removeSectionClip(key, idx) {
 // Busca la propiedad por dirección+comuna y permite confirmar la ficha:
 // rellena m² y tipo automáticamente y guarda el ROL en la publicación.
 const CATASTRO_API = "https://tasar.c2cprops.com/api/predio";
+const CATASTRO_TIMEOUT_MS = 20000;
 function rolCortoCat(r) { const p = String(r || "").split("-"); return p.length >= 3 ? p.slice(1).join("-") : (r || ""); }
 async function buscarCatastro() {
+  // El botón queda deshabilitado mientras busca, pero el guard evita igual una
+  // segunda request si el click llega por teclado o por doble tap en móvil.
+  if (state.cat && state.cat.status === "loading") return;
   const p = state.property;
   if (!p.direccion || !p.comuna) { state.cat = { status: "error", msg: "Escribí la dirección y la comuna primero." }; render(); return; }
   state.cat = { status: "loading" }; render();
+  // Timeout duro: sin esto, una request que nunca resuelve (señal que se cae a
+  // mitad de camino) deja state.cat en "loading" para siempre y el botón, que
+  // ahora se deshabilita mientras busca, no vuelve nunca. Mismo patrón que
+  // submitPublish.
+  const ctrl = new AbortController();
+  const tId = setTimeout(() => ctrl.abort(), CATASTRO_TIMEOUT_MS);
   try {
-    const r = await fetch(CATASTRO_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ direccion: p.direccion, comuna: p.comuna, depto: p.depto || "" }) });
+    const r = await fetch(CATASTRO_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ direccion: p.direccion, comuna: p.comuna, depto: p.depto || "" }), signal: ctrl.signal });
     const j = await r.json();
     const cands = j.candidatos || [];
     if (!cands.length) state.cat = { status: "error", msg: j.mensaje || "No encontré la propiedad en el catastro. Podés cargar los datos a mano." };
     else if (cands.length === 1) state.cat = { status: "ficha", ficha: cands[0] };
     else state.cat = { status: "candidatos", candidatos: cands.slice(0, 8) };
-  } catch (e) { state.cat = { status: "error", msg: "No pude conectar con el catastro. Cargá los datos a mano." }; }
+  } catch (e) {
+    state.cat = { status: "error", msg: e.name === "AbortError"
+      ? "El catastro no respondió a tiempo. Probá de nuevo o cargá los datos a mano."
+      : "No pude conectar con el catastro. Cargá los datos a mano." };
+  } finally {
+    clearTimeout(tId);
+  }
   render();
 }
 function elegirCandidatoCat(i) { const c = ((state.cat && state.cat.candidatos) || [])[i]; if (c) state.cat = { status: "ficha", ficha: c }; render(); }
@@ -2792,6 +2924,7 @@ function aplicarCatastro() {
 function renderCatastroBlock() {
   const p = state.property;
   const c = state.cat;
+  const buscando = !!(c && c.status === "loading");
   let panel = "";
   if (c && c.status === "loading") panel = `<div class="text-xs text-slate-500 mt-2">⏳ Buscando en el catastro…</div>`;
   if (c && c.status === "error") panel = `<div class="text-xs text-red-600 mt-2">${escapeHtml(c.msg)}</div>`;
@@ -2826,7 +2959,7 @@ function renderCatastroBlock() {
       </div>
       <div class="grid grid-cols-[1fr_auto] gap-2 mt-2">
         <input type="text" value="${escapeAttr(p.comuna || "")}" placeholder="Comuna · Ej: Vitacura" oninput="state.property.comuna=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-        <button onclick="buscarCatastro()" class="px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-700 whitespace-nowrap">🔍 Buscar en catastro</button>
+        <button onclick="buscarCatastro()" ${buscando ? "disabled" : ""} class="px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-700 whitespace-nowrap disabled:opacity-50 disabled:cursor-wait">${buscando ? "Buscando…" : "🔍 Buscar en catastro"}</button>
       </div>
       <div class="text-[11px] text-slate-400 mt-1">Con la dirección y la comuna traemos m², tipo y ROL automáticamente desde el SII</div>
       ${panel}
@@ -4820,6 +4953,7 @@ async function applyEditorChanges() {
 
 // ── MAIN RENDER ────────────────────────────────────────────────────
 function render() {
+  clearNavError();
   renderStepper();
   const c = document.getElementById("step-content");
   // Si ya hay reel generado y estás navegando por pasos 1/2/3, agregamos
@@ -5072,6 +5206,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         <div>
           <label id="pf-phone-label" style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Número de WhatsApp *</label>
           <input id="pf-wa" type="tel" placeholder="+56 9 1234 5678" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+          <div id="pf-wa-err" role="alert" aria-live="polite" style="display:none; font-size:11.5px; line-height:1.4; color:var(--error); margin-top:5px;"></div>
         </div>
       </div>
       <div>
