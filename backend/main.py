@@ -123,40 +123,95 @@ async def upload_ready_reel(file: UploadFile = File(...)):
         os.unlink(tmp_in.name)
         raise HTTPException(500, f"No se pudo leer el archivo: {e}")
     tmp_in.close()
-    size_mb = size / (1024 * 1024)
+    return _procesar_reel_guardado(tmp_in.name, size, file.content_type or "video/mp4")
 
-    content_type = file.content_type or "video/mp4"
-    upload_path = tmp_in.name
-    tmp_out = tmp_in.name + "_opt.mp4"
+
+def _r2_cfg():
+    """Config de Cloudflare R2 (S3-compatible, egress gratis). Si faltan env vars
+    devuelve None y el flujo cae a Supabase Storage como siempre."""
+    acc = os.environ.get("R2_ACCOUNT_ID", "").strip()
+    key = os.environ.get("R2_ACCESS_KEY_ID", "").strip()
+    sec = os.environ.get("R2_SECRET_ACCESS_KEY", "").strip()
+    pub = os.environ.get("R2_PUBLIC_BASE", "").strip().rstrip("/")
+    bucket = os.environ.get("R2_BUCKET", "reels").strip()
+    if acc and key and sec and pub:
+        return {"account": acc, "key": key, "secret": sec, "bucket": bucket, "public": pub}
+    return None
+
+
+def _subir_a_r2(cfg, local_path, out_name, content_type="video/mp4"):
+    """Sube el archivo a R2 vía API S3. Devuelve la URL pública o None si falla."""
+    try:
+        import boto3
+        from botocore.config import Config as _BotoCfg
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=f"https://{cfg['account']}.r2.cloudflarestorage.com",
+            aws_access_key_id=cfg["key"],
+            aws_secret_access_key=cfg["secret"],
+            config=_BotoCfg(signature_version="s3v4", retries={"max_attempts": 3}),
+            region_name="auto",
+        )
+        s3.upload_file(local_path, cfg["bucket"], out_name, ExtraArgs={"ContentType": content_type})
+        return f"{cfg['public']}/{out_name}"
+    except Exception as e:
+        print(f"[r2] upload falló: {e}", flush=True)
+        return None
+
+
+def _procesar_reel_guardado(tmp_path, size, content_type="video/mp4"):
+    """Comprime si hace falta y sube el reel a Supabase Storage (o disco local).
+    Compartido por /api/upload-ready-reel y /api/upload-chunk/finish."""
+    import requests, subprocess, shutil
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    bucket = os.environ.get("SUPABASE_BUCKET_REELS", "reels")
+    size_mb = size / (1024 * 1024)
+    upload_path = tmp_path
+    tmp_out = tmp_path + "_opt.mp4"
 
     # Supabase Storage (plan free) corta los uploads en ~50 MB. Si el reel pesa
     # más, lo comprimimos con FFmpeg (H.264 720p + audio AAC intacto).
-    SUPABASE_MAX_MB = float(os.environ.get("SUPABASE_MAX_MB", "48"))
+    _r2 = _r2_cfg()
+    if _r2:
+        SUPABASE_MAX_MB = float(os.environ.get("R2_MAX_MB", "80"))
+    else:
+        SUPABASE_MAX_MB = float(os.environ.get("SUPABASE_MAX_MB", "48"))
     if size_mb > SUPABASE_MAX_MB:
-        cmd = [
-            "ffmpeg", "-y", "-i", tmp_in.name,
-            "-vf", "scale='min(720,iw)':-2",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart",
-            "-threads", "2",
-            tmp_out,
-        ]
-        try:
-            print(f"[upload-ready] {size_mb:.1f} MB > {SUPABASE_MAX_MB:.0f} MB → comprimiendo con FFmpeg…", flush=True)
-            proc = subprocess.run(cmd, capture_output=True, timeout=600)
-            if proc.returncode != 0:
-                raise RuntimeError((proc.stderr or b"").decode(errors="ignore")[-400:])
-            comp_size = os.path.getsize(tmp_out)
-            if comp_size > 50_000:
-                upload_path = tmp_out
-                size_mb = comp_size / (1024 * 1024)
-                content_type = "video/mp4"
-                print(f"[upload-ready] Comprimido a {size_mb:.1f} MB", flush=True)
-        except Exception as e:
-            print(f"[upload-ready] FFmpeg falló: {e}", flush=True)
+        # ESCALERA DE CALIDAD: el video es la vitrina de la propiedad — se parte
+        # en 1080p alta calidad y solo se baja lo mínimo para caber en el límite
+        # de Storage. (La receta vieja 720p/CRF26 dejaba los reels borrosos.)
+        intentos = ([(1080, 19, "fast"), (1080, 21, "fast"), (1080, 24, "fast"), (720, 24, "veryfast")]
+                    if _r2 else
+                    [(1080, 20, "fast"), (1080, 23, "fast"), (720, 23, "veryfast"), (720, 27, "veryfast")])
+        print(f"[upload-ready] {size_mb:.1f} MB > {SUPABASE_MAX_MB:.0f} MB → comprimiendo con FFmpeg (escalera de calidad)…", flush=True)
+        for _res, _crf, _preset in intentos:
+            cmd = [
+                "ffmpeg", "-y", "-i", tmp_path,
+                "-vf", f"scale='min({_res},iw)':-2",
+                "-c:v", "libx264", "-preset", _preset, "-crf", str(_crf),
+                "-c:a", "aac", "-b:a", "160k",
+                "-movflags", "+faststart",
+                "-threads", "2",
+                tmp_out,
+            ]
+            try:
+                proc = subprocess.run(cmd, capture_output=True, timeout=480)
+                if proc.returncode != 0:
+                    raise RuntimeError((proc.stderr or b"").decode(errors="ignore")[-400:])
+                comp_size = os.path.getsize(tmp_out)
+                comp_mb = comp_size / (1024 * 1024)
+                print(f"[upload-ready] intento {_res}p CRF{_crf} → {comp_mb:.1f} MB", flush=True)
+                if comp_size > 50_000 and comp_mb <= SUPABASE_MAX_MB:
+                    upload_path = tmp_out
+                    size_mb = comp_mb
+                    content_type = "video/mp4"
+                    print(f"[upload-ready] Comprimido a {size_mb:.1f} MB ({_res}p CRF{_crf})", flush=True)
+                    break
+            except Exception as e:
+                print(f"[upload-ready] FFmpeg falló en {_res}p CRF{_crf}: {e}", flush=True)
         if size_mb > SUPABASE_MAX_MB:
-            for _pth in (tmp_in.name, tmp_out):
+            for _pth in (tmp_path, tmp_out):
                 try:
                     os.unlink(_pth)
                 except Exception:
@@ -166,11 +221,20 @@ async def upload_ready_reel(file: UploadFile = File(...)):
     out_name = f"ready_{uuid.uuid4().hex[:12]}.mp4"
 
     def _cleanup():
-        for _pth in (tmp_in.name, tmp_out):
+        for _pth in (tmp_path, tmp_out):
             try:
                 os.unlink(_pth)
             except Exception:
                 pass
+
+    # Destino preferido: Cloudflare R2 (egress gratis, sin límite de 50 MB)
+    if _r2:
+        public_url = _subir_a_r2(_r2, upload_path, out_name, content_type)
+        if public_url:
+            print(f"[upload-ready] Subido a R2 → {public_url}", flush=True)
+            _cleanup()
+            return {"ok": True, "file_url": public_url, "size_mb": round(size_mb, 2), "storage": "r2"}
+        print("[upload-ready] R2 falló — cayendo a Supabase Storage", flush=True)
 
     # Si hay Supabase configurada → subir a Storage por STREAMING desde disco
     if supabase_url and supabase_key:
@@ -213,6 +277,85 @@ async def upload_ready_reel(file: UploadFile = File(...)):
     _cleanup()
     file_url = f"/api/files/{out_name}"
     return {"ok": True, "file_url": file_url, "size_mb": round(size_mb, 2), "storage": "local", "warning": "guardado en disco efímero — se pierde en redeploy"}
+
+
+# ─── UPLOAD POR TROZOS (móvil) ───────────────────────────────────────────
+# Los teléfonos fallaban subiendo el reel de una pieza ("Failed to fetch" en 0%):
+# conexiones móviles inestables y el bug de Android/Chrome con archivos de Drive
+# (ERR_UPLOAD_FILE_CHANGED aborta el POST entero). El frontend ahora sube trozos
+# de 4 MB (leídos a memoria) con reintento por trozo, y al final llama a finish
+# que ensambla y procesa igual que /api/upload-ready-reel.
+CHUNKS_DIR = UPLOAD_DIR / "chunks"
+CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _upload_id_valido(v: str) -> bool:
+    import re as _re
+    return bool(_re.fullmatch(r"[a-f0-9]{16,40}", v or ""))
+
+
+@app.post("/api/upload-chunk")
+async def upload_chunk(
+    chunk: UploadFile = File(...),
+    upload_id: str = Form(...),
+    index: int = Form(...),
+):
+    """Recibe un trozo del video. Idempotente: re-enviar un index lo sobreescribe."""
+    if not _upload_id_valido(upload_id):
+        raise HTTPException(400, "upload_id inválido")
+    if index < 0 or index > 200:
+        raise HTTPException(400, "index fuera de rango")
+    d = CHUNKS_DIR / upload_id
+    d.mkdir(parents=True, exist_ok=True)
+    data = chunk.file.read(9 * 1024 * 1024)
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(400, "Trozo muy grande (máx 8 MB)")
+    with open(d / f"part_{index:04d}", "wb") as f:
+        f.write(data)
+    return {"ok": True, "index": index, "bytes": len(data)}
+
+
+@app.post("/api/upload-chunk/finish")
+async def upload_chunk_finish(
+    upload_id: str = Form(...),
+    total: int = Form(...),
+    filename: str = Form("video.mp4"),
+):
+    """Ensambla los trozos y procesa el reel (compresión + Supabase Storage)."""
+    import shutil as _sh, tempfile
+    if not _upload_id_valido(upload_id):
+        raise HTTPException(400, "upload_id inválido")
+    if total <= 0 or total > 200:
+        raise HTTPException(400, "total inválido")
+    ext = os.path.splitext(filename)[1].lower() or ".mp4"
+    if ext not in [".mp4", ".mov", ".m4v", ".webm"]:
+        raise HTTPException(400, f"Formato no soportado ({ext}). Usar MP4/MOV/WEBM.")
+    d = CHUNKS_DIR / upload_id
+    faltan = [i for i in range(total) if not (d / f"part_{i:04d}").exists()]
+    if faltan:
+        raise HTTPException(409, f"Faltan trozos: {faltan[:10]} — reintentá la subida")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    tmp.close()
+    size = 0
+    try:
+        with open(tmp.name, "wb") as out:
+            for i in range(total):
+                p = d / f"part_{i:04d}"
+                with open(p, "rb") as f_in:
+                    _sh.copyfileobj(f_in, out)
+                size += p.stat().st_size
+    except Exception as e:
+        os.unlink(tmp.name)
+        raise HTTPException(500, f"No pude ensamblar el video: {e}")
+    _sh.rmtree(d, ignore_errors=True)
+    if size > 300 * 1024 * 1024:
+        os.unlink(tmp.name)
+        raise HTTPException(400, "Archivo muy grande. Máx 300 MB.")
+    if size < 50_000:
+        os.unlink(tmp.name)
+        raise HTTPException(400, "El archivo llegó vacío o incompleto. Volvé a elegir el video (si está en Drive, probá bajarlo al teléfono primero).")
+    print(f"[upload-chunk] ensamblado {upload_id}: {total} trozos, {size/1024/1024:.1f} MB", flush=True)
+    return _procesar_reel_guardado(tmp.name, size, "video/mp4")
 
 
 # ─── CONTENT MODERATION (frames del video) ───────────────────────────────
@@ -410,6 +553,25 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     # Si ya hay un profile con ese WA, usamos su owner_id. Si no, lo creamos.
     contact_wa_raw = (payload.get("contact_wa") or "").strip()[:30]
     contact_wa_norm = _norm_wa(contact_wa_raw)
+
+    # ─── Verificación OBLIGATORIA del contacto (si el canal está configurado) ──
+    # El frontend manda contact_verify_token (emitido por /api/verify/check).
+    # Sin canal configurado (faltan env vars Twilio/Resend), no se exige nada.
+    _metodo_contacto = (payload.get("contact_method") or "whatsapp").lower().strip()
+    _verify_token = (payload.get("contact_verify_token") or "").strip()
+    _email_contacto = (payload.get("contact_email") or "").strip().lower()[:120]
+    contact_verified = False
+    if _metodo_contacto == "email":
+        if _email_verify_disponible():
+            if not (_email_contacto and _token_valido("email:" + _email_contacto, _verify_token)):
+                raise HTTPException(403, "El mail no está verificado. Volvé al formulario, pedí el código y confirmalo antes de publicar.")
+            contact_verified = True
+    else:
+        if _twilio_cfg() is not None:
+            _tel_e164 = _norm_phone_e164(contact_wa_raw)
+            if not (_tel_e164 and _token_valido("phone:" + _tel_e164, _verify_token)):
+                raise HTTPException(403, "El teléfono no está verificado. Volvé al formulario, pedí el código y confirmalo antes de publicar.")
+            contact_verified = True
     owner_name = (payload.get("owner_name") or "").strip()[:80] or "Vendedor"
     owner_id_resolved = None
     profile_debug = {"wa_norm": contact_wa_norm, "name": owner_name, "found": None, "created": None, "error": None}
@@ -440,7 +602,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
                     "id": new_id,
                     "wa": contact_wa_norm,
                     "name": owner_name,
-                    "verified": False,
+                    "verified": bool(contact_verified and _metodo_contacto != "email"),
                 }
                 r_new = requests.post(
                     f"{supabase_url}/rest/v1/profiles",
@@ -469,7 +631,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
             # No es fatal — seguimos sin owner_id (nullable)
 
     # Sanitize features (array de strings validados)
-    _valid_features = {"terraza", "piscina", "quincho", "jardin", "bodega", "gimnasio"}
+    _valid_features = {"terraza", "piscina", "quincho", "jardin", "bodega", "gimnasio", "salon_multiuso", "est_visitas"}
     _raw_features = payload.get("features") or []
     features_clean = [f for f in _raw_features if isinstance(f, str) and f in _valid_features]
 
@@ -488,6 +650,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         "area":            _f(payload.get("area")),
         # Nuevos campos para que los filtros del feed comprador funcionen
         "terreno_m2":      _f(payload.get("terreno_m2")),
+        "terraza_m2":      _f(payload.get("terraza_m2")),
         "parking":         _i(payload.get("parking")),
         "condition":       condition_clean,       # "nuevo" | "usado" | null
         "features":        features_clean,        # array (jsonb en Supabase)
@@ -501,31 +664,54 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         "lat":             _f(payload.get("lat")),
         "lng":             _f(payload.get("lng")),
         "contact_wa":      contact_wa_norm,   # número normalizado (solo dígitos)
+        # Método de contacto elegido: whatsapp | telefono | email | ejecutivo
+        "contact_method":  (payload.get("contact_method") or "whatsapp").lower().strip()[:20],
+        "contact_email":   ((payload.get("contact_email") or "").strip()[:120] or None),
+        "contact_verified": contact_verified,  # bool — si falta la columna, el retry la omite
         "owner_id":        owner_id_resolved, # linkeado por WA (o null si falló)
         "status":          "published",       # explícito para asegurar que salga en el feed
     }
     # Saca claves con valor None para no pisar defaults de la DB
     row = {k: v for k, v in row.items() if v is not None}
 
-    try:
-        res = requests.post(
-            f"{supabase_url}/rest/v1/properties",
-            headers={
-                "apikey": supabase_key,
-                "Authorization": f"Bearer {supabase_key}",
-                "Content-Type": "application/json",
-                "Prefer": "return=representation",
-            },
-            json=row,
-            timeout=15,
-        )
-    except Exception as e:
-        raise HTTPException(502, f"No se pudo contactar Supabase: {e}")
+    # Insert RESILIENTE al esquema: si la tabla 'properties' aún no tiene alguna
+    # columna nueva (PGRST204 "Could not find the 'X' column"), la quitamos del
+    # row y reintentamos — así publicar nunca se cae por desalineación de schema.
+    # Cuando se agreguen las columnas en Supabase, los campos entran solos.
+    import re as _re
+    res = None
+    dropped = []
+    for _intento in range(6):
+        try:
+            res = requests.post(
+                f"{supabase_url}/rest/v1/properties",
+                headers={
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {supabase_key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation",
+                },
+                json=row,
+                timeout=15,
+            )
+        except Exception as e:
+            raise HTTPException(502, f"No se pudo contactar Supabase: {e}")
+        if res.status_code in (200, 201):
+            break
+        m = _re.search(r"Could not find the '([^']+)' column", res.text or "")
+        if m and m.group(1) in row:
+            dropped.append(m.group(1))
+            row.pop(m.group(1), None)
+            print(f"[publish] Columna '{m.group(1)}' no existe en 'properties' — se omite y reintenta (falta migrar el schema en Supabase)", flush=True)
+            continue
+        break
+    if dropped:
+        print(f"[publish] AVISO: campos omitidos por schema desactualizado: {dropped}. Agregar columnas en Supabase (SQL: alter table properties add column ...).", flush=True)
 
-    if res.status_code not in (200, 201):
+    if res is None or res.status_code not in (200, 201):
         raise HTTPException(
             500,
-            f"Supabase rechazó el insert ({res.status_code}): {res.text[:1500]}",
+            f"Supabase rechazó el insert ({res.status_code if res is not None else '?'}): {(res.text if res is not None else '')[:1500]}",
         )
 
     inserted = res.json()
@@ -537,7 +723,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
 
     # Feed URL incluye el ID de la propiedad recién publicada + owner_id para que
     # properties-app (a) muestre toast de bienvenida (b) reconozca al vendedor sin auth.
-    feed_url = "https://c2cprops.com/comprar?tab=reels"
+    feed_url = "https://c2cprops.com/comprar?tab=reels&guest=1"
     if prop_id:
         feed_url += f"&justPublished={prop_id}"
     if owner_id_resolved:
@@ -550,6 +736,283 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         "feed_url": feed_url,
         "_profile_debug": profile_debug,  # temporal para debuggear el upsert de profile
     }
+
+
+
+# ─── Verificación de contacto por código (OTP) ────────────────────────────
+# Objetivo: que teléfono y mail del vendedor sean REALES antes de publicar.
+#   · Email    → código propio de 6 dígitos, enviado vía Resend (RESEND_API_KEY)
+#                o, si no hay Resend, por SMTP (SMTP_HOST/USER/PASS, ya usados
+#                por /api/hire-request).
+#   · Teléfono → Twilio Verify (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN /
+#                TWILIO_VERIFY_SERVICE_SID). Canal WhatsApp con respaldo SMS.
+#                Twilio genera y valida el código (no lo guardamos nosotros).
+# Al validar, firmamos un token HMAC (24 h) que /api/publish EXIGE cuando el
+# canal correspondiente está configurado. Si el canal NO está configurado
+# (faltan env vars), la verificación se desactiva sola y publicar sigue
+# funcionando como hoy — así el deploy es seguro antes de crear las cuentas.
+import hmac as _hmac
+import hashlib as _hashlib
+import time as _time
+import secrets as _secrets
+
+_VERIFY_CODES: dict[str, dict] = {}   # "email:x@y.cl" → {hash, expires, attempts}
+_VERIFY_SENDS: dict[str, list] = {}   # dest → [timestamps de envíos] (rate limit)
+_VERIFY_LOCK = threading.Lock()
+
+
+def _verify_secret() -> bytes:
+    return (
+        os.environ.get("VERIFY_TOKEN_SECRET")
+        or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        or "dev-secret-cambiar"
+    ).encode()
+
+
+def _sign_verified(dest: str) -> str:
+    """Token firmado que certifica que `dest` fue verificado ahora."""
+    ts = str(int(_time.time()))
+    mac = _hmac.new(_verify_secret(), f"{dest}|{ts}".encode(), _hashlib.sha256).hexdigest()
+    return f"{ts}.{mac}"
+
+
+def _token_valido(dest: str, token: str, max_age_s: int = 86400) -> bool:
+    try:
+        ts, mac = (token or "").split(".", 1)
+        if _time.time() - int(ts) > max_age_s:
+            return False
+        esperado = _hmac.new(_verify_secret(), f"{dest}|{ts}".encode(), _hashlib.sha256).hexdigest()
+        return _hmac.compare_digest(mac, esperado)
+    except Exception:
+        return False
+
+
+def _norm_phone_e164(v) -> str:
+    """Normaliza a E.164 chileno: '9 1234 5678' → '+56912345678'.
+    MISMA regla que normPhoneE164 del frontend — si cambia una, cambiar la otra."""
+    s = str(v or "").strip()
+    d = "".join(ch for ch in s if ch.isdigit())
+    if not d:
+        return ""
+    if s.startswith("+"):
+        return "+" + d
+    if d.startswith("56") and len(d) >= 11:
+        return "+" + d
+    if len(d) == 9:
+        return "+56" + d
+    return "+" + d
+
+
+def _twilio_cfg():
+    sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
+    tok = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    vsid = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "")
+    return (sid, tok, vsid) if (sid and tok and vsid) else None
+
+
+def _email_verify_disponible() -> bool:
+    if os.environ.get("RESEND_API_KEY"):
+        return True
+    return bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASS"))
+
+
+def _rate_limit_ok(dest: str) -> tuple[bool, str]:
+    """Máx 4 envíos por hora y 1 por minuto por destino."""
+    now = _time.time()
+    with _VERIFY_LOCK:
+        sends = [t for t in _VERIFY_SENDS.get(dest, []) if now - t < 3600]
+        if sends and now - sends[-1] < 60:
+            return False, "Esperá un minuto antes de pedir otro código."
+        if len(sends) >= 4:
+            return False, "Demasiados intentos. Probá de nuevo en una hora."
+        sends.append(now)
+        _VERIFY_SENDS[dest] = sends
+    return True, ""
+
+
+def _enviar_codigo_email(email: str, codigo: str) -> tuple[bool, str]:
+    """Envía el código por Resend (preferido) o SMTP. Devuelve (ok, error)."""
+    import requests as _req
+    asunto = f"{codigo} es tu código de verificación · C2C props"
+    html = f"""
+    <html><body style="font-family: Arial, sans-serif; color:#222; background:#faf8f4; padding:24px;">
+      <div style="max-width:420px; margin:0 auto; background:#fff; border-radius:14px; padding:28px; border:1px solid #eee;">
+        <h2 style="color:#A6601C; margin:0 0 6px; font-size:19px;">Verificá tu correo</h2>
+        <p style="font-size:14px; color:#555; margin:0 0 18px;">Usá este código para confirmar tu contacto en la publicación de tu propiedad:</p>
+        <div style="font-size:34px; letter-spacing:10px; font-weight:700; text-align:center; padding:14px 0; background:#faf5ec; border-radius:10px; color:#222;">{codigo}</div>
+        <p style="font-size:12px; color:#999; margin:18px 0 0;">El código vence en 10 minutos. Si no fuiste vos, ignorá este mail.</p>
+      </div>
+    </body></html>"""
+
+    resend_key = os.environ.get("RESEND_API_KEY", "")
+    if resend_key:
+        remitente = os.environ.get("VERIFY_FROM_EMAIL", "C2C props <verificacion@c2cprops.com>")
+        try:
+            r = _req.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                json={"from": remitente, "to": [email], "subject": asunto, "html": html},
+                timeout=15,
+            )
+            if r.status_code in (200, 201):
+                return True, ""
+            print(f"[verify][resend] fallo {r.status_code}: {r.text[:300]}", flush=True)
+            # cae al respaldo SMTP si existe
+        except Exception as e:
+            print(f"[verify][resend] error: {e}", flush=True)
+
+    smtp_host = os.environ.get("SMTP_HOST", "")
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    if smtp_host and smtp_user and smtp_pass:
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = asunto
+            msg["From"] = smtp_user
+            msg["To"] = email
+            msg.attach(MIMEText(html, "html"))
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as s:
+                s.starttls()
+                s.login(smtp_user, smtp_pass)
+                s.sendmail(smtp_user, [email], msg.as_string())
+            return True, ""
+        except Exception as e:
+            print(f"[verify][smtp] error: {e}", flush=True)
+            return False, "No se pudo enviar el mail. Intentá de nuevo en unos minutos."
+    return False, "El envío de mails no está configurado."
+
+
+@app.get("/api/verify/config")
+async def verify_config():
+    """Qué canales de verificación están operativos (el frontend se adapta)."""
+    return {"phone": _twilio_cfg() is not None, "email": _email_verify_disponible()}
+
+
+@app.post("/api/verify/start")
+async def verify_start(payload: dict = Body(...)):
+    """Envía un código de verificación al teléfono (WhatsApp→SMS) o al mail."""
+    import requests as _req
+    channel = (payload.get("channel") or "").lower().strip()
+
+    if channel == "email":
+        email = (payload.get("destination") or "").strip().lower()[:120]
+        if not email or "@" not in email or "." not in email.split("@")[-1]:
+            raise HTTPException(400, "Email inválido")
+        if not _email_verify_disponible():
+            raise HTTPException(503, "Verificación por mail no configurada")
+        ok, msg = _rate_limit_ok("email:" + email)
+        if not ok:
+            raise HTTPException(429, msg)
+        codigo = f"{_secrets.randbelow(1000000):06d}"
+        with _VERIFY_LOCK:
+            _VERIFY_CODES["email:" + email] = {
+                "hash": _hashlib.sha256((codigo + email).encode()).hexdigest(),
+                "expires": _time.time() + 600,
+                "attempts": 0,
+            }
+        enviado, err = _enviar_codigo_email(email, codigo)
+        if not enviado:
+            raise HTTPException(502, err or "No se pudo enviar el código")
+        print(f"[verify] código email enviado a {email}", flush=True)
+        return {"ok": True, "channel": "email"}
+
+    if channel == "phone":
+        cfg = _twilio_cfg()
+        if not cfg:
+            raise HTTPException(503, "Verificación de teléfono no configurada")
+        sid, tok, vsid = cfg
+        dest = _norm_phone_e164(payload.get("destination"))
+        if not dest or len(dest) < 11:
+            raise HTTPException(400, "Número de teléfono inválido")
+        ok, msg = _rate_limit_ok("phone:" + dest)
+        if not ok:
+            raise HTTPException(429, msg)
+        via = None
+        errores = []
+        for canal_twilio in ("whatsapp", "sms"):
+            try:
+                r = _req.post(
+                    f"https://verify.twilio.com/v2/Services/{vsid}/Verifications",
+                    auth=(sid, tok),
+                    data={"To": dest, "Channel": canal_twilio, "Locale": "es"},
+                    timeout=15,
+                )
+                if r.status_code in (200, 201):
+                    via = canal_twilio
+                    break
+                try:
+                    _tw = r.json()
+                except Exception:
+                    _tw = {}
+                # código de error Twilio (p.ej. 21408 = región SMS deshabilitada,
+                # 20003 = credenciales inválidas, 60xxx = Verify) — clave para diagnosticar
+                errores.append(f"{canal_twilio} {r.status_code}/{_tw.get('code', '?')}")
+                print(f"[verify][twilio][{canal_twilio}] fallo {r.status_code}: {r.text[:300]}", flush=True)
+            except Exception as e:
+                errores.append(f"{canal_twilio} error-red")
+                print(f"[verify][twilio][{canal_twilio}] error: {e}", flush=True)
+        if not via:
+            raise HTTPException(502, f"No se pudo enviar el código al teléfono [{'; '.join(errores)}]. Revisá el número e intentá de nuevo.")
+        print(f"[verify] código enviado a {dest} vía {via}", flush=True)
+        return {"ok": True, "channel": "phone", "via": via}
+
+    raise HTTPException(400, "channel debe ser 'phone' o 'email'")
+
+
+@app.post("/api/verify/check")
+async def verify_check(payload: dict = Body(...)):
+    """Valida el código. Si es correcto devuelve un token que /api/publish exige."""
+    import requests as _req
+    channel = (payload.get("channel") or "").lower().strip()
+    codigo = "".join(ch for ch in str(payload.get("code") or "") if ch.isdigit())[:10]
+    if len(codigo) < 4:
+        raise HTTPException(400, "Código inválido")
+
+    if channel == "email":
+        email = (payload.get("destination") or "").strip().lower()[:120]
+        key = "email:" + email
+        with _VERIFY_LOCK:
+            reg = _VERIFY_CODES.get(key)
+            if not reg or _time.time() > reg["expires"]:
+                raise HTTPException(410, "El código venció o no existe. Pedí uno nuevo.")
+            if reg["attempts"] >= 5:
+                _VERIFY_CODES.pop(key, None)
+                raise HTTPException(429, "Demasiados intentos. Pedí un código nuevo.")
+            reg["attempts"] += 1
+            ok = _hmac.compare_digest(reg["hash"], _hashlib.sha256((codigo + email).encode()).hexdigest())
+            if ok:
+                _VERIFY_CODES.pop(key, None)
+        if not ok:
+            raise HTTPException(400, "Código incorrecto")
+        return {"ok": True, "token": _sign_verified(key)}
+
+    if channel == "phone":
+        cfg = _twilio_cfg()
+        if not cfg:
+            raise HTTPException(503, "Verificación de teléfono no configurada")
+        sid, tok, vsid = cfg
+        dest = _norm_phone_e164(payload.get("destination"))
+        try:
+            r = _req.post(
+                f"https://verify.twilio.com/v2/Services/{vsid}/VerificationCheck",
+                auth=(sid, tok),
+                data={"To": dest, "Code": codigo},
+                timeout=15,
+            )
+        except Exception as e:
+            raise HTTPException(502, f"Error consultando Twilio: {e}")
+        if r.status_code == 404:
+            raise HTTPException(410, "El código venció. Pedí uno nuevo.")
+        data = r.json() if r.ok else {}
+        if data.get("status") == "approved":
+            return {"ok": True, "token": _sign_verified("phone:" + dest)}
+        raise HTTPException(400, "Código incorrecto")
+
+    raise HTTPException(400, "channel debe ser 'phone' o 'email'")
 
 
 # ─── Hire request (contratar servicio de grabación profesional) ──────────

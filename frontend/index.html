@@ -240,11 +240,11 @@
       </a>
     </div>
     <nav class="flex items-center gap-2" style="position: relative;">
-      <a href="https://c2cprops.com/comprar" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Comprar</a>
-      <a href="https://c2cprops.com/vender" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Publicar</a>
+      <a href="https://c2cprops.com/comprar" class="c2c-nav-link" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Comprar</a>
+      <a href="https://c2cprops.com/vender" class="c2c-nav-link" style="color: var(--text-secondary); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; text-decoration: none;">Publicar</a>
       <div id="c2cAiDropdown" style="position: relative;">
-        <button id="c2cAiDropdownBtn" type="button" style="display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: rgba(201,168,106,0.04); border: 1px solid rgba(201,168,106,0.25); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; cursor: pointer; font-family: inherit;">
-          <span style="color: var(--gold); font-size: 12px;">✦</span> Mi asistente IA <span class="c2c-arrow" style="font-size: 10px; transition: transform 0.2s;">▾</span>
+        <button id="c2cAiDropdownBtn" type="button" aria-label="Mi asistente IA" style="display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: rgba(201,168,106,0.04); border: 1px solid rgba(201,168,106,0.25); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; cursor: pointer; font-family: inherit;">
+          <span style="color: var(--gold); font-size: 12px;">✦</span><span class="c2c-ai-label"> Mi asistente IA</span> <span class="c2c-arrow" style="font-size: 10px; transition: transform 0.2s;">▾</span>
         </button>
         <div class="c2c-dropdown-menu" style="position: absolute; top: calc(100% + 8px); right: 0; min-width: 280px; background: #0f0f10; border: 1px solid var(--border-subtle); border-radius: 14px; padding: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity 0.18s, transform 0.18s, visibility 0.18s; z-index: 9999;">
           <a href="https://c2cprops.com/tasar?view=comprador" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; text-decoration: none; color: var(--text-secondary);">
@@ -275,6 +275,14 @@
       #c2cAiDropdown.is-open .c2c-dropdown-menu { opacity: 1 !important; visibility: visible !important; transform: translateY(0) !important; }
       #c2cAiDropdown.is-open .c2c-arrow { transform: rotate(180deg); }
       #c2cAiDropdown .c2c-dropdown-menu a:hover { background: rgba(201,168,106,0.06); }
+      /* Móvil angosto (≤420px): el header medía 427px y cortaba "Mi asistente IA" con scroll horizontal */
+      @media (max-width: 420px) {
+        .c2c-nav-link { display: none !important; }
+        #c2cAiDropdownBtn { padding: 6px 10px !important; }
+        #c2cAiDropdownBtn .c2c-ai-label { display: none; }
+        #c2cAiDropdown .c2c-dropdown-menu { min-width: 240px !important; max-width: calc(100vw - 24px); }
+        body { overflow-x: hidden; }
+      }
     </style>
     <script>
       // Wire the dropdown reliably (addEventListener en vez de inline onclick, por si un render lo pisa)
@@ -299,6 +307,16 @@
         document.addEventListener('click', function(e) {
           var d = document.getElementById('c2cAiDropdown');
           if (d && !d.contains(e.target)) d.classList.remove('is-open');
+        });
+        // Cerrar con Escape
+        document.addEventListener('keydown', function(e) {
+          if (e.key !== 'Escape') return;
+          var d = document.getElementById('c2cAiDropdown');
+          if (d && d.classList.contains('is-open')) {
+            d.classList.remove('is-open');
+            var b = document.getElementById('c2cAiDropdownBtn');
+            if (b) b.focus();
+          }
         });
       })();
     </script>
@@ -347,7 +365,11 @@ const API_BASE = (() => {
   if (host === "localhost" || host === "127.0.0.1") return "";
   return window.GREATDEAL_API_URL || "https://greatdeal-api.onrender.com";
 })();
-const API = (path) => `${API_BASE}/api${path}`;
+const API = (path) => `${API_BASE}/api${path}`;
+// URLs del backend: los file_url pueden venir RELATIVOS (/api/files/x.mp4) o
+// ABSOLUTOS (Supabase Storage). Prefijar API_BASE solo si es relativo —
+// concatenar siempre generaba URLs rotas tipo "https://api...https://supabase..."
+const absApi = (u) => !u ? u : (/^https?:\/\//i.test(u) ? u : `${API_BASE}${u}`);
 
 // Fetch wrapper con mensajes de error útiles (sobre todo en móvil)
 async function fetchWithDetail(url, opts) {
@@ -387,7 +409,7 @@ let state = {
   upload_mode: "guided",
   sections: emptySections(),
   simple_clips: [],
-  property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
+  property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", terraza_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
   advanced_open: false,
   enhance_ai: false,
   auto_subtitles: true,  // por default ON: si hay voz, los subtítulos se quieren siempre
@@ -455,7 +477,7 @@ function resetAll() {
   const voices = state.eleven_voices;
   state = {
     step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [],
-    property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
+    property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", terraza_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
     advanced_open: false, enhance_ai: false, auto_subtitles: true,
     music_preset: "cinematic_view", music_file: null, music_presets_catalog: catalog,
     voice_audio_file: null, voice_audio_url: null, voice_method: "none",
@@ -750,7 +772,7 @@ async function runwayPollTask() {
       render();
       if (j.status === "done") {
         // Download the regenerated clip
-        const dlUrl = `${API_BASE}${j.download_url}`;
+        const dlUrl = absApi(j.download_url);
         const dlResp = await fetch(dlUrl);
         const blob = await dlResp.blob();
         const blobUrl = URL.createObjectURL(blob);
@@ -1274,6 +1296,34 @@ function goPrev() {
 //   ✔ Feature 1
 //   ✔ Feature 2
 //   📩 CTA
+// Depto: m² totales = útiles + terraza (se recalcula en vivo, sin re-render)
+function totalesDepto(p) {
+  const rawU = String(p.m2 ?? "").trim(), rawT = String(p.terraza_m2 ?? "").trim();
+  if (rawU === "" && rawT === "") return "";
+  const u = parseFloat(rawU) || 0, t = parseFloat(rawT) || 0;
+  return String(Math.round((u + t) * 10) / 10);
+}
+function updTotalesDepto() {
+  const el = document.getElementById('sup-totales-depto');
+  if (el) el.value = totalesDepto(state.property);
+  updPreviewInfo();
+}
+// Cierre del reel: depto con terraza se anuncia por m² totales; el resto, por m² útiles
+function ctaInfoM2(p) {
+  if (p.tipo === 'Departamento' && String(p.terraza_m2 ?? "").trim() !== "") {
+    return totalesDepto(p) || (p.m2 || '—');
+  }
+  return p.m2 || '—';
+}
+function ctaInfoDefault(p) {
+  return `${ctaInfoM2(p)} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`;
+}
+// Refresco en vivo del cierre, sin re-render (para no perder el foco del input)
+function updPreviewInfo() {
+  const el = document.getElementById('cta-preview-info');
+  if (el) el.textContent = state.custom_cta_info || ctaInfoDefault(state.property);
+}
+
 function buildAutoCopy(p) {
   const parts = [];
   const tipo = p.tipo || 'Propiedad';
@@ -1297,7 +1347,12 @@ function buildAutoCopy(p) {
   if (p.dorms) parts.push(`• ${p.dorms} ${Number(p.dorms) === 1 ? 'dormitorio' : 'dormitorios'}`);
   if (p.banos) parts.push(`• ${p.banos} ${Number(p.banos) === 1 ? 'baño' : 'baños'}`);
   if (p.m2) parts.push(`• ${p.m2} m² útiles`);
-  if (p.terreno_m2) parts.push(`• ${p.terreno_m2} m² totales`);
+  if (p.tipo === 'Departamento') {
+    if (p.terraza_m2) parts.push(`• ${p.terraza_m2} m² terraza`);
+    if (p.terraza_m2 && totalesDepto(p)) parts.push(`• ${totalesDepto(p)} m² totales`);
+  } else if (p.terreno_m2) {
+    parts.push(`• ${p.terreno_m2} m² totales`);
+  }
   if (p.parking) parts.push(`• ${p.parking} ${Number(p.parking) === 1 ? 'estacionamiento' : 'estacionamientos'}`);
   parts.push('');
 
@@ -1324,6 +1379,8 @@ function buildAutoCopy(p) {
     jardin: 'Jardín',
     bodega: 'Bodega',
     gimnasio: 'Gimnasio',
+    salon_multiuso: 'Salón multiuso',
+    est_visitas: 'Estacionamientos de visita',
   };
   if (p.features && p.features.length) {
     p.features.forEach(f => {
@@ -1370,7 +1427,195 @@ function openPublishModal() {
   document.getElementById('pf-wa').value          = p.contact_wa || savedWa;
   const nameEl = document.getElementById('pf-name');
   if (nameEl) nameEl.value = p.owner_name || savedName;
+
+  // "Usá nuestro tasador": llevar la dirección ya ingresada para que Valentina
+  // tase de inmediato, sin volver a preguntarla (deep-link a tasar.c2cprops.com)
+  // Método de contacto: restaurar el último elegido (default WhatsApp)
+  let savedMethod = 'whatsapp';
+  try { savedMethod = localStorage.getItem('c2c_contact_method') || 'whatsapp'; } catch (_) {}
+  setContactMethod(savedMethod);
+  loadVerifyConfig();  // habilita el bloque "verificá tu contacto" si el backend lo soporta
+  const emailEl = document.getElementById('pf-email');
+  if (emailEl) { try { emailEl.value = localStorage.getItem('c2c_owner_email') || ''; } catch (_) {} }
+
+  const tasarLink = document.getElementById('pf-tasar-link');
+  if (tasarLink) {
+    const q = new URLSearchParams({ view: 'vendedor', origen: 'publicar' });
+    if (p.direccion) q.set('direccion', p.direccion);
+    if (p.depto) q.set('depto', p.depto);
+    if (p.comuna) q.set('comuna', p.comuna);
+    if (parseInt(p.dorms) > 0) q.set('dorms', String(parseInt(p.dorms)));
+    if (parseInt(p.banos) > 0) q.set('banos', String(parseInt(p.banos)));
+    tasarLink.href = 'https://tasar.c2cprops.com/?' + q.toString();
+    tasarLink.onclick = () => { state.leaving_to_tasar = true; try { saveStateToStorage(); } catch (_) {} };
+  }
 }
+
+// Método de contacto elegido por el vendedor (whatsapp | telefono | email | ejecutivo)
+function setContactMethod(m) {
+  state.contact_method = m;
+  try { localStorage.setItem('c2c_contact_method', m); } catch (_) {}
+  const wrap = document.getElementById('pf-contact-methods');
+  if (wrap) [...wrap.querySelectorAll('button')].forEach(b => {
+    const on = b.getAttribute('data-m') === m;
+    b.style.borderColor = on ? 'var(--gold)' : 'var(--border-subtle)';
+    b.style.background = on ? 'var(--gold)' : 'transparent';
+    b.style.color = on ? 'var(--bg-base)' : 'var(--text-primary)';
+  });
+  const lbl = document.getElementById('pf-phone-label');
+  if (lbl) lbl.textContent = m === 'telefono' ? 'Número de teléfono *' : m === 'whatsapp' ? 'Número de WhatsApp *' : 'Teléfono de contacto *';
+  const ew = document.getElementById('pf-email-wrap'); if (ew) ew.style.display = m === 'email' ? 'block' : 'none';
+  const en = document.getElementById('pf-exec-note'); if (en) en.style.display = m === 'ejecutivo' ? 'block' : 'none';
+  try { refreshVerifyUI(); } catch (_) {}
+}
+
+// ─── Verificación de contacto por código (OTP) ─────────────────────────────
+// El backend expone /api/verify/config|start|check. Si un canal no está
+// configurado (sin Twilio/Resend en Render), acá se desactiva solo y no bloquea.
+let verifyCfg = null;          // {phone:bool, email:bool}
+let verifySendCooldown = 0;    // epoch ms hasta el que no se puede reenviar
+
+async function loadVerifyConfig() {
+  try {
+    const r = await fetch(API('/verify/config'));
+    verifyCfg = r.ok ? await r.json() : { phone: false, email: false };
+  } catch (_) { verifyCfg = { phone: false, email: false }; }
+  refreshVerifyUI();
+}
+
+// MISMA regla que _norm_phone_e164 del backend — si cambia una, cambiar la otra.
+function normPhoneE164(v) {
+  const s = (v || '').trim();
+  const d = s.replace(/\D/g, '');
+  if (!d) return '';
+  if (s.startsWith('+')) return '+' + d;
+  if (d.startsWith('56') && d.length >= 11) return '+' + d;
+  if (d.length === 9) return '+56' + d;
+  return '+' + d;
+}
+
+function verifyDest() {
+  const m = state.contact_method || 'whatsapp';
+  if (m === 'email') return { channel: 'email', dest: (document.getElementById('pf-email')?.value || '').trim().toLowerCase() };
+  return { channel: 'phone', dest: normPhoneE164(document.getElementById('pf-wa')?.value || '') };
+}
+
+function getVerifiedToken(channel, dest) {
+  if (!dest) return null;
+  try {
+    const map = JSON.parse(localStorage.getItem('c2c_verify_tokens') || '{}');
+    const e = map[channel + ':' + dest];
+    if (e && e.token && Date.now() - e.ts < 20 * 3600 * 1000) return e.token; // < 20 h (el backend acepta 24 h)
+  } catch (_) {}
+  return null;
+}
+
+function saveVerifiedToken(channel, dest, token) {
+  try {
+    const map = JSON.parse(localStorage.getItem('c2c_verify_tokens') || '{}');
+    map[channel + ':' + dest] = { token, ts: Date.now() };
+    localStorage.setItem('c2c_verify_tokens', JSON.stringify(map));
+  } catch (_) {}
+}
+
+function refreshVerifyUI() {
+  const block = document.getElementById('pf-verify-block');
+  if (!block) return;
+  const { channel, dest } = verifyDest();
+  const habilitado = channel === 'email' ? verifyCfg?.email : verifyCfg?.phone;
+  if (!verifyCfg || !habilitado) { block.style.display = 'none'; return; }
+  block.style.display = 'block';
+  const msg = document.getElementById('pf-verify-msg');
+  const btn = document.getElementById('pf-verify-send');
+  const row2 = document.getElementById('pf-verify-row2');
+  const status = document.getElementById('pf-verify-status');
+  if (getVerifiedToken(channel, dest)) {
+    if (msg) msg.innerHTML = channel === 'email' ? '✅ <b>Mail verificado.</b> Ya podés publicar.' : '✅ <b>Teléfono verificado.</b> Ya podés publicar.';
+    if (btn) btn.style.display = 'none';
+    if (row2) row2.style.display = 'none';
+    if (status) status.style.display = 'none';
+    block.style.borderStyle = 'solid';
+  } else {
+    if (msg) msg.innerHTML = channel === 'email'
+      ? 'Te mandamos un <b>código a tu mail</b> para confirmar que te pueden contactar.'
+      : 'Te mandamos un <b>código por WhatsApp/SMS</b> para confirmar tu número.';
+    if (btn) { btn.style.display = 'inline-block'; if (Date.now() > verifySendCooldown) btn.textContent = 'Enviar código'; }
+    block.style.borderStyle = 'dashed';
+  }
+}
+
+function _verifyStatus(texto, ok) {
+  const el = document.getElementById('pf-verify-status');
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.color = ok ? '#7fbf7f' : '#e07f7f';
+  el.textContent = texto;
+}
+
+async function sendVerifyCode() {
+  const { channel, dest } = verifyDest();
+  if (!dest || (channel === 'email' && !dest.includes('@')) || (channel === 'phone' && dest.length < 11)) {
+    _verifyStatus(channel === 'email' ? 'Escribí tu mail primero.' : 'Escribí tu número primero.', false);
+    (channel === 'email' ? document.getElementById('pf-email') : document.getElementById('pf-wa'))?.focus();
+    return;
+  }
+  if (Date.now() < verifySendCooldown) return;
+  const btn = document.getElementById('pf-verify-send');
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
+  try {
+    const r = await fetch(API('/verify/start'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel, destination: dest }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.detail || 'No se pudo enviar el código');
+    document.getElementById('pf-verify-row2').style.display = 'flex';
+    _verifyStatus(channel === 'email' ? 'Código enviado. Revisá tu bandeja (y spam).' : (j.via === 'sms' ? 'Código enviado por SMS.' : 'Código enviado por WhatsApp.'), true);
+    setTimeout(() => document.getElementById('pf-verify-code')?.focus(), 100);
+    // Cooldown de 60 s para reenviar
+    verifySendCooldown = Date.now() + 60000;
+    let restante = 60;
+    const timer = setInterval(() => {
+      restante -= 1;
+      if (!btn) { clearInterval(timer); return; }
+      if (restante <= 0 || Date.now() >= verifySendCooldown) { clearInterval(timer); btn.disabled = false; btn.textContent = 'Reenviar código'; }
+      else btn.textContent = `Reenviar (${restante}s)`;
+    }, 1000);
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Enviar código'; }
+    _verifyStatus(String(e.message || e), false);
+  }
+}
+
+async function checkVerifyCode() {
+  const { channel, dest } = verifyDest();
+  const code = (document.getElementById('pf-verify-code')?.value || '').replace(/\D/g, '');
+  if (code.length < 4) { _verifyStatus('Escribí el código que te llegó.', false); return; }
+  const btn = document.getElementById('pf-verify-check');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await fetch(API('/verify/check'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel, destination: dest, code }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.token) throw new Error(j.detail || 'Código incorrecto');
+    saveVerifiedToken(channel, dest, j.token);
+    refreshVerifyUI();
+  } catch (e) {
+    _verifyStatus(String(e.message || e), false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Verificar'; }
+  }
+}
+
+// Si el user edita el número/mail después de verificar, el badge se recalcula solo
+document.addEventListener('DOMContentLoaded', () => {
+  ['pf-wa', 'pf-email'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => { try { refreshVerifyUI(); } catch (_) {} });
+  });
+});
 
 function closePublishModal() {
   const modal = document.getElementById('publish-modal');
@@ -1400,7 +1645,29 @@ async function submitPublish() {
   // Validación mínima — precio es OPCIONAL (si no lo tiene, Valentina lo tasa después)
   if (!loc) { alert("Falta la dirección de la propiedad"); document.getElementById('pf-loc').focus(); return; }
   if (!name) { alert("Falta tu nombre"); document.getElementById('pf-name')?.focus(); return; }
-  if (!wa) { alert("Falta el número de WhatsApp para contacto"); document.getElementById('pf-wa').focus(); return; }
+  const method = state.contact_method || 'whatsapp';
+  const email  = (document.getElementById('pf-email')?.value || '').trim();
+  if (method === 'email' && !email) { alert("Falta tu correo para que te contacten"); document.getElementById('pf-email')?.focus(); return; }
+  if (method !== 'email' && !wa) { alert(method === 'telefono' ? "Falta tu número de teléfono" : "Falta tu número de contacto"); document.getElementById('pf-wa').focus(); return; }
+
+  // ─── Verificación OBLIGATORIA del contacto (si el canal está operativo) ───
+  let contactVerifyToken = null;
+  try {
+    if (!verifyCfg) await loadVerifyConfig();
+    const vd = verifyDest();
+    const requiere = vd.channel === 'email' ? verifyCfg?.email : verifyCfg?.phone;
+    if (requiere) {
+      contactVerifyToken = getVerifiedToken(vd.channel, vd.dest);
+      if (!contactVerifyToken) {
+        alert(vd.channel === 'email'
+          ? "Antes de publicar necesitamos verificar tu mail: pedí el código y confirmalo."
+          : "Antes de publicar necesitamos verificar tu número: pedí el código y confirmalo.");
+        refreshVerifyUI();
+        document.getElementById('pf-verify-block')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+    }
+  } catch (_) {}
   // Nota: el precio NO es obligatorio — si el user prefiere que Valentina tase, dejamos precio null
 
   // Guardar en state para próxima vez
@@ -1414,13 +1681,12 @@ async function submitPublish() {
   try {
     localStorage.setItem('c2c_owner_name', name);
     localStorage.setItem('c2c_owner_wa', wa);
+    if (email) localStorage.setItem('c2c_owner_email', email);
   } catch(_) {}
   try { typeof saveStateToStorage === 'function' && saveStateToStorage(); } catch(_) {}
 
   // URL del video (persistente preferido)
-  const videoUrl = state.job_file_url
-    ? `${API_BASE}${state.job_file_url}`
-    : state.job_download;
+  const videoUrl = absApi(state.job_file_url) || state.job_download;
 
   const p = state.property;
   const payload = {
@@ -1434,15 +1700,20 @@ async function submitPublish() {
     baths:            parseInt(p.banos) || null,
     area:             parseFloat(p.m2) || null,
     // Nuevos campos (para filtros del feed comprador)
-    terreno_m2:       parseFloat(p.terreno_m2) || null,
+    terreno_m2:       p.tipo === 'Departamento' ? null : (parseFloat(p.terreno_m2) || null),
+    terraza_m2:       p.tipo === 'Departamento' ? (parseFloat(p.terraza_m2) || null) : null,
     parking:          parseInt(p.parking) || null,
     condition:        p.condition || null,      // "nuevo" | "usado" | null
     features:         Array.isArray(p.features) ? p.features : [],  // array de strings
-    title:            `${p.tipo || "Propiedad"}${p.comuna ? " en " + p.comuna : ""}${p.m2 ? " · " + p.m2 + "m²" : ""}`,
+    title:            `${p.tipo || "Propiedad"}${p.comuna ? " en " + p.comuna : ""}${p.m2 ? " · " + ctaInfoM2(p) + "m²" : ""}`,
     description:      desc,
     loc:              loc,
-    vanity_location:  loc, // por ahora mismo string; podemos refinar después
+    // Ubicación pública elegida por el vendedor; si no puso nada, solo la comuna
+    vanity_location:  (document.getElementById('pf-vanity')?.value || '').trim() || p.comuna || '',
     contact_wa:       wa,
+    contact_method:   method,          // whatsapp | telefono | email | ejecutivo
+    contact_email:    email || null,
+    contact_verify_token: contactVerifyToken,  // exigido por el backend si el canal está configurado
     owner_name:       name, // usado por backend para upsert de profile
     // lat/lng quedan null por ahora — Google Places lo agregaremos en una próxima iter
   };
@@ -1488,10 +1759,29 @@ async function submitPublish() {
     } catch(_) {}
     // Marcar como "publicando" para evitar el prompt "podés perder cambios"
     state.publish_in_progress = true;
-    if (btn) btn.innerHTML = '✅ Publicado · Redirigiendo…';
-    setTimeout(() => {
-      window.location.href = data.feed_url || "https://c2cprops.com/comprar";
-    }, 800);
+    // Pantalla de éxito en el mismo modal (NO redirigir al feed del comprador,
+    // que puede pedir inicio de sesión y confunde al vendedor recién publicado)
+    const feedUrl = data.feed_url || "https://c2cprops.com/comprar";
+    const metodoTxt = ({
+      whatsapp: 'Los interesados te contactarán por <b>WhatsApp</b>.',
+      telefono: 'Los interesados te contactarán por <b>teléfono</b>.',
+      email: 'Los interesados te contactarán por <b>mail</b>.',
+      ejecutivo: 'Un <b>ejecutivo C2C</b> se pondrá en contacto contigo para acompañarte en la venta.',
+    })[method] || '';
+    const card = document.querySelector('#publish-modal > div');
+    if (card) {
+      card.innerHTML = `
+        <div style="text-align:center; padding:18px 6px;">
+          <div style="font-size:52px; line-height:1;">✅</div>
+          <h2 style="font-family:'Playfair Display',serif; font-size:24px; margin:14px 0 6px; color:var(--text-primary);">¡Tu propiedad quedó publicada!</h2>
+          <p style="font-size:14px; color:var(--text-secondary); margin:0 0 4px;">Ya está visible en el marketplace de C2C.</p>
+          <p style="font-size:13.5px; color:var(--text-secondary); margin:10px 0 22px;">${metodoTxt}</p>
+          <a href="${feedUrl}" style="display:block; width:100%; padding:14px; border-radius:12px; background:var(--gold); color:var(--bg-base); font-weight:700; font-size:14.5px; text-decoration:none; margin-bottom:10px;">Ver mi publicación en el marketplace</a>
+          <button type="button" onclick="document.getElementById('publish-modal').style.display='none'" style="width:100%; padding:12px; border-radius:12px; border:1px solid var(--border-subtle); background:transparent; color:var(--text-secondary); font-size:13.5px; cursor:pointer;">Cerrar</button>
+        </div>`;
+    } else {
+      window.location.href = feedUrl;
+    }
   } catch (e) {
     clearTimeout(timeoutId);
     console.error('[publish] fallo:', e);
@@ -1786,9 +2076,10 @@ function renderReadyReelUpload() {
           <label class="inline-flex items-center gap-2 px-6 py-3 rounded-xl cursor-pointer font-semibold"
             style="background: var(--gold); color: var(--bg-base); box-shadow: 0 6px 20px rgba(201,168,106,0.3);">
             📤 Seleccionar video
-            <input type="file" accept="video/mp4,video/quicktime,video/webm" class="hidden"
+            <input type="file" class="hidden"
               onchange="handleReadyReelUpload(event.target.files[0])">
           </label>
+          <div class="text-xs mt-2" style="color: var(--text-muted);">Elegilo desde el teléfono o desde Google Drive, Dropbox, OneDrive, etc.</div>
         `}
 
         ${error ? `
@@ -1809,6 +2100,100 @@ function renderReadyReelUpload() {
 }
 
 // ─── Handler: subir video ya editado + moderar + saltar a paso 4 ─────────
+// Render free se duerme tras ~15 min sin uso y la primera consulta muere
+// ("Failed to fetch"). Antes de moderar/subir, despertamos el backend con
+// pings a /health hasta que responda (máx ~90 s).
+async function despertarBackend(maxMs = 90000) {
+  const t0 = Date.now();
+  let primeraEspera = true;
+  while (Date.now() - t0 < maxMs) {
+    try {
+      const r = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+      if (r.ok) return true;
+    } catch (e) { /* dormido o red caída — reintentamos */ }
+    if (primeraEspera) {
+      primeraEspera = false;
+      state.ready_reel_progress = 'Despertando el servidor… la primera vez puede tardar ~1 minuto, no cierres la página';
+      render();
+    }
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  return false;
+}
+
+// fetch con 1 reintento ante error de red (cortes breves de datos móviles)
+async function fetchReintento(url, opts) {
+  try {
+    return await fetch(url, opts);
+  } catch (e) {
+    await new Promise(r => setTimeout(r, 2500));
+    return await fetch(url, opts);
+  }
+}
+
+// Subida con progreso real (XHR): muestra % y detecta exactamente dónde se corta.
+// Devuelve {status, text} o lanza Error de red con detalle del progreso alcanzado.
+function subirConProgreso(url, formData, onPct) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.timeout = 15 * 60 * 1000; // 15 min: compresión server de >48 MB tarda
+    let ultimoPct = 0;
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) {
+        ultimoPct = Math.round(ev.loaded / ev.total * 100);
+        onPct && onPct(ultimoPct);
+      }
+    };
+    xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
+    xhr.onerror = () => reject(new Error(`la subida se cortó en ${ultimoPct}% (falla de red)`));
+    xhr.ontimeout = () => reject(new Error(`la subida quedó colgada en ${ultimoPct}% (timeout)`));
+    xhr.onabort = () => reject(new Error(`la subida se canceló en ${ultimoPct}%`));
+    xhr.send(formData);
+  });
+}
+
+// Subida POR TROZOS de 4 MB: cada trozo se lee a MEMORIA antes de enviarse
+// (evita ERR_UPLOAD_FILE_CHANGED de Android/Chrome con archivos de Drive, que
+// aborta el POST en 0%) y se reintenta solo hasta 3 veces (datos móviles).
+async function subirEnTrozos(file, onPct) {
+  const CH = 4 * 1024 * 1024;
+  const total = Math.max(1, Math.ceil(file.size / CH));
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
+  for (let i = 0; i < total; i++) {
+    let buf;
+    try {
+      buf = await file.slice(i * CH, Math.min(file.size, (i + 1) * CH)).arrayBuffer();
+    } catch (e) {
+      throw new Error('no pude leer el archivo — si está en Drive puede haber cambiado; volvé a elegirlo (o bajalo al teléfono primero)');
+    }
+    const fd = new FormData();
+    fd.append('upload_id', id);
+    fd.append('index', String(i));
+    fd.append('chunk', new Blob([buf]), 'part');
+    let ok = false, lastErr = null;
+    for (let intento = 0; intento < 3 && !ok; intento++) {
+      if (intento) await new Promise(r => setTimeout(r, 1500 * intento));
+      try {
+        const r = await fetch(API('/upload-chunk'), { method: 'POST', body: fd });
+        if (r.ok) { ok = true; }
+        else { lastErr = new Error('HTTP ' + r.status + ': ' + (await r.text()).slice(0, 120)); }
+      } catch (e) { lastErr = e; }
+    }
+    if (!ok) {
+      throw new Error(`se cortó en el trozo ${i + 1} de ${total} (${Math.round(i / total * 100)}%): ${(lastErr && lastErr.message) || 'falla de red'}`);
+    }
+    onPct && onPct(Math.round((i + 1) / total * 100));
+  }
+  // finish: ensambla y procesa en el servidor (FormData → sin preflight CORS)
+  const ffd = new FormData();
+  ffd.append('upload_id', id);
+  ffd.append('total', String(total));
+  ffd.append('filename', file.name || 'video.mp4');
+  const fin = await fetchReintento(API('/upload-chunk/finish'), { method: 'POST', body: ffd });
+  return { status: fin.status, text: await fin.text() };
+}
+
 async function handleReadyReelUpload(file) {
   if (!file) return;
 
@@ -1816,6 +2201,18 @@ async function handleReadyReelUpload(file) {
   state.ready_reel_error = '';
 
   // Validaciones rápidas
+  const _ext = (file.name || '').split('.').pop().toLowerCase();
+  const _esVideo = (file.type || '').startsWith('video/') || ['mp4', 'mov', 'm4v', 'webm'].includes(_ext);
+  if (!_esVideo) {
+    state.ready_reel_error = `"${file.name}" no parece un video. Elegí un archivo MP4, MOV o WEBM.`;
+    render();
+    return;
+  }
+  if (!file.size) {
+    state.ready_reel_error = `"${file.name}" llegó vacío desde el selector. Si está en Google Drive, abrí la app de Drive, tocá "Descargar" (o "Disponible sin conexión") y volvé a elegirlo.`;
+    render();
+    return;
+  }
   if (file.size > 300 * 1024 * 1024) {
     state.ready_reel_error = `El archivo pesa ${(file.size/1024/1024).toFixed(1)} MB · máximo 300 MB`;
     render();
@@ -1826,19 +2223,34 @@ async function handleReadyReelUpload(file) {
   state.ready_reel_progress = 'Extrayendo frames para moderación…';
   render();
 
+  let etapa = 'conectando con el servidor';
   try {
+    // 0) Despertar el backend (Render free se duerme; evita "Failed to fetch")
+    const despierto = await despertarBackend();
+    if (!despierto) {
+      throw new Error('No pude conectar con el servidor. Revisá tu conexión a internet e intentá de nuevo en un minuto.');
+    }
+
     // 1) Extraer 3 frames del video con canvas
+    etapa = 'leyendo el video';
     const frames = await extractVideoFrames(file, 3);
     state.ready_reel_progress = 'Verificando contenido con IA…';
     render();
 
-    // 2) Moderar los frames
-    const modRes = await fetch(API('/moderate'), {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ frames })
-    });
-    const mod = await modRes.json();
+    // 2) Moderar los frames (si la moderación falla por infraestructura,
+    // seguimos igual — el backend también es fail-open sin OPENAI_API_KEY)
+    etapa = 'verificando contenido';
+    let mod = { safe: true };
+    try {
+      const modRes = await fetchReintento(API('/moderate'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ frames })
+      });
+      if (modRes.ok) mod = await modRes.json();
+    } catch (e) {
+      console.warn('moderación no disponible, se continúa:', e);
+    }
     if (mod.safe === false) {
       state.ready_reel_uploading = false;
       state.ready_reel_error = `Rechazado: ${mod.reason || 'contenido no apto para el marketplace'}. Probá con otro video.`;
@@ -1851,18 +2263,26 @@ async function handleReadyReelUpload(file) {
       ? 'Subiendo video… como pesa más de 48 MB lo vamos a comprimir en el servidor (puede tardar 1-3 min, no cierres la página)'
       : 'Subiendo video…';
     render();
-    const fd = new FormData();
-    fd.append('file', file);
-    const upRes = await fetch(API('/upload-ready-reel'), { method: 'POST', body: fd });
-    if (!upRes.ok) {
-      const errText = await upRes.text();
-      throw new Error(`Backend rechazó: ${errText.slice(0,150)}`);
+    etapa = 'subiendo el video';
+    const mbTotal = (file.size / 1024 / 1024).toFixed(0);
+    const notaComp = file.size > 48 * 1024 * 1024 ? ' · al llegar a 100% se comprime en el servidor (1-3 min más)' : '';
+    const onPct = (pct) => {
+      state.ready_reel_progress = pct >= 100
+        ? `Video subido (${mbTotal} MB) — procesando en el servidor…${notaComp}`
+        : `Subiendo video… ${pct}% de ${mbTotal} MB · no cierres la página`;
+      render();
+    };
+    const upResp = await subirEnTrozos(file, onPct);
+    if (upResp.status < 200 || upResp.status >= 300) {
+      let detalle = upResp.text || '';
+      try { detalle = JSON.parse(detalle).detail || detalle; } catch (e) {}
+      throw new Error(`El servidor rechazó el video: ${String(detalle).slice(0,200)}`);
     }
-    const up = await upRes.json();
+    const up = JSON.parse(upResp.text);
 
     // 4) Marcar estado como "reel listo" y saltar a paso 4
     state.job_file_url = up.file_url;
-    state.job_download = `${API_BASE}${up.file_url}`;
+    state.job_download = absApi(up.file_url);
     state.has_been_processed = true;
     state.ready_reel_uploading = false;
     state.ready_reel_progress = '';
@@ -1871,7 +2291,10 @@ async function handleReadyReelUpload(file) {
     render();
   } catch (e) {
     state.ready_reel_uploading = false;
-    state.ready_reel_error = `Error: ${e.message}`;
+    const esRed = e && (e.name === 'TypeError' || /failed to fetch|networkerror|load failed|se cortó|colgada/i.test(e.message || ''));
+    state.ready_reel_error = esRed
+      ? `Falló ${etapa}: ${e.message && !/failed to fetch/i.test(e.message) ? e.message : 'se cortó la conexión'}. Tocá "Seleccionar video" e intentá de nuevo (si estás con datos móviles, mejor con WiFi).`
+      : `Error (${etapa}): ${e.message}`;
     render();
   }
 }
@@ -2413,7 +2836,7 @@ function renderCatastroBlock() {
 // ── STEP 2: DATOS + AVANZADO ───────────────────────────────────────
 function renderStep2() {
   const p = state.property;
-  const previewInfo = state.custom_cta_info || `${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`;
+  const previewInfo = state.custom_cta_info || ctaInfoDefault(p);
   const previewPrecio = state.custom_cta_precio || (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar');
 
   // ─── Selector de filtros cinematográficos (desplegable) ───
@@ -2483,7 +2906,7 @@ function renderStep2() {
         <!-- Tipo + Comuna -->
         <div class="grid grid-cols-2 gap-3">
           <div><label class="text-xs text-slate-500 block mb-1">Tipo</label>
-            <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.property.tipo=this.value">
+            <select class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" onchange="state.property.tipo=this.value; render()">
               <option ${p.tipo === 'Casa' ? 'selected' : ''}>Casa</option>
               <option ${p.tipo === 'Departamento' ? 'selected' : ''}>Departamento</option>
               <option ${p.tipo === 'Sitio' ? 'selected' : ''}>Sitio</option>
@@ -2494,13 +2917,22 @@ function renderStep2() {
 
         </div>
 
-        <!-- Superficies -->
+        <!-- Superficies: depto = útiles + terraza (totales auto) · resto = útiles + terreno -->
+        ${p.tipo === 'Departamento' ? `
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="text-xs text-slate-500 block mb-1">m² útiles</label>
+            <input type="number" min="0" value="${escapeAttr(p.m2)}" placeholder="80" oninput="state.property.m2=this.value; updTotalesDepto()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+          <div><label class="text-xs text-slate-500 block mb-1">m² terraza <span class="text-slate-400">(opcional)</span></label>
+            <input type="number" min="0" value="${escapeAttr(p.terraza_m2)}" placeholder="12" oninput="state.property.terraza_m2=this.value; updTotalesDepto()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+          <div class="col-span-2"><label class="text-xs text-slate-500 block mb-1">m² totales <span class="text-slate-400">(útiles + terraza, se calcula solo)</span></label>
+            <input type="text" id="sup-totales-depto" value="${escapeAttr(totalesDepto(p))}" readonly tabindex="-1" style="opacity:0.7; pointer-events:none;" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+        </div>` : `
         <div class="grid grid-cols-2 gap-3">
           <div><label class="text-xs text-slate-500 block mb-1">m² útiles / construidos</label>
-            <input type="number" value="${escapeAttr(p.m2)}" placeholder="180" oninput="state.property.m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+            <input type="number" min="0" value="${escapeAttr(p.m2)}" placeholder="180" oninput="state.property.m2=this.value; updPreviewInfo()" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
           <div><label class="text-xs text-slate-500 block mb-1">m² terreno <span class="text-slate-400">(opcional)</span></label>
-            <input type="number" value="${escapeAttr(p.terreno_m2)}" placeholder="300" oninput="state.property.terreno_m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
-        </div>
+            <input type="number" min="0" value="${escapeAttr(p.terreno_m2)}" placeholder="300" oninput="state.property.terreno_m2=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></div>
+        </div>`}
 
         <!-- Dormitorios (chips) -->
         <div>
@@ -2545,14 +2977,21 @@ function renderStep2() {
         <div>
           <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">Características</label>
           <div class="grid grid-cols-2 gap-2">
-            ${[
+            ${(p.tipo === 'Departamento' ? [
               {k:"terraza", ic:"🏠", l:"Terraza"},
               {k:"piscina", ic:"🏊", l:"Piscina"},
               {k:"quincho", ic:"🍖", l:"Quincho"},
               {k:"jardin",  ic:"🌳", l:"Jardín"},
-              {k:"bodega",  ic:"📦", l:"Bodega"},
               {k:"gimnasio",ic:"💪", l:"Gimnasio"},
-            ].map(f => {
+              {k:"salon_multiuso", ic:"🛋️", l:"Salón multiuso"},
+              {k:"est_visitas", ic:"🚗", l:"Estacionamientos de visita"},
+            ] : [
+              {k:"terraza", ic:"🏠", l:"Terraza"},
+              {k:"piscina", ic:"🏊", l:"Piscina"},
+              {k:"quincho", ic:"🍖", l:"Quincho"},
+              {k:"jardin",  ic:"🌳", l:"Jardín"},
+              {k:"gimnasio",ic:"💪", l:"Gimnasio"},
+            ]).map(f => {
               const on = (p.features||[]).includes(f.k);
               return `
                 <button type="button" onclick="(function(){ const fs=state.property.features||[]; const i=fs.indexOf('${f.k}'); if(i>=0) fs.splice(i,1); else fs.push('${f.k}'); state.property.features=fs; render(); })()"
@@ -2570,7 +3009,7 @@ function renderStep2() {
         <div>
           <label class="text-xs uppercase tracking-wider text-slate-500 block mb-2 font-semibold">Estado</label>
           <div class="flex flex-wrap gap-2">
-            ${[{v:"",l:"Indiferente"},{v:"nuevo",l:"Nuevo"},{v:"usado",l:"Usado"}].map(o => `
+            ${[{v:"nuevo",l:"Nuevo"},{v:"usado",l:"Usado"}].map(o => `
               <button type="button" onclick="state.property.condition='${o.v}'; render()"
                 style="padding:8px 20px; border-radius:999px; font-size:13px; font-weight:500; border:1px solid ${(p.condition||'')===o.v?'var(--gold)':'var(--border-subtle)'}; background:${(p.condition||'')===o.v?'var(--gold)':'transparent'}; color:${(p.condition||'')===o.v?'var(--bg-base)':'var(--text-primary)'}; cursor:pointer;">
                 ${o.l}
@@ -2586,7 +3025,7 @@ function renderStep2() {
       <!-- Descripción movida al modal de publicar (evita pedirla 2 veces) -->
 
       <div class="bg-black rounded-2xl p-6 mb-4 text-center">
-        <div class="text-white text-sm mb-3">${escapeHtml(previewInfo)}</div>
+        <div id="cta-preview-info" class="text-white text-sm mb-3">${escapeHtml(previewInfo)}</div>
         ${state.custom_tagline ? `<div class="text-slate-400 text-xs">${escapeHtml(state.custom_tagline)}</div>` : ''}
         <div class="text-slate-500 text-[10px] mt-3">↑ Cierre del reel (preview)</div>
       </div>
@@ -2615,7 +3054,7 @@ function renderCierreCustomization() {
         <div>
           <div class="text-sm font-medium text-slate-900 mb-2">💎 Personalizar cierre (opcional)</div>
           <div class="space-y-2">
-            <input type="text" placeholder="Info (default: ${escapeAttr(`${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`)})" value="${escapeAttr(state.custom_cta_info)}" maxlength="60" oninput="state.custom_cta_info=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
+            <input type="text" placeholder="Info (default: ${escapeAttr(ctaInfoDefault(p))})" value="${escapeAttr(state.custom_cta_info)}" maxlength="60" oninput="state.custom_cta_info=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
             <input type="text" placeholder="Precio (default: ${escapeAttr(p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar')})" value="${escapeAttr(state.custom_cta_precio)}" maxlength="30" oninput="state.custom_cta_precio=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
             <input type="text" placeholder="Tagline final" value="${escapeAttr(state.custom_tagline)}" maxlength="40" oninput="state.custom_tagline=this.value" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs">
           </div>
@@ -3084,6 +3523,32 @@ function renderStep4() {
       </div>`;
   }
 
+  // Reel SUBIDO LISTO: nada que generar — preview + publicar directo
+  if (state.upload_mode === "ready_reel" && (state.job_download || state.job_file_url)) {
+    const srcListo = state.job_download || absApi(state.job_file_url);
+    return `
+      <div class="fade-in max-w-2xl mx-auto">
+        <div class="text-center mb-4">
+          <div class="text-3xl mb-2">✅</div>
+          <h1 class="text-2xl font-bold text-slate-900 mb-1">Tu reel está listo</h1>
+          <p class="text-slate-600 text-sm">Subiste tu video editado — solo falta ponerle precio y publicarlo.</p>
+        </div>
+        <div class="bg-black rounded-2xl overflow-hidden mb-3">
+          <video src="${srcListo}" controls playsinline class="w-full" style="max-height: 65vh; background: black;"></video>
+        </div>
+        <button onclick="openPublishModal()" id="btn-publish-open"
+           class="block w-full text-center px-5 py-4 rounded-xl font-bold text-base mb-2"
+           style="background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.25); border: none; cursor: pointer; font-family: inherit;">
+          💼 Ponerle precio y publicar →
+        </button>
+        <div class="text-center text-[11px] mb-3" style="color: var(--text-muted);">Tu reel + datos de la propiedad se publican en el feed de C2C</div>
+        <div class="flex gap-2 mb-3">
+          <a href="${srcListo}" download class="flex-1 text-center px-4 py-3 rounded-xl font-medium text-sm" style="background: rgba(201,168,106,0.08); color: var(--gold); border: 1px solid var(--gold-border);">⬇ Descargar MP4</a>
+          <button onclick="if(confirm('¿Cambiar por otro video?')) { state.job_file_url=null; state.job_download=null; state.has_been_processed=false; state.step=2; render(); }" class="px-4 py-3 rounded-xl text-sm font-medium" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); color: var(--text-primary);">↺ Cambiar video</button>
+        </div>
+      </div>`;
+  }
+
   if (isProc || state.job_status === "uploading") {
     return `
       <div class="fade-in max-w-md mx-auto text-center pt-12">
@@ -3316,7 +3781,7 @@ function renderStep4() {
 function buildCtaData() {
   const p = state.property;
   return {
-    info: (state.custom_cta_info || "").trim() || `${p.m2 || '—'} m² · ${p.dorms || '—'} dorm · ${p.banos || '—'} baños`,
+    info: (state.custom_cta_info || "").trim() || ctaInfoDefault(p),
     precio: (state.custom_cta_precio || "").trim() || (p.precio_uf ? `Desde ${p.precio_uf} UF` : 'Consultar'),
     tagline: (state.custom_tagline || "").trim(),  // vacío = no aparece la línea
   };
@@ -3473,10 +3938,10 @@ async function pollJobStatus() {
         state.job_log = j.log || [];
         state.job_error = j.error;
         state.job_duration = j.duration;
-        state.job_download = j.download_url ? `${API_BASE}${j.download_url}` : null;
+        state.job_download = j.download_url ? absApi(j.download_url) : null;
         // URL persistente al archivo específico (no cambia con regenerate)
         // — la usamos para guardar versiones anteriores
-        state.job_file_url = j.file_url ? `${API_BASE}${j.file_url}` : null;
+        state.job_file_url = j.file_url ? absApi(j.file_url) : null;
         render();
         if (j.status === "done" || j.status === "error") break;
       } catch (e) {
@@ -4074,7 +4539,7 @@ async function saveEditedSubtitles() {
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || "Error");
     // Refrescar URL del video con cache-buster
-    state.job_download = (j.download_url ? `${API_BASE}${j.download_url}` : state.job_download + `?v=${Date.now()}`);
+    state.job_download = (j.download_url ? absApi(j.download_url) : state.job_download + `?v=${Date.now()}`);
     if (modal) modal.remove();
     render();
   } catch (e) {
@@ -4426,6 +4891,8 @@ function saveStateToStorage() {
       has_been_processed: state.has_been_processed,
       has_navigated_back_after_process: state.has_navigated_back_after_process,
       job_id: state.job_id,
+      job_file_url: state.job_file_url || null,
+      job_download: state.job_download || null,
       // Marca cuántos clips había para avisar al usuario
       _clips_count_sections: SECTION_ORDER.reduce((acc, k) => acc + (state.sections[k]?.clips?.length || 0), 0),
       _clips_count_simple: state.simple_clips?.length || 0,
@@ -4460,6 +4927,9 @@ function restoreStateFromStorage() {
   if (saved.custom_cta_info !== undefined) state.custom_cta_info = saved.custom_cta_info;
   if (saved.custom_cta_precio !== undefined) state.custom_cta_precio = saved.custom_cta_precio;
   if (saved.has_navigated_back_after_process !== undefined) state.has_navigated_back_after_process = saved.has_navigated_back_after_process;
+  if (saved.job_file_url) state.job_file_url = saved.job_file_url;
+  if (saved.job_download) state.job_download = saved.job_download;
+  if (saved.has_been_processed !== undefined) state.has_been_processed = saved.has_been_processed;
   return true;
 }
 
@@ -4483,6 +4953,7 @@ function hasUnsavedWork() {
 }
 
 window.addEventListener("beforeunload", (e) => {
+  if (state.leaving_to_tasar) return; // viaje ida-vuelta al tasador: el borrador ya quedó guardado
   if (hasUnsavedWork()) {
     e.preventDefault();
     e.returnValue = "Tenés videos cargados o configuración sin procesar. ¿Salir igual?";
@@ -4523,6 +4994,40 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 500);
   }
 
+  // Volviendo del tasador de Valentina (?precio_uf= / ?volver=1 / ?contacto=)
+  // El cierre se decide en el chat de la tasacion: precio aceptado o propio + metodo de contacto.
+  try {
+    const qs = new URLSearchParams(location.search);
+    const pv = parseFloat(qs.get("precio_uf"));
+    const contacto = (qs.get("contacto") || "").toLowerCase().trim();
+    const regresa = pv > 0 || qs.get("volver") === "1" || !!contacto;
+    if (regresa) {
+      if (pv > 0) state.property.precio_uf = String(Math.round(pv));
+      if (contacto) { try { localStorage.setItem("c2c_contact_method", contacto); } catch (_) {} }
+      history.replaceState(null, "", location.pathname);
+      setTimeout(() => {
+        if (state.job_file_url || state.job_download) {
+          openPublishModal();
+          try { showManualPricing(); } catch (_) {}
+          if (contacto) { try { setContactMethod(contacto); } catch (_) {} }
+          const pe = document.getElementById("pf-precio");
+          if (pe) {
+            pe.value = pv > 0 ? state.property.precio_uf : (state.property.precio_uf || "");
+            if (!(pv > 0)) { try { pe.focus(); } catch (_) {} }
+          }
+          const pw = document.getElementById("pf-precio-wrap");
+          if (pv > 0 && pw && !document.getElementById("pf-precio-sugerido")) {
+            const note = document.createElement("div");
+            note.id = "pf-precio-sugerido";
+            note.style.cssText = "font-size:10.5px;color:var(--gold);margin-top:6px;";
+            note.textContent = "\u2728 Precio sugerido por la tasaci\u00f3n de Valentina \u2014 puedes ajustarlo antes de publicar.";
+            pw.appendChild(note);
+          }
+        }
+      }, 900);
+    }
+  } catch (_) {}
+
   // Auto-save cada 3 segundos si hay cambios
   setInterval(saveStateToStorage, 3000);
 });
@@ -4548,22 +5053,52 @@ document.addEventListener("DOMContentLoaded", async () => {
       <div>
         <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Dirección *</label>
         <input id="pf-loc" type="text" placeholder="Ej: Av. Las Condes 7100, Las Condes" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
-        <div id="pf-loc-hint" style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Aparece en el mapa del feed para los compradores</div>
+        <div id="pf-loc-hint" style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Solo para ubicar la propiedad en el mapa — no tiene por qué salir publicada tal cual</div>
       </div>
 
-      <!-- 2. TU NOMBRE + WHATSAPP (crean tu usuario automáticamente) -->
+      <!-- 1b. UBICACIÓN PÚBLICA (opcional) -->
+      <div>
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">¿Cómo mostrar la ubicación en el aviso? (opcional)</label>
+        <input id="pf-vanity" type="text" placeholder="Ej: Departamento frente al Club de Polo" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        <div style="font-size:10.5px; color:var(--text-faint); margin-top:5px;">Si lo dejás vacío, mostramos solo la comuna. La dirección exacta no se publica.</div>
+      </div>
+
+      <!-- 2. TU NOMBRE + CONTACTO (método elegible) -->
       <div style="display:grid; grid-template-columns:1fr 1.4fr; gap:10px;">
         <div>
           <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Tu nombre *</label>
           <input id="pf-name" type="text" placeholder="Ej: Valentina" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
         </div>
         <div>
-          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Número de WhatsApp *</label>
+          <label id="pf-phone-label" style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Número de WhatsApp *</label>
           <input id="pf-wa" type="tel" placeholder="+56 9 1234 5678" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
         </div>
       </div>
-      <div style="font-size:10.5px; color:var(--text-faint); margin-top:-8px;">
-        Cada número de WhatsApp es un usuario único. Si ya publicaste con este número, se suma a tu perfil automáticamente.
+      <div>
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:8px; font-weight:600;">¿Cómo quieres que te contacten los interesados? *</label>
+        <div id="pf-contact-methods" style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" onclick="setContactMethod('whatsapp')" data-m="whatsapp" style="padding:8px 14px; border-radius:999px; font-size:12.5px; font-weight:500; border:1px solid var(--border-subtle); background:transparent; color:var(--text-primary); cursor:pointer;">💬 WhatsApp</button>
+          <button type="button" onclick="setContactMethod('telefono')" data-m="telefono" style="padding:8px 14px; border-radius:999px; font-size:12.5px; font-weight:500; border:1px solid var(--border-subtle); background:transparent; color:var(--text-primary); cursor:pointer;">📞 Teléfono</button>
+          <button type="button" onclick="setContactMethod('email')" data-m="email" style="padding:8px 14px; border-radius:999px; font-size:12.5px; font-weight:500; border:1px solid var(--border-subtle); background:transparent; color:var(--text-primary); cursor:pointer;">✉️ Mail</button>
+          <button type="button" onclick="setContactMethod('ejecutivo')" data-m="ejecutivo" style="padding:8px 14px; border-radius:999px; font-size:12.5px; font-weight:500; border:1px solid var(--border-subtle); background:transparent; color:var(--text-primary); cursor:pointer;">🤝 Ejecutivo C2C</button>
+        </div>
+        <div id="pf-email-wrap" style="display:none; margin-top:10px;">
+          <input id="pf-email" type="email" placeholder="tu@correo.cl" style="width:100%; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;">
+        </div>
+        <!-- Verificación del contacto por código (teléfono vía WhatsApp/SMS, mail vía código) -->
+        <div id="pf-verify-block" style="display:none; margin-top:10px; padding:12px 14px; border-radius:12px; background:rgba(201,168,106,0.05); border:1px dashed var(--gold-border);">
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <div id="pf-verify-msg" style="flex:1; min-width:180px; font-size:12px; color:var(--text-secondary); line-height:1.45;">Para publicar, verificá tu contacto con un código.</div>
+            <button type="button" id="pf-verify-send" onclick="sendVerifyCode()" style="padding:9px 16px; border-radius:999px; font-size:12.5px; font-weight:600; border:1px solid var(--gold-border); background:transparent; color:var(--gold); cursor:pointer; white-space:nowrap;">Enviar código</button>
+          </div>
+          <div id="pf-verify-row2" style="display:none; gap:8px; margin-top:10px;">
+            <input id="pf-verify-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Código de 6 dígitos" style="flex:1; padding:11px 14px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); font-size:15px; letter-spacing:4px; font-family:inherit; outline:none;" onkeydown="if(event.key==='Enter'){event.preventDefault();checkVerifyCode();}">
+            <button type="button" id="pf-verify-check" onclick="checkVerifyCode()" style="padding:11px 18px; border-radius:10px; font-size:13px; font-weight:700; border:none; background:var(--gold); color:var(--bg-base); cursor:pointer; white-space:nowrap;">Verificar</button>
+          </div>
+          <div id="pf-verify-status" style="display:none; font-size:12px; margin-top:8px;"></div>
+        </div>
+        <div id="pf-exec-note" style="display:none; font-size:11px; color:var(--gold); margin-top:8px;">🤝 Un ejecutivo de C2C te contactará para gestionar la venta de principio a fin. Solo necesitamos tu teléfono.</div>
+        <div style="font-size:10.5px; color:var(--text-faint); margin-top:8px;">Cada número es un usuario único. Si ya publicaste con este número, se suma a tu perfil automáticamente.</div>
       </div>
 
       <!-- 3. PRECIO — con 2 opciones A/B -->
@@ -4571,7 +5106,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-muted); margin-bottom:10px; font-weight:600;">¿Ya sabés qué precio ponerle?</label>
 
         <!-- Opción A: usar tasador -->
-        <a href="https://c2cprops.com/tasar?view=vendedor" target="_blank" rel="noopener"
+        <a id="pf-tasar-link" href="https://tasar.c2cprops.com/?view=vendedor" rel="noopener"
            style="display:flex; align-items:flex-start; gap:12px; padding:14px; border-radius:12px; background:rgba(201,168,106,0.06); border:1.5px solid var(--gold-border); text-decoration:none; margin-bottom:10px; transition:all 0.2s;"
            onmouseover="this.style.background='rgba(201,168,106,0.12)'"
            onmouseout="this.style.background='rgba(201,168,106,0.06)'">
