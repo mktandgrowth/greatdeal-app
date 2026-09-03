@@ -40,7 +40,17 @@ for p in [UPLOAD_DIR, OUTPUT_DIR, WORK_DIR]:
     p.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="GreatDeal Editor API", version="0.2")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# CORS: solo los frontends de c2cprops (override con ALLOWED_ORIGINS en env, coma-separado).
+# Se permite localhost para desarrollo. Antes era allow_origins=["*"], que dejaba a
+# cualquier sitio llamar a los endpoints que gastan saldo de OpenAI/ElevenLabs/Runway.
+_default_origins = (
+    "https://c2cprops.com,https://www.c2cprops.com,"
+    "https://vender.c2cprops.com,https://comprar.c2cprops.com,https://tasar.c2cprops.com,"
+    "http://localhost:3000,http://localhost:5173"
+)
+ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", _default_origins).split(",") if o.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 # In-memory job store
 JOBS: dict[str, dict] = {}
@@ -1881,7 +1891,7 @@ async def get_job_subtitles(job_id: str):
     """Devuelve los segments transcritos por Whisper para edición.
     Si el job no está en memoria (restart de Render), buscamos por path en disk."""
     import json as _json
-    job = jobs.get(job_id)
+    job = JOBS.get(job_id)
     if job:
         work_dir = Path(job.get("work_dir", ""))
     else:
@@ -1906,7 +1916,7 @@ async def reapply_job_subtitles(job_id: str, payload: dict = Body(...)):
     Usa el video pre-subs guardado en work_dir y reescribe el output del job.
     """
     from subtitles import reapply_edited_subtitles
-    job = jobs.get(job_id)
+    job = JOBS.get(job_id)
     segments = payload.get("segments") or []
     if not isinstance(segments, list) or not segments:
         raise HTTPException(400, "Falta lista de segments")
