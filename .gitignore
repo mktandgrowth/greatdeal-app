@@ -1,0 +1,28 @@
+# Secretos — NUNCA commitear
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Archivos de trabajo del backend (video temporal)
+uploads/
+outputs/
+work/
+backend/uploads/
+backend/outputs/
+backend/work/
+
+# Node / build
+node_modules/
+dist/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
