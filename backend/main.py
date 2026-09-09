@@ -640,8 +640,21 @@ async def publish_to_marketplace(payload: dict = Body(...)):
             print(f"[publish] profile upsert failed: {e}", flush=True)
             # No es fatal — seguimos sin owner_id (nullable)
 
-    # Sanitize features (array de strings validados)
-    _valid_features = {"terraza", "piscina", "quincho", "jardin", "bodega", "gimnasio", "salon_multiuso", "est_visitas"}
+    # Sanitize features (array de strings validados POR TIPO de propiedad —
+    # cada tipo tiene su propio catálogo, igual que los filtros del comprador
+    # en properties-app.jsx / FILTER_CATALOGS. Evita que se cuelen keys de un
+    # tipo en otro, ej. "piscina_edif" en una Parcela.)
+    _tipo_prop = (payload.get("type") or "Casa").strip()[:40]
+    _valid_features_por_tipo = {
+        "Casa": {"piscina", "quincho", "jardin", "sala_estar", "condominio", "dorm_servicio", "calefaccion", "guardia", "amoblada", "cerco_electrico"},
+        "Departamento": {"terraza", "jardin", "dorm_servicio", "calefaccion", "bodega", "conserje_24", "piscina_edif", "quincho_edif", "gimnasio", "salon_eventos", "amoblado"},
+        "Sitio": {"urbanizado", "plano", "uso_habitacional", "uso_industrial", "uso_comercial", "uso_agricola", "construc_altura"},
+        "Parcela": {"ganadero", "forestal", "agricola", "conservacion", "derechos_agua", "frutal"},
+        "Oficina": {"planta_libre", "amoblada_ofi", "conserje_24", "cocina", "terraza", "jardin", "bodega"},
+        "Industrial": {"conserje_24", "bodega", "oficinas_ind"},
+    }
+    # Fallback: unión de todos los catálogos si el tipo no matchea ninguno de los 6
+    _valid_features = _valid_features_por_tipo.get(_tipo_prop) or set().union(*_valid_features_por_tipo.values())
     _raw_features = payload.get("features") or []
     features_clean = [f for f in _raw_features if isinstance(f, str) and f in _valid_features]
 
@@ -650,7 +663,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
     condition_clean = _cond_raw if _cond_raw in ("nuevo", "usado") else None
 
     row = {
-        "type":            (payload.get("type") or "Casa").strip()[:40],
+        "type":            _tipo_prop,
         "operacion":       (payload.get("operacion") or "venta").lower().strip(),
         "price":           _f(payload.get("price")),
         "currency":        (payload.get("currency") or "UF").strip()[:8],
