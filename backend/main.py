@@ -136,6 +136,19 @@ async def upload_ready_reel(file: UploadFile = File(...)):
     return _procesar_reel_guardado(tmp_in.name, size, file.content_type or "video/mp4")
 
 
+def _thumb_desde_video(video_url):
+    """El uploader deja la portada al lado del reel con el mismo hash
+    (ready_<hash>.mp4 → ready_<hash>.jpg). Si el publicador no mandó
+    thumbnail_url, la derivamos del nombre en vez de dejar la card negra.
+    Solo aplica a los reels que subimos nosotros."""
+    u = (video_url or "").strip()
+    if not u or not u.endswith(".mp4"):
+        return None
+    if "/ready_" not in u:
+        return None
+    return u[:-4] + ".jpg"
+
+
 def _r2_cfg():
     """Config de Cloudflare R2 (S3-compatible, egress gratis). Si faltan env vars
     devuelve None y el flujo cae a Supabase Storage como siempre."""
@@ -162,7 +175,16 @@ def _subir_a_r2(cfg, local_path, out_name, content_type="video/mp4"):
             config=_BotoCfg(signature_version="s3v4", retries={"max_attempts": 3}),
             region_name="auto",
         )
-        s3.upload_file(local_path, cfg["bucket"], out_name, ExtraArgs={"ContentType": content_type})
+        s3.upload_file(
+            local_path,
+            cfg["bucket"],
+            out_name,
+            ExtraArgs={
+                "ContentType": content_type,
+                # Nombres inmutables (hash en el filename) → cachear 1 año.
+                "CacheControl": "max-age=31536000, immutable",
+            },
+        )
         return f"{cfg['public']}/{out_name}"
     except Exception as e:
         print(f"[r2] upload falló: {e}", flush=True)
@@ -179,6 +201,47 @@ def _procesar_reel_guardado(tmp_path, size, content_type="video/mp4"):
     size_mb = size / (1024 * 1024)
     upload_path = tmp_path
     tmp_out = tmp_path + "_opt.mp4"
+
+    # ── NORMALIZACIÓN WEB (siempre) ───────────────────────────────────────
+    # Antes solo comprimíamos si el reel superaba el límite de Storage (~48 MB),
+    # así que un reel de 30 MB subía crudo tal como salía del editor: medidos en
+    # producción, 6,8–8,4 Mbps para 1080x1920. Para feed móvil eso es 3–4x de lo
+    # necesario y, sin cache, se re-descarga en cada visita.
+    # Ahora todo reel pasa por un encode con techo de bitrate. Verificado sobre
+    # un clip 1080x1920/30s/7,6 Mbps: 27,2 MB → 9,5 MB (-65%), misma resolución.
+    tmp_norm = tmp_path + "_norm.mp4"
+    if os.environ.get("REEL_NORMALIZAR", "1") != "0":
+        _crf = os.environ.get("REEL_CRF", "26")
+        _maxrate = os.environ.get("REEL_MAXRATE", "2500k")
+        cmd_norm = [
+            "ffmpeg", "-y", "-i", tmp_path,
+            "-c:v", "libx264", "-profile:v", "high", "-level", "4.0",
+            "-preset", "veryfast", "-crf", _crf,
+            "-maxrate", _maxrate, "-bufsize", "5000k",
+            "-vf", "scale='min(1080,iw)':-2,fps=30",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "96k", "-ar", "44100", "-ac", "2",
+            "-movflags", "+faststart",
+            "-threads", "2",
+            tmp_norm,
+        ]
+        try:
+            proc = subprocess.run(cmd_norm, capture_output=True, timeout=480)
+            if proc.returncode != 0:
+                raise RuntimeError((proc.stderr or b"").decode(errors="ignore")[-400:])
+            norm_size = os.path.getsize(tmp_norm)
+            # Solo lo usamos si de verdad achica: si el fuente ya venía bien
+            # comprimido, re-encodear solo perdería calidad.
+            if 50_000 < norm_size < size:
+                upload_path = tmp_norm
+                size_mb = norm_size / (1024 * 1024)
+                content_type = "video/mp4"
+                print(f"[upload-ready] Normalizado {size / 1048576:.1f} MB → {size_mb:.1f} MB", flush=True)
+            else:
+                print(f"[upload-ready] Normalización descartada ({norm_size / 1048576:.1f} MB ≥ original)", flush=True)
+        except Exception as e:
+            # Nunca bloquear la publicación por esto: si falla, sube el original.
+            print(f"[upload-ready] Normalización falló, subo el original: {e}", flush=True)
 
     # Supabase Storage (plan free) corta los uploads en ~50 MB. Si el reel pesa
     # más, lo comprimimos con FFmpeg (H.264 720p + audio AAC intacto).
@@ -221,29 +284,80 @@ def _procesar_reel_guardado(tmp_path, size, content_type="video/mp4"):
             except Exception as e:
                 print(f"[upload-ready] FFmpeg falló en {_res}p CRF{_crf}: {e}", flush=True)
         if size_mb > SUPABASE_MAX_MB:
-            for _pth in (tmp_path, tmp_out):
+            for _pth in (tmp_path, tmp_out, tmp_norm):
                 try:
                     os.unlink(_pth)
                 except Exception:
                     pass
             raise HTTPException(400, f"No pude comprimir el video en el servidor (queda en {size_mb:.0f} MB y el almacenamiento acepta {SUPABASE_MAX_MB:.0f} MB). Exportalo en 720p o más corto e intentá de nuevo.")
 
-    out_name = f"ready_{uuid.uuid4().hex[:12]}.mp4"
+    _hash = uuid.uuid4().hex[:12]
+    out_name = f"ready_{_hash}.mp4"
+
+    # ── PORTADA AUTOMÁTICA ────────────────────────────────────────────────
+    # Si el publicador no sube foto de portada, `thumbnail_url` queda en null y
+    # la card del feed cae al truco <video src="...#t=0.5">, que en iOS Safari
+    # muchas veces no pinta frame: la card se ve negra. Sacamos un JPG del
+    # segundo 1 (el 0 suele ser negro o fade-in) y lo subimos al lado del reel.
+    thumb_name = f"ready_{_hash}.jpg"
+    tmp_thumb = tmp_path + "_thumb.jpg"
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-ss", "1", "-i", upload_path, "-frames:v", "1",
+             "-vf", "scale='min(540,iw)':-2", "-q:v", "4", tmp_thumb],
+            capture_output=True, timeout=60,
+        )
+        if proc.returncode != 0 or not os.path.exists(tmp_thumb):
+            tmp_thumb = None
+    except Exception as e:
+        print(f"[upload-ready] No pude generar la portada: {e}", flush=True)
+        tmp_thumb = None
 
     def _cleanup():
-        for _pth in (tmp_path, tmp_out):
+        for _pth in (tmp_path, tmp_out, tmp_norm, tmp_thumb):
+            if not _pth:
+                continue
             try:
                 os.unlink(_pth)
             except Exception:
                 pass
 
+    def _subir_thumb_supabase():
+        """Sube la portada al mismo bucket. Nunca revienta la publicación."""
+        if not (tmp_thumb and supabase_url and supabase_key):
+            return None
+        try:
+            with open(tmp_thumb, "rb") as fh:
+                r = requests.post(
+                    f"{supabase_url}/storage/v1/object/{bucket}/{thumb_name}",
+                    headers={
+                        "apikey": supabase_key,
+                        "Authorization": f"Bearer {supabase_key}",
+                        "Content-Type": "image/jpeg",
+                        "x-upsert": "true",
+                        "cache-control": "max-age=31536000, immutable",
+                    },
+                    data=fh,
+                    timeout=60,
+                )
+            if r.status_code in (200, 201):
+                return f"{supabase_url}/storage/v1/object/public/{bucket}/{thumb_name}"
+            print(f"[upload-ready] Portada rechazada: {r.status_code}", flush=True)
+        except Exception as e:
+            print(f"[upload-ready] Error subiendo portada: {e}", flush=True)
+        return None
+
     # Destino preferido: Cloudflare R2 (egress gratis, sin límite de 50 MB)
     if _r2:
         public_url = _subir_a_r2(_r2, upload_path, out_name, content_type)
         if public_url:
+            thumb_url = None
+            if tmp_thumb:
+                thumb_url = _subir_a_r2(_r2, tmp_thumb, thumb_name, "image/jpeg")
             print(f"[upload-ready] Subido a R2 → {public_url}", flush=True)
             _cleanup()
-            return {"ok": True, "file_url": public_url, "size_mb": round(size_mb, 2), "storage": "r2"}
+            return {"ok": True, "file_url": public_url, "thumb_url": thumb_url,
+                    "size_mb": round(size_mb, 2), "storage": "r2"}
         print("[upload-ready] R2 falló — cayendo a Supabase Storage", flush=True)
 
     # Si hay Supabase configurada → subir a Storage por STREAMING desde disco
@@ -258,6 +372,10 @@ def _procesar_reel_guardado(tmp_path, size, content_type="video/mp4"):
                         "Authorization": f"Bearer {supabase_key}",
                         "Content-Type": content_type,
                         "x-upsert": "true",
+                        # Los nombres son hashes inmutables (ready_<hash>.mp4):
+                        # si el video cambia, cambia el nombre. Cachear 1 año es
+                        # seguro y evita re-bajar 10-30 MB en cada visita al feed.
+                        "cache-control": "max-age=31536000, immutable",
                     },
                     data=fh,
                     timeout=180,
@@ -267,9 +385,11 @@ def _procesar_reel_guardado(tmp_path, size, content_type="video/mp4"):
                 _cleanup()
                 raise HTTPException(500, f"Supabase Storage rechazó el upload ({r.status_code}): {r.text[:300]}")
             public_url = f"{supabase_url}/storage/v1/object/public/{bucket}/{out_name}"
+            thumb_url = _subir_thumb_supabase()
             print(f"[upload-ready] Subido a Supabase Storage → {public_url}", flush=True)
             _cleanup()
-            return {"ok": True, "file_url": public_url, "size_mb": round(size_mb, 2), "storage": "supabase"}
+            return {"ok": True, "file_url": public_url, "thumb_url": thumb_url,
+                    "size_mb": round(size_mb, 2), "storage": "supabase"}
         except HTTPException:
             raise
         except Exception as e:
@@ -680,7 +800,7 @@ async def publish_to_marketplace(payload: dict = Body(...)):
         "title":           (payload.get("title") or "").strip()[:140],
         "description":     (payload.get("description") or "").strip(),
         "video_url":       video_url,
-        "thumbnail_url":   payload.get("thumbnail_url"),
+        "thumbnail_url":   payload.get("thumbnail_url") or _thumb_desde_video(video_url),
         # NUEVOS campos para ubicación en Google Maps + contacto
         "loc":             (payload.get("loc") or "").strip()[:200],         # dirección completa
         "vanity_location": (payload.get("vanity_location") or "").strip()[:120],  # nombre amigable
