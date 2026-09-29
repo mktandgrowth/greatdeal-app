@@ -491,6 +491,7 @@ function resetAll() {
     is_reprocessing: false, has_been_processed: false,
     editor_open: false, editor_clips: [], editor_sortable: null, simple_sortable: null,
   };
+  try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
   render();
 }
 
@@ -1768,6 +1769,9 @@ async function submitPublish() {
     } catch(_) {}
     // Marcar como "publicando" para evitar el prompt "podés perder cambios"
     state.publish_in_progress = true;
+    // La propiedad ya quedó publicada: borrar el borrador para que el próximo
+    // reel NO arranque con la dirección/precio/descripción de esta propiedad.
+    clearDraftAfterPublish();
     // Pantalla de éxito en el mismo modal (NO redirigir al feed del comprador,
     // que puede pedir inicio de sesión y confunde al vendedor recién publicado)
     const feedUrl = data.feed_url || "https://c2cprops.com/comprar";
@@ -1786,7 +1790,7 @@ async function submitPublish() {
           <p style="font-size:14px; color:var(--text-secondary); margin:0 0 4px;">Ya está visible en el marketplace de C2C.</p>
           <p style="font-size:13.5px; color:var(--text-secondary); margin:10px 0 22px;">${metodoTxt}</p>
           <a href="${feedUrl}" style="display:block; width:100%; padding:14px; border-radius:12px; background:var(--gold); color:var(--bg-base); font-weight:700; font-size:14.5px; text-decoration:none; margin-bottom:10px;">Ver mi publicación en el marketplace</a>
-          <button type="button" onclick="document.getElementById('publish-modal').style.display='none'" style="width:100%; padding:12px; border-radius:12px; border:1px solid var(--border-subtle); background:transparent; color:var(--text-secondary); font-size:13.5px; cursor:pointer;">Cerrar</button>
+          <button type="button" onclick="window.location.href = window.location.pathname" style="width:100%; padding:12px; border-radius:12px; border:1px solid var(--border-subtle); background:transparent; color:var(--text-secondary); font-size:13.5px; cursor:pointer;">Publicar otra propiedad</button>
         </div>`;
     } else {
       window.location.href = feedUrl;
@@ -5176,7 +5180,27 @@ function render() {
 // ── PERSISTENCIA AUTOMÁTICA (localStorage) ────────────────────────
 // Guardamos metadata + configs (NO los videos, son muy pesados).
 // Al volver a abrir la app, se restauran los datos.
-const STORAGE_KEY = "greatdeal_state_v1";
+// v2: los borradores v1 podían traer datos de una propiedad YA publicada
+// (dirección, precio, descripción) y colarlos en el reel siguiente. Se descartan.
+const STORAGE_KEY = "greatdeal_state_v2";
+try { localStorage.removeItem("greatdeal_state_v1"); } catch (_) {}
+
+// Después de publicar: olvidar todo lo de ESA propiedad. Se conservan solo los
+// datos del vendedor (nombre, WhatsApp, mail, método de contacto), que viven en
+// sus propias claves de localStorage.
+function clearDraftAfterPublish() {
+  state.property = { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", terraza_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" };
+  state.custom_tagline = "";
+  state.custom_cta_info = "";
+  state.custom_cta_precio = "";
+  state.caption_text = "";
+  state.voice_script = "";
+  state.job_id = null;
+  state.job_file_url = null;
+  state.job_download = null;
+  state.has_been_processed = false;
+  try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+}
 
 function saveStateToStorage() {
   try {
