@@ -409,6 +409,7 @@ let state = {
   upload_mode: "guided",
   sections: emptySections(),
   simple_clips: [],
+  photo_clips: [],
   property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", terraza_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
   advanced_open: false,
   enhance_ai: false,
@@ -476,7 +477,7 @@ function resetAll() {
   const catalog = state.music_presets_catalog;
   const voices = state.eleven_voices;
   state = {
-    step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [],
+    step: 1, upload_mode: "guided", sections: emptySections(), simple_clips: [], photo_clips: [],
     property: { tipo: "Casa", operacion: "venta", comuna: "", direccion: "", depto: "", rol: "", m2: "", terreno_m2: "", terraza_m2: "", dorms: "", banos: "", parking: "", condition: "", features: [], precio_uf: "", descripcion: "" },
     advanced_open: false, enhance_ai: false, auto_subtitles: true,
     music_preset: "cinematic_view", music_file: null, music_presets_catalog: catalog,
@@ -501,15 +502,17 @@ function totalClipsCount() {
   // ready_reel: si ya se subió el video, cuenta como 1 (permite avanzar)
   if (state.upload_mode === "ready_reel") return state.job_file_url ? 1 : 0;
   if (state.upload_mode === "simple") return state.simple_clips.length;
+  if (state.upload_mode === "photos") return state.photo_clips.length;
   return SECTION_ORDER.reduce((acc, k) => acc + state.sections[k].clips.length, 0);
 }
 
 function switchUploadMode(mode) {
   if (mode === state.upload_mode) return;
   if (totalClipsCount() > 0) {
-    if (!confirm("Si cambiás de modo se pierden los videos cargados. ¿Seguir?")) return;
+    if (!confirm(state.upload_mode === "photos" ? "Si cambiás de modo se pierden las fotos cargadas. ¿Seguir?" : "Si cambiás de modo se pierden los videos cargados. ¿Seguir?")) return;
     state.sections = emptySections();
     state.simple_clips = [];
+    state.photo_clips = [];
   }
   state.upload_mode = mode;
   render();
@@ -948,6 +951,9 @@ function estimateReelDuration() {
   if (state.upload_mode === "simple") {
     const n = state.simple_clips.length;
     total = n > 0 ? calcAutoDuration(n) * n : 0;
+  } else if (state.upload_mode === "photos") {
+    const n = state.photo_clips.length;
+    total = n > 0 ? photoClipDuration(n) * n : 0;
   } else {
     for (const k of SECTION_ORDER) {
       const cfg = SECTION_CONFIG[k];
@@ -1199,10 +1205,12 @@ function renderStepper() {
   } else if (state.step === 2) {
     if (state.upload_mode === "ready_reel") {
       next.textContent = state.job_file_url ? "Ir a mi reel →" : "Subí un video primero";
+    } else if (state.upload_mode === "photos" && totalClipsCount() < PHOTO_MIN) {
+      next.textContent = `Subí al menos ${PHOTO_MIN} fotos`;
     } else {
       next.textContent = "Continuar →";
     }
-    next.disabled = totalClipsCount() === 0;
+    next.disabled = totalClipsCount() === 0 || (state.upload_mode === "photos" && totalClipsCount() < PHOTO_MIN);
   } else {
     next.textContent = "Continuar →";
     next.disabled = false;
@@ -1238,6 +1246,7 @@ function goNext() {
     if (!state.hire_sent) { alert("Completá el formulario de arriba y tocá 'Enviar solicitud de grabación'."); }
     return;
   }
+  if (state.step === 2 && state.upload_mode === "photos" && totalClipsCount() < PHOTO_MIN) { alert(`Subí al menos ${PHOTO_MIN} fotos`); return; }
   if (state.step === 2 && totalClipsCount() === 0 && state.upload_mode !== "ready_reel") { alert("Subí al menos un video"); return; }
   // Modo "ready_reel": desde paso 2 saltamos directo a paso 4 (audio+cierre no aplica),
   // y desde paso 4 abrimos el modal de publicar (nada que procesar/regenerar).
@@ -1814,15 +1823,16 @@ function renderStep1() {
   // Solo migramos a "guided" si YA hay clips subidos (para no perder trabajo del user)
   const hasClipsInProgress = state.sections && Object.values(state.sections).some(s => s.clips && s.clips.length > 0);
   if (!state.upload_mode && hasClipsInProgress) state.upload_mode = "guided";
-  if (state.upload_mode && !["guided","ready_reel","hire"].includes(state.upload_mode)) state.upload_mode = null;
+  if (state.upload_mode && !["guided","ready_reel","hire","photos"].includes(state.upload_mode)) state.upload_mode = null;
 
   const isReady = state.upload_mode === "ready_reel";
   const isGuided = state.upload_mode === "guided";
   const isHire = state.upload_mode === "hire";
-  const isChosen = isReady || isGuided || isHire;
+  const isPhotos = state.upload_mode === "photos";
+  const isChosen = isReady || isGuided || isHire || isPhotos;
 
   const modeToggle = `
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
       <button onclick="switchUploadMode('ready_reel')"
         class="text-left p-4 rounded-2xl transition-all relative overflow-hidden"
         style="${isReady
@@ -1861,6 +1871,22 @@ function renderStep1() {
         </div>
       </button>
 
+      <button onclick="switchUploadMode('photos')"
+        class="text-left p-4 rounded-2xl transition-all"
+        style="${isPhotos
+          ? 'background: linear-gradient(135deg, var(--gold) 0%, #d4b87a 100%); color: var(--bg-base); box-shadow: 0 8px 24px rgba(201,168,106,0.35); transform: translateY(-2px);'
+          : 'background: var(--bg-card); color: var(--text-primary); border: 1.5px solid var(--border-subtle);'}">
+        <div class="flex items-start gap-3">
+          <div class="text-3xl">🖼️</div>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-base mb-1">Tengo solo fotos</div>
+            <div class="text-xs leading-relaxed" style="${isPhotos ? 'opacity: 0.75;' : 'color: var(--text-secondary);'}">
+              Subí tus fotos y armamos el reel automáticamente.
+            </div>
+          </div>
+        </div>
+      </button>
+
       <button onclick="switchUploadMode('hire')"
         class="text-left p-4 rounded-2xl transition-all"
         style="${isHire
@@ -1887,6 +1913,8 @@ function renderStep1() {
     content = renderGuidedSections();
   } else if (isHire) {
     content = renderHireForm();
+  } else if (isPhotos) {
+    content = renderPhotoUpload();
   } else {
     content = `
       <div class="text-center py-10" style="color: var(--text-muted);">
@@ -1902,11 +1930,13 @@ function renderStep1() {
       ? 'Cargá clips por sección y armamos el reel con IA'
       : isHire
         ? 'Nuestro equipo va a tu propiedad, graba y edita todo por vos'
-        : 'Elegí cómo querés cargar los videos de la propiedad';
+        : isPhotos
+          ? 'Subí tus fotos, ordenalas y las convertimos en un reel con movimiento'
+          : 'Elegí cómo querés cargar los videos de la propiedad';
 
   return `
     <div class="fade-in">
-      <h1 class="text-2xl font-bold text-slate-900 mb-1 text-center">Tus videos</h1>
+      <h1 class="text-2xl font-bold text-slate-900 mb-1 text-center">${isPhotos ? 'Tus fotos' : 'Tus videos'}</h1>
       <p class="text-slate-600 mb-5 text-center text-sm">${subtitle}</p>
       ${modeToggle}
       ${content}
@@ -2040,6 +2070,189 @@ async function submitHireRequest() {
     state.hire_sending = false;
     render();
   }
+}
+
+// ─── UI para modo "photos" (Tengo solo fotos) ──────────────────────────────
+// El vendedor sube 3-20 fotos, las ordena y el backend convierte cada foto en
+// un clip con movimiento suave (backend/photos.py). Después el flujo es igual
+// al de videos: música, cierre, generar y publicar.
+const PHOTO_MIN = 3;
+const PHOTO_MAX = 20;
+const PHOTO_MAX_MB = 15;
+
+function photoClipDuration(n) {
+  // Reel de ~25-45 s: pocas fotos → más tiempo cada una; muchas → menos.
+  if (!n) return 3.5;
+  return Math.max(2.5, Math.min(4, 30 / n));
+}
+
+function renderPhotoUpload() {
+  const photos = state.photo_clips || [];
+  const n = photos.length;
+  const dur = photoClipDuration(n);
+  const full = n >= PHOTO_MAX;
+  const err = state.photo_error ? `<div class="text-sm mb-3 p-3 rounded-xl" style="background: rgba(220,80,80,0.1); color: #e07b7b; border: 1px solid rgba(220,80,80,0.35);">${escapeHtml(state.photo_error)}</div>` : '';
+  const dropzone = full ? '' : `
+    <div class="dropzone rounded-2xl p-6 text-center mb-4" style="background: var(--bg-card); border: 2px dashed var(--gold-border);"
+         ondragover="event.preventDefault(); this.classList.add('drag')"
+         ondragleave="this.classList.remove('drag')"
+         ondrop="event.preventDefault(); this.classList.remove('drag'); handlePhotoUpload(event.dataTransfer.files)">
+      <div class="text-4xl mb-2">🖼️</div>
+      <div class="font-medium mb-1" style="color: var(--text-primary);">${n ? 'Agregá más fotos' : 'Subí las fotos de tu propiedad'}</div>
+      <div class="text-xs mb-4" style="color: var(--text-muted);">Entre ${PHOTO_MIN} y ${PHOTO_MAX} fotos · JPG, PNG o HEIC · podés elegir varias a la vez</div>
+      <label class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl cursor-pointer font-semibold text-sm" style="background: var(--gold); color: var(--bg-base);">
+        📤 Elegir fotos
+        <input type="file" accept="image/*,.heic,.heif" multiple class="hidden" onchange="handlePhotoUpload(event.target.files); this.value='';">
+      </label>
+    </div>`;
+  const tips = `
+    <div class="text-xs mb-4 p-3 rounded-xl" style="background: rgba(201,168,106,0.06); border: 1px solid var(--border-subtle); color: var(--text-secondary);">
+      💡 <b>Orden sugerido:</b> fachada → living → cocina → dormitorios → baños → terraza / vista. Usá fotos horizontales o verticales, con buena luz.
+    </div>`;
+  const grid = n ? `
+    <div class="rounded-2xl p-4 mb-4" style="background: var(--bg-card); border: 1px solid var(--border-subtle);">
+      <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
+        <div class="text-sm font-medium" style="color: var(--text-primary);">${n} de ${PHOTO_MAX} fotos · <span style="color: var(--text-muted); font-weight: 400;">~${Math.round(dur * n)} s de reel + cierre</span></div>
+        <div class="text-xs" style="color: var(--text-muted);">Arrastrá o usá ◀ ▶ para ordenar</div>
+      </div>
+      <div id="photo-clips-grid" class="grid grid-cols-3 sm:grid-cols-4 gap-2">
+        ${photos.map((p, i) => `
+          <div class="photo-tile relative rounded-lg overflow-hidden cursor-grab" data-id="${p.id}" style="aspect-ratio: 3/4; background: #000;">
+            <img src="${p.thumb}" alt="Foto ${i + 1}" class="w-full h-full object-cover" draggable="false">
+            <div class="photo-num absolute top-1 left-1 text-[11px] font-bold px-1.5 py-0.5 rounded" style="background: rgba(0,0,0,0.7); color: #fff;">${i + 1}</div>
+            <button type="button" onclick="removePhoto('${p.id}')" aria-label="Quitar foto ${i + 1}" class="absolute top-1 right-1 w-7 h-7 rounded-full text-sm font-bold" style="background: rgba(220,60,60,0.9); color: #fff;">×</button>
+            <div class="absolute bottom-1 inset-x-1 flex justify-between">
+              <button type="button" onclick="movePhoto('${p.id}', -1)" ${i === 0 ? 'disabled style="opacity:0.3; background: rgba(0,0,0,0.6); color:#fff;"' : 'style="background: rgba(0,0,0,0.6); color:#fff;"'} aria-label="Mover antes" class="w-8 h-8 rounded-full text-sm">◀</button>
+              <button type="button" onclick="movePhoto('${p.id}', 1)" ${i === n - 1 ? 'disabled style="opacity:0.3; background: rgba(0,0,0,0.6); color:#fff;"' : 'style="background: rgba(0,0,0,0.6); color:#fff;"'} aria-label="Mover después" class="w-8 h-8 rounded-full text-sm">▶</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+      ${n < PHOTO_MIN ? `<div class="text-xs mt-3" style="color: var(--gold);">Subí al menos ${PHOTO_MIN} fotos para continuar (faltan ${PHOTO_MIN - n}).</div>` : ''}
+    </div>` : '';
+  return err + dropzone + (n ? '' : tips) + grid + (n ? tips : '');
+}
+
+// Reduce la foto en el navegador (máx 1920 px, JPEG) → subida rápida por celular.
+// También aplica la rotación EXIF. Si el navegador no puede leerla (ej. HEIC en
+// Chrome/Windows) se manda la original y el servidor la convierte.
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => resolve({ img, url });
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("no decodificable")); };
+    img.src = url;
+  });
+}
+
+function drawToJpeg(img, maxSide, quality) {
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const k = Math.min(1, maxSide / Math.max(w, h));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(w * k));
+  canvas.height = Math.max(1, Math.round(h * k));
+  const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return new Promise((res) => canvas.toBlob(b => res({ blob: b, dataUrl: canvas.toDataURL("image/jpeg", 0.7) }), "image/jpeg", quality));
+}
+
+async function preparePhoto(file) {
+  try {
+    const { img, url } = await loadImageFromFile(file);
+    try {
+      const big = await drawToJpeg(img, 1920, 0.88);
+      const small = await drawToJpeg(img, 480, 0.7);
+      const base = (file.name || "foto").replace(/\.[^.]+$/, "");
+      const out = big.blob ? new File([big.blob], `${base}.jpg`, { type: "image/jpeg" }) : file;
+      return { file: out, thumb: small.dataUrl };
+    } finally { URL.revokeObjectURL(url); }
+  } catch (_) {
+    // No se pudo leer en el navegador (típico: HEIC en Chrome). Mandamos la original.
+    return { file, thumb: "" };
+  }
+}
+
+async function handlePhotoUpload(fileList) {
+  state.photo_error = "";
+  const isImg = f => (f.type && f.type.startsWith("image/")) || /\.(heic|heif)$/i.test(f.name || "");
+  let arr = Array.from(fileList || []).filter(isImg);
+  if (arr.length === 0) { state.photo_error = "No encontramos fotos en lo que elegiste. Probá con archivos JPG, PNG o HEIC."; render(); return; }
+  const tooBig = arr.filter(f => f.size > PHOTO_MAX_MB * 1024 * 1024);
+  arr = arr.filter(f => f.size <= PHOTO_MAX_MB * 1024 * 1024);
+  const libres = PHOTO_MAX - state.photo_clips.length;
+  const sobrantes = Math.max(0, arr.length - libres);
+  arr = arr.slice(0, Math.max(0, libres));
+  const avisos = [];
+  if (tooBig.length) avisos.push(`${tooBig.length} foto(s) pesan más de ${PHOTO_MAX_MB} MB y no se agregaron.`);
+  if (sobrantes) avisos.push(`El máximo es ${PHOTO_MAX} fotos: ${sobrantes} quedaron fuera.`);
+  state.photo_error = avisos.join(" ");
+  state.photos_moderated = false;
+  for (const f of arr) {
+    const prepared = await preparePhoto(f);
+    const thumb = prepared.thumb || "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 40"><rect width="30" height="40" fill="#222"/><text x="15" y="22" font-size="6" fill="#aaa" text-anchor="middle">HEIC</text></svg>');
+    state.photo_clips.push({
+      id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      file: prepared.file, thumb, name: f.name,
+    });
+    render();
+  }
+  render();
+}
+
+function removePhoto(id) {
+  state.photo_clips = state.photo_clips.filter(p => p.id !== id);
+  state.photos_moderated = false;
+  render();
+}
+
+function movePhoto(id, delta) {
+  const i = state.photo_clips.findIndex(p => p.id === id);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= state.photo_clips.length) return;
+  const [p] = state.photo_clips.splice(i, 1);
+  state.photo_clips.splice(j, 0, p);
+  render();
+}
+
+function initPhotoSortable() {
+  const grid = document.getElementById("photo-clips-grid");
+  if (!grid || typeof Sortable === "undefined") return;
+  if (state.photo_sortable) { try { state.photo_sortable.destroy(); } catch (_) {} }
+  state.photo_sortable = Sortable.create(grid, {
+    animation: 150, ghostClass: "sortable-ghost", chosenClass: "sortable-chosen",
+    filter: "button", preventOnFilter: false, delay: 150, delayOnTouchOnly: true,
+    onEnd: (evt) => {
+      if (evt.oldIndex === evt.newIndex) return;
+      const moved = state.photo_clips.splice(evt.oldIndex, 1)[0];
+      state.photo_clips.splice(evt.newIndex, 0, moved);
+      render();
+    }
+  });
+}
+
+// Moderación de las fotos antes de generar (mismo endpoint que el reel subido).
+// Fail-open ante problemas de red, igual que el resto de la app.
+async function moderatePhotosIfNeeded() {
+  if (state.upload_mode !== "photos" || state.photos_moderated) return true;
+  const frames = state.photo_clips.map(p => p.thumb).filter(t => t && t.startsWith("data:image/jpeg")).slice(0, 6);
+  if (frames.length === 0) { state.photos_moderated = true; return true; }
+  try {
+    const r = await fetchReintento(API('/moderate'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ frames }),
+    });
+    if (r.ok) {
+      const mod = await r.json();
+      if (mod && mod.safe === false) {
+        state.photo_error = "Alguna de las fotos no se puede publicar en C2C" + (mod.reason ? ` (${mod.reason})` : "") + ". Revisalas y cambiá las que correspondan.";
+        return false;
+      }
+    }
+  } catch (_) { /* fail-open */ }
+  state.photos_moderated = true;
+  return true;
 }
 
 function renderReadyReelUpload() {
@@ -3589,7 +3802,7 @@ function renderStep4() {
 
   // Auto-arrancar la generación al llegar al step 4 si nada ha corrido antes.
   // Solo aplica al modo "guided" (armar con IA). El modo "ready_reel" salta directo a publicar.
-  if (!state.job_status && !state.has_been_processed && !state.auto_processing_started && state.upload_mode === "guided") {
+  if (!state.job_status && !state.has_been_processed && !state.auto_processing_started && (state.upload_mode === "guided" || state.upload_mode === "photos")) {
     state.auto_processing_started = true;
     // Disparamos processReel() en el siguiente tick para que React/render termine primero
     setTimeout(() => { try { processReel(); } catch(e) { console.error("Auto processReel failed:", e); } }, 50);
@@ -3867,6 +4080,17 @@ function buildCtaData() {
 }
 
 function buildPayload() {
+  if (state.upload_mode === "photos") {
+    const dur = photoClipDuration(state.photo_clips.length);
+    const files = state.photo_clips.map(p => p.file);
+    const sections = [{
+      name: "fotos",
+      clips: state.photo_clips.map((p, i) => ({
+        file_index: i, trim_start: 0, trim_duration: dur, speed: 1.0, headline: "", subline: "",
+      }))
+    }];
+    return { files, sections };
+  }
   if (state.upload_mode === "simple") {
     const dur = calcAutoDuration(state.simple_clips.length);
     const files = state.simple_clips.map(c => c.file);
@@ -3910,6 +4134,10 @@ function buildPayload() {
 }
 
 async function processReel() {
+  if (state.upload_mode === "photos") {
+    const okMod = await moderatePhotosIfNeeded();
+    if (!okMod) { state.step = 2; state.auto_processing_started = false; render(); return; }
+  }
   const { files, sections } = buildPayload();
   if (files.length === 0) { alert("No hay videos para procesar"); state.step = 1; render(); return; }
   const fd = new FormData();
@@ -4915,7 +5143,7 @@ function render() {
   // Paso 3 = Audio (renderStep3 original)
   // Paso 4 = Tu reel (renderStep4 original)
   if (state.step === 1) c.innerHTML = backToReelBanner + renderStep2();
-  if (state.step === 2) { c.innerHTML = backToReelBanner + renderStep1(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); }
+  if (state.step === 2) { c.innerHTML = backToReelBanner + renderStep1(); if (state.upload_mode === "simple") setTimeout(initSimpleSortable, 50); if (state.upload_mode === "photos") setTimeout(initPhotoSortable, 50); }
   if (state.step === 3) c.innerHTML = backToReelBanner + renderStep3();
   if (state.step === 4) c.innerHTML = renderStep4();
   const existing = document.getElementById("editor-overlay");
