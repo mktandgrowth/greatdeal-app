@@ -1697,6 +1697,19 @@ async def create_job(
             shutil.copyfileobj(c.file, f)
         clip_paths.append(str(path))
 
+    # Modo "Tengo solo fotos": validar las fotos acá (rápido). La conversión
+    # foto → clip se hace en el thread del job (puede tardar ~2-4 s por foto).
+    from photos import is_image_file
+    photo_indexes = [i for i, pth in enumerate(clip_paths) if is_image_file(pth)]
+    if photo_indexes:
+        if len(photo_indexes) > 20:
+            shutil.rmtree(job_upload, ignore_errors=True)
+            raise HTTPException(400, "Máximo 20 fotos por reel.")
+        for i in photo_indexes:
+            if os.path.getsize(clip_paths[i]) > 15 * 1024 * 1024:
+                shutil.rmtree(job_upload, ignore_errors=True)
+                raise HTTPException(400, f"La foto {i + 1} pesa más de 15 MB.")
+
     # Save logo (optional)
     logo_path = None
     if logo:
@@ -1770,7 +1783,7 @@ async def create_job(
         JOBS[job_id] = job
 
     threading.Thread(
-        target=process_job,
+        target=_process_job_with_photos if photo_indexes else process_job,
         args=(job_id, resolved_sections, cta, str(work_dir),
               voice_audio_path, music_path, music_preset, logo_path,
               enhance_flag, auto_subs_flag, str(output_path),
@@ -1780,6 +1793,38 @@ async def create_job(
     ).start()
 
     return {"job_id": job_id, "status": "pending"}
+
+
+def _process_job_with_photos(job_id, sections, *rest):
+    """Convierte las fotos del job en clips MP4 y después corre process_job normal.
+    Actualiza job["clip_paths"] para que /reprocess reutilice los clips ya convertidos."""
+    from photos import convert_photos_in_place
+    set_job(job_id, status="processing")
+    with JOBS_LOCK:
+        clip_paths = list(JOBS[job_id]["clip_paths"])
+    original = list(clip_paths)
+    # Duración que necesita cada foto = el recorte más largo pedido para ella
+    durations: dict[int, float] = {}
+    index_by_path = {pth: i for i, pth in enumerate(original)}
+    for sec in sections:
+        for c in sec.get("clips", []):
+            i = index_by_path.get(c.get("input_path"))
+            if i is not None:
+                need = float(c.get("trim_start", 0) or 0) + float(c.get("trim_duration", 3) or 3) / max(0.1, float(c.get("speed", 1) or 1))
+                durations[i] = max(durations.get(i, 0.0), need)
+    try:
+        ok, err = convert_photos_in_place(clip_paths, durations)
+    except Exception as e:
+        ok, err = False, f"error inesperado convirtiendo fotos: {str(e)[:300]}"
+    if not ok:
+        set_job(job_id, status="error", error=err)
+        return
+    remap = dict(zip(original, clip_paths))
+    for sec in sections:
+        for c in sec.get("clips", []):
+            c["input_path"] = remap.get(c.get("input_path"), c.get("input_path"))
+    set_job(job_id, clip_paths=clip_paths, sections=sections)
+    process_job(job_id, sections, *rest)
 
 
 def _resolve_sections(sections_data, clip_paths):
